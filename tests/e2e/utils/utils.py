@@ -5,7 +5,7 @@ import shutil
 import subprocess
 import time
 from typing import Any
-
+import json
 import jsonschema
 
 
@@ -122,3 +122,23 @@ def switch_config_and_restart(
             print(f"Warning: Could not remove backup file {backup_file}: {e}")
 
     return backup_file
+
+
+def _check_json(actual: Any, expected: Any, path: str):
+    if isinstance(expected, dict):
+        for key, value in expected.items():
+            assert key in actual, f"Missing key {path + key}"
+            _check_json(value, actual[key], path + key + ".")
+    elif isinstance(expected, list):
+        assert isinstance(actual, list), f"Expected list at {path}"
+        assert len(actual) >= len(expected), f"List too short at {path}"
+        for i, j in sorted(expected), sorted(actual):
+            _check_json(i, j, path + f"[{i}].")
+    else:
+        assert expected == actual, f"Mismatch at {path[:-1]}: expected {expected}, got {actual}"
+
+
+def validate_json_partially(actual: dict, expected: dict) -> None:
+    """Validate all keys and values in expected JSON string exist in actual dict; extra keys are ignored."""
+    _check_json(actual, expected, "")
+
