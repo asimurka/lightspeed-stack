@@ -4,9 +4,8 @@ import os
 import shutil
 import subprocess
 import time
-from typing import Any
-
 import jsonschema
+from typing import Any
 
 
 def normalize_endpoint(endpoint: str) -> str:
@@ -67,39 +66,68 @@ def wait_for_container_health(container_name: str, max_attempts: int = 3) -> Non
             print(f"Could not check health status for {container_name}")
 
 
-def switch_config_and_restart(
-    original_file: str,
-    replacement_file: str,
-    container_name: str,
-    cleanup: bool = False,
-) -> str:
-    """Switch configuration file and restart container.
+def validate_json_partially(actual: Any, expected: Any):
+    """Recursively validate that `actual` JSON contains all keys and values specified in `expected`.
 
-    Args:
-        original_file: Path to the original configuration file
-        replacement_file: Path to the replacement configuration file
-        container_name: Name of the container to restart
-        cleanup: If True, remove the backup file after restoration (default: False)
-
-    Returns:
-        str: Path to the backup file for restoration
+    Extra elements/keys are ignored. Raises AssertionError if validation fails.
     """
-    backup_file = f"{original_file}.backup"
+    if isinstance(expected, dict):
+        for key, expected_value in expected.items():
+            assert key in actual, f"Missing key in JSON: {key}"
+            validate_json_partially(actual[key], expected_value)
 
-    if not cleanup and not os.path.exists(backup_file):
-        try:
-            shutil.copy(original_file, backup_file)
-        except (FileNotFoundError, PermissionError, OSError) as e:
-            print(f"Failed to create backup: {e}")
-            raise
+    elif isinstance(expected, list):
+        for schema_item in expected:
+            matched = False
+            for item in actual:
+                try:
+                    validate_json_partially(item, schema_item)
+                    matched = True
+                    break
+                except AssertionError:
+                    continue
+            assert (
+                matched
+            ), f"No matching element found in list for schema item {schema_item}"
 
+    else:
+        assert actual == expected, f"Value mismatch: expected {expected}, got {actual}"
+
+
+def switch_config(
+    source_path: str, destination_path: str = "lightspeed-stack.yaml"
+) -> None:
+    """Overwrite the config in `destination_path` by `source_path`."""
     try:
-        shutil.copy(replacement_file, original_file)
+        shutil.copy(source_path, destination_path)
     except (FileNotFoundError, PermissionError, OSError) as e:
         print(f"Failed to copy replacement file: {e}")
         raise
 
-    # Restart container
+
+def create_config_backup(config_path: str) -> str:
+    """Create a backup of `config_path` if it does not already exist."""
+    backup_file = f"{config_path}.backup"
+    if not os.path.exists(backup_file):
+        try:
+            shutil.copy(config_path, backup_file)
+        except (FileNotFoundError, PermissionError, OSError) as e:
+            print(f"Failed to create backup: {e}")
+            raise
+    return backup_file
+
+
+def remove_config_backup(backup_path: str) -> None:
+    """Delete the backup file at `backup_path` if it exists."""
+    if os.path.exists(backup_path):
+        try:
+            os.remove(backup_path)
+        except OSError as e:
+            print(f"Warning: Could not remove backup file {backup_path}: {e}")
+
+
+def restart_container(container_name: str) -> None:
+    """Restart a Docker container by name and wait until it is healthy."""
     try:
         subprocess.run(
             ["docker", "restart", container_name],
@@ -113,12 +141,3 @@ def switch_config_and_restart(
 
     # Wait for container to be healthy
     wait_for_container_health(container_name)
-
-    # Clean up backup file
-    if cleanup and os.path.exists(backup_file):
-        try:
-            os.remove(backup_file)
-        except OSError as e:
-            print(f"Warning: Could not remove backup file {backup_file}: {e}")
-
-    return backup_file

@@ -5,7 +5,11 @@ import json
 import requests
 from behave import then, when, step  # pyright: ignore[reportAttributeAccessIssue]
 from behave.runner import Context
-from tests.e2e.utils.utils import normalize_endpoint, validate_json
+from tests.e2e.utils.utils import (
+    normalize_endpoint,
+    validate_json,
+    validate_json_partially,
+)
 
 # default timeout for HTTP operations
 DEFAULT_TIMEOUT = 10
@@ -235,15 +239,16 @@ def access_rest_api_endpoint_get(context: Context, endpoint: str) -> None:
     base = f"http://{context.hostname}:{context.port}"
     path = f"{context.api_prefix}/{endpoint}".replace("//", "/")
     url = base + path
+    headers = context.auth_headers if hasattr(context, "auth_headers") else {}
     # initial value
     context.response = None
 
     # perform REST API call
-    context.response = requests.get(url, timeout=DEFAULT_TIMEOUT)
+    context.response = requests.get(url, headers=headers, timeout=DEFAULT_TIMEOUT)
 
 
 @when("I access endpoint {endpoint} using HTTP POST method")
-def access_rest_api_endpoint_post(context: Context, endpoint: str) -> None:
+def access_non_rest_api_endpoint_post(context: Context, endpoint: str) -> None:
     """Send POST HTTP request with JSON payload to tested service.
 
     The JSON payload is retrieved from `context.text` attribute,
@@ -257,11 +262,64 @@ def access_rest_api_endpoint_post(context: Context, endpoint: str) -> None:
 
     assert context.text is not None, "Payload needs to be specified"
     data = json.loads(context.text)
+    headers = context.auth_headers if hasattr(context, "auth_headers") else {}
     # initial value
     context.response = None
 
     # perform REST API call
-    context.response = requests.post(url, json=data, timeout=DEFAULT_TIMEOUT)
+    context.response = requests.post(
+        url, json=data, headers=headers, timeout=DEFAULT_TIMEOUT
+    )
+
+
+@when("I access REST API endpoint {endpoint} using HTTP POST method")
+def access_rest_api_endpoint_post(context: Context, endpoint: str) -> None:
+    """Send POST HTTP request with JSON payload to tested service.
+
+    The JSON payload is retrieved from `context.text` attribute,
+    which must not be None. The response is stored in
+    `context.response` attribute.
+    """
+    endpoint = normalize_endpoint(endpoint)
+    base = f"http://{context.hostname}:{context.port}"
+    path = f"{context.api_prefix}/{endpoint}".replace("//", "/")
+    url = base + path
+
+    assert context.text is not None, "Payload needs to be specified"
+    data = json.loads(context.text)
+    headers = context.auth_headers if hasattr(context, "auth_headers") else {}
+    # initial value
+    context.response = None
+
+    # perform REST API call
+    context.response = requests.post(
+        url, json=data, headers=headers, timeout=DEFAULT_TIMEOUT
+    )
+
+
+@when("I access REST API endpoint {endpoint} using HTTP PUT method")
+def access_rest_api_endpoint_put(context: Context, endpoint: str) -> None:
+    """Send PUT HTTP request with JSON payload to tested service.
+
+    The JSON payload is retrieved from `context.text` attribute,
+    which must not be None. The response is stored in
+    `context.response` attribute.
+    """
+    endpoint = normalize_endpoint(endpoint)
+    base = f"http://{context.hostname}:{context.port}"
+    path = f"{context.api_prefix}/{endpoint}".replace("//", "/")
+    url = base + path
+
+    assert context.text is not None, "Payload needs to be specified"
+    data = json.loads(context.text)
+    headers = context.auth_headers if hasattr(context, "auth_headers") else {}
+    # initial value
+    context.response = None
+
+    # perform REST API call
+    context.response = requests.put(
+        url, json=data, headers=headers, timeout=DEFAULT_TIMEOUT
+    )
 
 
 @then('The status message of the response is "{expected_message}"')
@@ -303,3 +361,16 @@ def check_for_null_attribute(context: Context, attribute: str) -> None:
     assert (
         value is None
     ), f"Attribute {attribute} should be null, but it contains {value}"
+
+
+@then("And the body of the response has the following structure")
+def check_response_partially(context: Context) -> None:
+    """Validate that the response body matches the expected JSON structure.
+
+    Compares the actual response JSON against the expected structure defined
+    in `context.text`, ignoring extra keys or values not specified.
+    """
+    assert context.response is not None, "Request needs to be performed first"
+    body = context.response.json()
+    expected = json.loads(context.text or "{}")
+    validate_json_partially(body, expected)

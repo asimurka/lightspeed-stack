@@ -15,6 +15,13 @@ def set_authorization_header_custom(context: Context, header_value: str) -> None
     print(f"🔑 Set Authorization header to: {header_value}")
 
 
+@given("I remove the auth header")  # type: ignore
+def remove_authorization_header(context: Context) -> None:
+    """Remove Authorization header."""
+    if hasattr(context, "auth_headers") and "Authorization" in context.auth_headers:
+        del context.auth_headers["Authorization"]
+
+
 @when("I access endpoint {endpoint} using HTTP POST method with user_id {user_id}")
 def access_rest_api_endpoint_post(
     context: Context, endpoint: str, user_id: str
