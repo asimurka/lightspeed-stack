@@ -23,7 +23,8 @@ from models.responses import (
 from utils.endpoints import (
     check_configuration_loaded,
     delete_conversation,
-    validate_conversation_ownership,
+    can_access_conversation,
+    retrieve_conversation,
 )
 from utils.suid import check_suid
 
@@ -52,6 +53,16 @@ conversation_responses: dict[int | str, dict[str, Any]] = {
         "description": "Unauthorized: Invalid or missing Bearer token",
         "model": UnauthorizedResponse,
     },
+    403: {
+        "description": "Client does not have permission to access resource",
+        "content": {
+            "application/json": {
+                "example": {
+                    "detail": "You do not have permission to read this conversation"
+                }
+            }
+        },
+    },
     404: {
         "detail": {
             "response": "Conversation not found",
@@ -79,6 +90,16 @@ conversation_delete_responses: dict[int | str, dict[str, Any]] = {
     401: {
         "description": "Unauthorized: Invalid or missing Bearer token",
         "model": UnauthorizedResponse,
+    },
+    403: {
+        "description": "Client does not have permission to access resource",
+        "content": {
+            "application/json": {
+                "example": {
+                    "detail": "You do not have permission to delete this conversation"
+                }
+            }
+        },
     },
     404: {
         "detail": {
@@ -261,7 +282,7 @@ async def get_conversation_endpoint_handler(
         ID and simplified chat history.
     """
     check_configuration_loaded(configuration)
-
+    logger.error(request)
     # Validate conversation ID format
     if not check_suid(conversation_id):
         logger.error("Invalid conversation ID format: %s", conversation_id)
@@ -273,21 +294,28 @@ async def get_conversation_endpoint_handler(
             },
         )
 
-    user_id = auth[0]
+    conversation = retrieve_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "response": "Conversation not found",
+                "cause": f"Conversation {conversation_id} could not be retrieved.",
+            },
+        )
 
-    user_conversation = validate_conversation_ownership(
-        user_id=user_id,
-        conversation_id=conversation_id,
+    user_id = auth[0]
+    if not can_access_conversation(
+        conversation,
+        user_id,
         others_allowed=(
             Action.READ_OTHERS_CONVERSATIONS in request.state.authorized_actions
         ),
-    )
-
-    if user_conversation is None:
+    ):
         logger.warning(
-            "User %s attempted to read conversation %s they don't own",
+            "User %s attempted to read conversation %s they don't have access to",
             user_id,
-            conversation_id,
+            conversation.id,
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -395,21 +423,28 @@ async def delete_conversation_endpoint_handler(
             },
         )
 
-    user_id = auth[0]
+    conversation = retrieve_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "response": "Conversation not found",
+                "cause": f"Conversation {conversation_id} could not be retrieved.",
+            },
+        )
 
-    user_conversation = validate_conversation_ownership(
-        user_id=user_id,
-        conversation_id=conversation_id,
+    user_id = auth[0]
+    if not can_access_conversation(
+        conversation,
+        user_id,
         others_allowed=(
             Action.DELETE_OTHERS_CONVERSATIONS in request.state.authorized_actions
         ),
-    )
-
-    if user_conversation is None:
+    ):
         logger.warning(
-            "User %s attempted to delete conversation %s they don't own",
+            "User %s attempted to delete conversation %s they don't have access to",
             user_id,
-            conversation_id,
+            conversation.id,
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

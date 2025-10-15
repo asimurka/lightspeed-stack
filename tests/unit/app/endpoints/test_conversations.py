@@ -1,4 +1,4 @@
-# pylint: disable=redefined-outer-name
+# pylint: disable=redefined-outer-name, too-many-lines
 
 """Unit tests for the /conversations REST API endpoints."""
 
@@ -13,6 +13,7 @@ from app.endpoints.conversations import (
     simplify_session_data,
 )
 from models.config import Action
+from models.database.conversations import UserConversation
 from models.responses import (
     ConversationResponse,
     ConversationDeleteResponse,
@@ -178,6 +179,19 @@ def expected_chat_history_fixture():
     ]
 
 
+@pytest.fixture(name="mock_conversation")
+def mock_conversation_fixture():
+    """Create a mock UserConversation object for testing."""
+    mock_conv = UserConversation()
+    mock_conv.id = VALID_CONVERSATION_ID
+    mock_conv.user_id = "another_user"  # Different from test auth
+    mock_conv.message_count = 2
+    mock_conv.last_used_model = "mock-model"
+    mock_conv.last_used_provider = "mock-provider"
+    mock_conv.topic_summary = "Mock topic"
+    return mock_conv
+
+
 class TestSimplifySessionData:
     """Test cases for the simplify_session_data function."""
 
@@ -295,7 +309,8 @@ class TestGetConversationEndpoint:
         mock_authorization_resolvers(mocker)
         mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
         mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
-        mocker.patch("app.endpoints.conversations.validate_conversation_ownership")
+        mocker.patch("app.endpoints.conversations.can_access_conversation")
+        mocker.patch("app.endpoints.conversations.retrieve_conversation")
 
         # Mock AsyncLlamaStackClientHolder to raise APIConnectionError
         mock_client = mocker.AsyncMock()
@@ -324,7 +339,8 @@ class TestGetConversationEndpoint:
         mock_authorization_resolvers(mocker)
         mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
         mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
-        mocker.patch("app.endpoints.conversations.validate_conversation_ownership")
+        mocker.patch("app.endpoints.conversations.can_access_conversation")
+        mocker.patch("app.endpoints.conversations.retrieve_conversation")
 
         # Mock AsyncLlamaStackClientHolder to raise NotFoundError
         mock_client = mocker.AsyncMock()
@@ -356,7 +372,8 @@ class TestGetConversationEndpoint:
         mock_authorization_resolvers(mocker)
         mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
         mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
-        mocker.patch("app.endpoints.conversations.validate_conversation_ownership")
+        mocker.patch("app.endpoints.conversations.can_access_conversation")
+        mocker.patch("app.endpoints.conversations.retrieve_conversation")
 
         # Mock AsyncLlamaStackClientHolder to raise a general exception
         mock_client = mocker.AsyncMock()
@@ -380,6 +397,75 @@ class TestGetConversationEndpoint:
         )
 
     @pytest.mark.asyncio
+    async def test_get_conversation_forbidden(
+        self, mocker, setup_configuration, dummy_request, mock_conversation
+    ):
+        """Test forbidden access when user lacks permission to read conversation."""
+        mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
+        mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
+        mocker.patch(
+            "app.endpoints.conversations.retrieve_conversation",
+            return_value=mock_conversation,
+        )
+        mocker.patch(
+            "authorization.resolvers.NoopAccessResolver.get_actions",
+            return_value=set(Action.GET_CONVERSATION),
+        )  # Reduce user's permissions to access only their conversations
+
+        with pytest.raises(HTTPException) as exc_info:
+            await get_conversation_endpoint_handler(
+                request=dummy_request,
+                conversation_id=VALID_CONVERSATION_ID,
+                auth=MOCK_AUTH,
+            )
+
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+        assert "do not have permission to read" in exc_info.value.detail["cause"]
+
+    @pytest.mark.asyncio
+    async def test_get_others_conversations_allowed_for_authorized_user(
+        self,
+        mocker,
+        setup_configuration,
+        mock_conversation,
+        dummy_request,
+        mock_session_data,
+    ):  # pylint: disable=too-many-arguments, too-many-positional-arguments
+        """Test allowed access to another user's conversation for authorized user."""
+        mocker.patch(
+            "authorization.resolvers.NoopAccessResolver.get_actions",
+            return_value={Action.GET_CONVERSATION, Action.READ_OTHERS_CONVERSATIONS},
+        )  # Allow user to access other users' conversations
+        mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
+        mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
+        mocker.patch(
+            "app.endpoints.conversations.retrieve_conversation",
+            return_value=mock_conversation,
+        )
+
+        mock_client = mocker.AsyncMock()
+        mock_client.agents.session.list.return_value = mocker.Mock(
+            data=[mock_session_data]
+        )
+
+        mock_session_retrieve_result = mocker.Mock()
+        mock_session_retrieve_result.model_dump.return_value = mock_session_data
+        mock_client.agents.session.retrieve.return_value = mock_session_retrieve_result
+
+        mock_client_holder = mocker.patch(
+            "app.endpoints.conversations.AsyncLlamaStackClientHolder"
+        )
+        mock_client_holder.return_value.get_client.return_value = mock_client
+        response = await get_conversation_endpoint_handler(
+            request=dummy_request,
+            conversation_id=VALID_CONVERSATION_ID,
+            auth=MOCK_AUTH,
+        )
+
+        assert response.conversation_id == VALID_CONVERSATION_ID
+        assert hasattr(response, "chat_history")
+
+    @pytest.mark.asyncio
     async def test_successful_conversation_retrieval(
         self,
         mocker,
@@ -392,7 +478,8 @@ class TestGetConversationEndpoint:
         mock_authorization_resolvers(mocker)
         mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
         mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
-        mocker.patch("app.endpoints.conversations.validate_conversation_ownership")
+        mocker.patch("app.endpoints.conversations.can_access_conversation")
+        mocker.patch("app.endpoints.conversations.retrieve_conversation")
 
         # Mock AsyncLlamaStackClientHolder
         mock_client = mocker.AsyncMock()
@@ -469,7 +556,8 @@ class TestDeleteConversationEndpoint:
         mock_authorization_resolvers(mocker)
         mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
         mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
-        mocker.patch("app.endpoints.conversations.validate_conversation_ownership")
+        mocker.patch("app.endpoints.conversations.can_access_conversation")
+        mocker.patch("app.endpoints.conversations.retrieve_conversation")
 
         # Mock AsyncLlamaStackClientHolder to raise APIConnectionError
         mock_client = mocker.AsyncMock()
@@ -497,7 +585,8 @@ class TestDeleteConversationEndpoint:
         mock_authorization_resolvers(mocker)
         mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
         mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
-        mocker.patch("app.endpoints.conversations.validate_conversation_ownership")
+        mocker.patch("app.endpoints.conversations.can_access_conversation")
+        mocker.patch("app.endpoints.conversations.retrieve_conversation")
 
         # Mock AsyncLlamaStackClientHolder to raise NotFoundError
         mock_client = mocker.AsyncMock()
@@ -529,7 +618,8 @@ class TestDeleteConversationEndpoint:
         mock_authorization_resolvers(mocker)
         mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
         mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
-        mocker.patch("app.endpoints.conversations.validate_conversation_ownership")
+        mocker.patch("app.endpoints.conversations.can_access_conversation")
+        mocker.patch("app.endpoints.conversations.retrieve_conversation")
 
         # Mock AsyncLlamaStackClientHolder to raise a general exception
         mock_client = mocker.AsyncMock()
@@ -556,6 +646,75 @@ class TestDeleteConversationEndpoint:
         )
 
     @pytest.mark.asyncio
+    async def test_delete_conversation_forbidden(
+        self, mocker, setup_configuration, dummy_request, mock_conversation
+    ):
+        """Test forbidden deletion when user lacks permission to delete conversation."""
+        mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
+        mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
+        mocker.patch(
+            "app.endpoints.conversations.retrieve_conversation",
+            return_value=mock_conversation,
+        )
+        mocker.patch(
+            "authorization.resolvers.NoopAccessResolver.get_actions",
+            return_value=set(Action.DELETE_CONVERSATION),
+        )  # Reduce user's permissions to delete only their conversations
+
+        with pytest.raises(HTTPException) as exc_info:
+            await delete_conversation_endpoint_handler(
+                request=dummy_request,
+                conversation_id=VALID_CONVERSATION_ID,
+                auth=MOCK_AUTH,
+            )
+
+        assert exc_info.value.status_code == status.HTTP_403_FORBIDDEN
+        assert "do not have permission to delete" in exc_info.value.detail["cause"]
+
+    @pytest.mark.asyncio
+    async def test_delete_others_conversations_allowed_for_authorized_user(
+        self, mocker, setup_configuration, mock_conversation, dummy_request
+    ):
+        """Test allowed deletion of another user's conversation for authorized user."""
+        mocker.patch(
+            "authorization.resolvers.NoopAccessResolver.get_actions",
+            return_value={
+                Action.DELETE_OTHERS_CONVERSATIONS,
+                Action.DELETE_CONVERSATION,
+            },
+        )  # Allow user to detele other users' conversations
+
+        mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
+        mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
+        mocker.patch(
+            "app.endpoints.conversations.retrieve_conversation",
+            return_value=mock_conversation,
+        )
+
+        mock_client = mocker.AsyncMock()
+        mock_client.agents.session.list.return_value.data = [
+            {"session_id": VALID_CONVERSATION_ID}
+        ]
+        mock_client.agents.session.delete.return_value = None
+        mocker.patch(
+            "app.endpoints.conversations.AsyncLlamaStackClientHolder.get_client",
+            return_value=mock_client,
+        )
+
+        mocker.patch(
+            "app.endpoints.conversations.delete_conversation", return_value=None
+        )
+        response = await delete_conversation_endpoint_handler(
+            request=dummy_request,
+            conversation_id=VALID_CONVERSATION_ID,
+            auth=MOCK_AUTH,
+        )
+
+        assert response.success is True
+        assert response.conversation_id == VALID_CONVERSATION_ID
+        assert "deleted successfully" in response.response
+
+    @pytest.mark.asyncio
     async def test_successful_conversation_deletion(
         self, mocker, setup_configuration, dummy_request
     ):
@@ -563,7 +722,8 @@ class TestDeleteConversationEndpoint:
         mock_authorization_resolvers(mocker)
         mocker.patch("app.endpoints.conversations.configuration", setup_configuration)
         mocker.patch("app.endpoints.conversations.check_suid", return_value=True)
-        mocker.patch("app.endpoints.conversations.validate_conversation_ownership")
+        mocker.patch("app.endpoints.conversations.can_access_conversation")
+        mocker.patch("app.endpoints.conversations.retrieve_conversation")
 
         # Mock the delete_conversation function
         mocker.patch("app.endpoints.conversations.delete_conversation")

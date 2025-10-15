@@ -42,6 +42,19 @@ def delete_conversation(conversation_id: str) -> None:
             )
 
 
+def retrieve_conversation(conversation_id: str) -> UserConversation | None:
+    """Retrieve a conversation from the database by its ID.
+
+    Args:
+        conversation_id (str): The unique identifier of the conversation to retrieve.
+
+    Returns:
+        UserConversation | None: The conversation object if found, otherwise None.
+    """
+    with get_session() as session:
+        return session.query(UserConversation).filter_by(id=conversation_id).first()
+    
+
 def validate_conversation_ownership(
     user_id: str, conversation_id: str, others_allowed: bool = False
 ) -> UserConversation | None:
@@ -63,6 +76,22 @@ def validate_conversation_ownership(
         conversation: UserConversation | None = filtered_conversation_query.first()
 
         return conversation
+
+
+def can_access_conversation(
+    conversation: UserConversation, user_id: str, others_allowed: bool
+) -> bool:
+    """Determine whether a user is allowed to access a given conversation.
+
+    Args:
+        conversation (UserConversation): The conversation record to check.
+        user_id (str): The ID of the user requesting access.
+        others_allowed (bool): If user is permitted to access conversations belonging to others.
+
+    Returns:
+        bool: True if access is allowed, False otherwise.
+    """
+    return others_allowed or conversation.user_id == user_id
 
 
 def check_configuration_loaded(config: AppConfig) -> None:
