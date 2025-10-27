@@ -3,25 +3,25 @@
 from fastapi import FastAPI
 
 from app.endpoints import (
-    info,
-    models,
-    shields,
-    providers,
-    rags,
-    root,
-    query,
-    health,
-    config,
-    feedback,
-    streaming_query,
-    streaming_query_v2,
     authorized,
+    config,
     conversations,
     conversations_v2,
+    feedback,
+    health,
+    info,
     metrics,
-    tools,
+    models,
+    providers,
+    query,
     # V2 endpoints for Response API support
     query_v2,
+    rags,
+    root,
+    shields,
+    streaming_query,
+    streaming_query_v2,
+    tools,
 )
 
 

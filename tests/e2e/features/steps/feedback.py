@@ -1,11 +1,13 @@
 """Implementation of common test steps for the feedback API."""
 
-from behave import given, when, step  # pyright: ignore[reportAttributeAccessIssue]
-from behave.runner import Context
-import requests
 import json
-from tests.e2e.utils.utils import switch_config, restart_container
+
+import requests
+from behave import given, step, when  # pyright: ignore[reportAttributeAccessIssue]
+from behave.runner import Context
+
 from tests.e2e.features.steps.common_http import access_rest_api_endpoint_get
+from tests.e2e.utils.utils import restart_container, switch_config
 
 # default timeout for HTTP operations
 DEFAULT_TIMEOUT = 10

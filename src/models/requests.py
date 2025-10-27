@@ -1,14 +1,14 @@
 """Models for REST API requests."""
 
-from typing import Optional, Self
 from enum import Enum
+from typing import Optional, Self
 
-from pydantic import BaseModel, model_validator, field_validator, Field
 from llama_stack_client.types.agents.turn_create_params import Document
+from pydantic import BaseModel, Field, field_validator, model_validator
 
+from constants import MEDIA_TYPE_JSON, MEDIA_TYPE_TEXT
 from log import get_logger
 from utils import suid
-from constants import MEDIA_TYPE_JSON, MEDIA_TYPE_TEXT
 
 logger = get_logger(__name__)
 

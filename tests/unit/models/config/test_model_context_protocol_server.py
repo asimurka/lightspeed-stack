@@ -1,15 +1,14 @@
 """Unit tests for ModelContextProtocolServer model."""
 
 import pytest
-
 from pydantic import ValidationError
 
 from models.config import (
-    ModelContextProtocolServer,
-    LlamaStackConfiguration,
-    UserDataCollection,
     Configuration,
+    LlamaStackConfiguration,
+    ModelContextProtocolServer,
     ServiceConfiguration,
+    UserDataCollection,
 )
 
 

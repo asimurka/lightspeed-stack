@@ -1,7 +1,9 @@
 """Unit tests for functions defined in authentication/noop_with_token.py"""
 
-from fastapi import Request, HTTPException
+from typing import cast
+
 import pytest
+from fastapi import HTTPException, Request
 
 from authentication.noop_with_token import NoopWithTokenAuthDependency
 from constants import DEFAULT_USER_NAME, DEFAULT_USER_UID
@@ -81,8 +83,10 @@ async def test_noop_with_token_auth_dependency_no_token() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await dependency(request)
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "No Authorization header found"
+    assert exc_info.value.status_code == 401
+    detail = cast(dict[str, str], exc_info.value.detail)
+    assert detail["response"] == ("Missing or invalid credentials provided by client")
+    assert detail["cause"] == "No Authorization header found"
 
 
 async def test_noop_with_token_auth_dependency_no_bearer() -> None:
@@ -102,5 +106,7 @@ async def test_noop_with_token_auth_dependency_no_bearer() -> None:
     with pytest.raises(HTTPException) as exc_info:
         await dependency(request)
 
-    assert exc_info.value.status_code == 400
-    assert exc_info.value.detail == "No token found in Authorization header"
+    assert exc_info.value.status_code == 401
+    detail = cast(dict[str, str], exc_info.value.detail)
+    assert detail["response"] == ("Missing or invalid credentials provided by client")
+    assert detail["cause"] == "No token found in Authorization header"

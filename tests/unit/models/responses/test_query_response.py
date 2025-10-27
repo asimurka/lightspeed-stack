@@ -1,6 +1,6 @@
 """Unit tests for QueryResponse model."""
 
-from models.responses import QueryResponse, RAGChunk, ToolCall, ReferencedDocument
+from models.responses import QueryResponse, RAGChunk, ReferencedDocument, ToolCall
 
 
 class TestQueryResponse:

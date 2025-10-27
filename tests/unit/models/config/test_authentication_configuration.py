@@ -3,7 +3,6 @@
 from pathlib import Path
 
 import pytest
-
 from pydantic import ValidationError
 
 from models.config import (

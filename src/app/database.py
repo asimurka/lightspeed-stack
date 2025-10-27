@@ -5,11 +5,12 @@ from typing import Any
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine.base import Engine
-from sqlalchemy.orm import sessionmaker, Session
-from log import get_logger, logging
+from sqlalchemy.orm import Session, sessionmaker
+
 from configuration import configuration
+from log import get_logger, logging
+from models.config import PostgreSQLDatabaseConfiguration, SQLiteDatabaseConfiguration
 from models.database.base import Base
-from models.config import SQLiteDatabaseConfiguration, PostgreSQLDatabaseConfiguration
 
 logger = get_logger(__name__)
 

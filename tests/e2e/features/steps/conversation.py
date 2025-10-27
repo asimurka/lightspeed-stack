@@ -1,9 +1,11 @@
 """Implementation of common test steps."""
 
 import json
-from behave import step, when, then  # pyright: ignore[reportAttributeAccessIssue]
-from behave.runner import Context
+
 import requests
+from behave import step, then, when  # pyright: ignore[reportAttributeAccessIssue]
+from behave.runner import Context
+
 from tests.e2e.utils.utils import replace_placeholders
 
 # default timeout for HTTP operations

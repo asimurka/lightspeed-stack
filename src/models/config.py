@@ -1,31 +1,29 @@
 """Model with service configuration."""
 
-from pathlib import Path
-from typing import Optional, Any, Pattern
+import re
 from enum import Enum
 from functools import cached_property
-import re
+from pathlib import Path
+from typing import Any, Optional, Pattern
 
 import jsonpath_ng
 from jsonpath_ng.exceptions import JSONPathError
 from pydantic import (
+    AnyHttpUrl,
     BaseModel,
     ConfigDict,
     Field,
-    model_validator,
-    constr,
     FilePath,
-    AnyHttpUrl,
-    PositiveInt,
     NonNegativeInt,
+    PositiveInt,
     SecretStr,
+    constr,
+    model_validator,
 )
-
 from pydantic.dataclasses import dataclass
-from typing_extensions import Self, Literal
+from typing_extensions import Literal, Self
 
 import constants
-
 from utils import checks
 
 

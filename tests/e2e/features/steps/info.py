@@ -1,6 +1,7 @@
 """Implementation of common test steps."""
 
 import json
+
 from behave import then  # pyright: ignore[reportAttributeAccessIssue]
 from behave.runner import Context
 

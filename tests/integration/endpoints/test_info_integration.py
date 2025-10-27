@@ -1,16 +1,16 @@
 """Integration tests for the /info endpoint."""
 
-from typing import Generator, Any
-import pytest
-from pytest_mock import MockerFixture, AsyncMockType
+from typing import Any, Generator
 
+import pytest
 from fastapi import HTTPException, Request, status
 from llama_stack_client import APIConnectionError
 from llama_stack_client.types import VersionInfo
-from authentication.interface import AuthTuple
+from pytest_mock import AsyncMockType, MockerFixture
 
-from configuration import AppConfig
 from app.endpoints.info import info_endpoint_handler
+from authentication.interface import AuthTuple
+from configuration import AppConfig
 from version import __version__
 
 
@@ -106,9 +106,9 @@ async def test_info_endpoint_handles_connection_error(
         await info_endpoint_handler(auth=test_auth, request=test_request)
 
     # Verify error details
-    assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     assert isinstance(exc_info.value.detail, dict)
-    assert exc_info.value.detail["response"] == "Unable to connect to Llama Stack"
+    assert exc_info.value.detail["response"] == "Unable to connect to Llama Stack"  # type: ignore
     assert "cause" in exc_info.value.detail
 
 

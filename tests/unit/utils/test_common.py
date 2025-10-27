@@ -2,19 +2,18 @@
 
 from logging import Logger
 
+import pytest
 from pytest_mock import MockerFixture
 
-import pytest
-
-from utils.common import (
-    register_mcp_servers_async,
-)
 from models.config import (
     Configuration,
-    ServiceConfiguration,
     LlamaStackConfiguration,
-    UserDataCollection,
     ModelContextProtocolServer,
+    ServiceConfiguration,
+    UserDataCollection,
+)
+from utils.common import (
+    register_mcp_servers_async,
 )
 
 

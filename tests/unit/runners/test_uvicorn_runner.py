@@ -1,8 +1,8 @@
 """Unit tests for the Uvicorn runner implementation."""
 
 from pathlib import Path
-from pytest_mock import MockerFixture
 
+from pytest_mock import MockerFixture
 
 from models.config import ServiceConfiguration, TLSConfiguration
 from runners.uvicorn import start_uvicorn

@@ -1,15 +1,17 @@
 """Common types for the project."""
 
-from typing import Any, Optional
 import json
+from typing import Any, Optional
+
 from llama_stack_client.lib.agents.event_logger import interleaved_content_as_str
 from llama_stack_client.lib.agents.tool_parser import ToolParser
 from llama_stack_client.types.shared.completion_message import CompletionMessage
 from llama_stack_client.types.shared.tool_call import ToolCall
 from llama_stack_client.types.tool_execution_step import ToolExecutionStep
 from pydantic import BaseModel
-from models.responses import RAGChunk
+
 from constants import DEFAULT_RAG_TOOL
+from models.responses import RAGChunk
 
 
 class Singleton(type):

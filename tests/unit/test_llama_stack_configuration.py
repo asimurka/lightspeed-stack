@@ -1,31 +1,27 @@
 """Unit tests for functions defined in src/llama_stack_configuration.py."""
 
 from pathlib import Path
-
 from typing import Any
 
 import pytest
 import yaml
-
 from pydantic import SecretStr
 
+from constants import (
+    DEFAULT_EMBEDDING_DIMENSION,
+    DEFAULT_EMBEDDING_MODEL,
+)
+from llama_stack_configuration import (
+    construct_vector_dbs_section,
+    construct_vector_io_providers_section,
+    generate_configuration,
+)
 from models.config import (
     ByokRag,
     Configuration,
-    ServiceConfiguration,
     LlamaStackConfiguration,
+    ServiceConfiguration,
     UserDataCollection,
-)
-
-from constants import (
-    DEFAULT_EMBEDDING_MODEL,
-    DEFAULT_EMBEDDING_DIMENSION,
-)
-
-from llama_stack_configuration import (
-    generate_configuration,
-    construct_vector_dbs_section,
-    construct_vector_io_providers_section,
 )
 
 

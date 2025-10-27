@@ -4,10 +4,11 @@ from pathlib import Path
 from typing import Any, Generator
 
 import pytest
+
+from cache.in_memory_cache import InMemoryCache
+from cache.sqlite_cache import SQLiteCache
 from configuration import AppConfig, LogicError
 from models.config import CustomProfile, ModelContextProtocolServer
-from cache.sqlite_cache import SQLiteCache
-from cache.in_memory_cache import InMemoryCache
 
 
 # pylint: disable=broad-exception-caught,protected-access

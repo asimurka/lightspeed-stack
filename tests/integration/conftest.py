@@ -5,14 +5,12 @@ from typing import Generator
 
 import pytest
 from fastapi import Request, Response
-
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, Session
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
 
-from authentication.noop import NoopAuthDependency
 from authentication.interface import AuthTuple
-
+from authentication.noop import NoopAuthDependency
 from configuration import configuration
 from models.database.base import Base
 

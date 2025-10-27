@@ -1,31 +1,30 @@
 """Unit tests for routers.py."""
 
-from typing import Any, Optional, Sequence, Callable
+from typing import Any, Callable, Optional, Sequence
 
 from fastapi import FastAPI
 
-from app.routers import include_routers  # noqa:E402
-
 from app.endpoints import (
+    authorized,
+    config,
     conversations,
     conversations_v2,
-    root,
+    feedback,
+    health,
     info,
+    metrics,
     models,
-    shields,
-    rags,
     providers,
     query,
     query_v2,
-    health,
-    config,
-    feedback,
+    rags,
+    root,
+    shields,
     streaming_query,
     streaming_query_v2,
-    authorized,
-    metrics,
     tools,
 )  # noqa:E402
+from app.routers import include_routers  # noqa:E402
 
 
 class MockFastAPI(FastAPI):

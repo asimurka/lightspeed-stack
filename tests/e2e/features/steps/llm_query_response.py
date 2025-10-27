@@ -1,11 +1,12 @@
 """LLM query and response steps."""
 
 import json
-import requests
-from behave import then, step  # pyright: ignore[reportAttributeAccessIssue]
-from behave.runner import Context
-from tests.e2e.utils.utils import replace_placeholders
 
+import requests
+from behave import step, then  # pyright: ignore[reportAttributeAccessIssue]
+from behave.runner import Context
+
+from tests.e2e.utils.utils import replace_placeholders
 
 DEFAULT_LLM_TIMEOUT = 60
 

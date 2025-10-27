@@ -4,12 +4,12 @@ Transcripts are a log of individual query/response pairs that get
 stored on disk for later analysis
 """
 
-from datetime import UTC, datetime
+import hashlib
 import json
 import logging
 import os
+from datetime import UTC, datetime
 from pathlib import Path
-import hashlib
 
 from configuration import configuration
 from models.requests import Attachment, QueryRequest

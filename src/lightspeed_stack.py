@@ -10,11 +10,11 @@ from argparse import ArgumentParser
 
 from rich.logging import RichHandler
 
-from log import get_logger
 from configuration import configuration
 from llama_stack_configuration import generate_configuration
-from runners.uvicorn import start_uvicorn
+from log import get_logger
 from runners.quota_scheduler import start_quota_scheduler
+from runners.uvicorn import start_uvicorn
 
 FORMAT = "%(message)s"
 logging.basicConfig(

@@ -1,22 +1,19 @@
 """Unit tests for PostgreSQL cache implementation."""
 
 import json
-
 from typing import Any
 
-import pytest
-from pytest_mock import MockerFixture
-from pydantic import SecretStr, AnyUrl
-
 import psycopg2
+import pytest
+from pydantic import AnyUrl, SecretStr
+from pytest_mock import MockerFixture
 
-from models.config import PostgreSQLDatabaseConfiguration
-from models.cache_entry import CacheEntry
-from models.responses import ConversationData, ReferencedDocument
-from utils import suid
 from cache.cache_error import CacheError
 from cache.postgres_cache import PostgresCache
-
+from models.cache_entry import CacheEntry
+from models.config import PostgreSQLDatabaseConfiguration
+from models.responses import ConversationData, ReferencedDocument
+from utils import suid
 
 USER_ID_1 = suid.get_suid()
 USER_ID_2 = suid.get_suid()
