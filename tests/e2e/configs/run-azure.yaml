@@ -77,12 +77,13 @@ providers:
   - provider_id: azure
     provider_type: remote::azure
     config: 
-      api_key: ${env.AZURE_API_KEY}
+      api_key: ${env.AZURE_API_KEY:=}
       api_base: https://ols-test.openai.azure.com/
-      api_version: 2024-02-15-preview
+      api_version: 2025-01-01-preview
   - config: {}
     provider_id: sentence-transformers
     provider_type: inline::sentence-transformers
+
   safety:
   - config:
       excluded_categories: []

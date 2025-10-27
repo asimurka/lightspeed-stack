@@ -97,6 +97,7 @@ def test_dump_configuration(tmp_path: Path) -> None:
         assert "database" in content
         assert "byok_rag" in content
         assert "quota_handlers" in content
+        assert "azure_entra_id" in content
 
         # check the whole deserialized JSON file content
         assert content == {
@@ -192,6 +193,7 @@ def test_dump_configuration(tmp_path: Path) -> None:
                 },
                 "enable_token_history": False,
             },
+            "azure_entra_id": None,
         }
 
 
@@ -401,6 +403,7 @@ def test_dump_configuration_with_quota_limiters(tmp_path: Path) -> None:
         assert "database" in content
         assert "byok_rag" in content
         assert "quota_handlers" in content
+        assert "azure_entra_id" in content
 
         # check the whole deserialized JSON file content
         assert content == {
@@ -721,6 +724,7 @@ def test_dump_configuration_with_quota_limiters_different_values(
                 },
                 "enable_token_history": True,
             },
+            "azure_entra_id": None,
         }
 
 
