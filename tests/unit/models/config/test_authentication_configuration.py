@@ -3,9 +3,13 @@
 from pathlib import Path
 
 import pytest
-
 from pydantic import ValidationError
 
+from constants import (
+    AUTH_MOD_JWK_TOKEN,
+    AUTH_MOD_K8S,
+    AUTH_MOD_NOOP,
+)
 from models.config import (
     AuthenticationConfiguration,
     Configuration,
@@ -13,12 +17,6 @@ from models.config import (
     LlamaStackConfiguration,
     ServiceConfiguration,
     UserDataCollection,
-)
-
-from constants import (
-    AUTH_MOD_NOOP,
-    AUTH_MOD_K8S,
-    AUTH_MOD_JWK_TOKEN,
 )
 
 

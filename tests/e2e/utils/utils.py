@@ -4,8 +4,9 @@ import os
 import shutil
 import subprocess
 import time
-import jsonschema
 from typing import Any
+
+import jsonschema
 from behave.runner import Context
 
 

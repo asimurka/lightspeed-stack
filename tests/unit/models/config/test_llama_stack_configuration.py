@@ -2,9 +2,8 @@
 
 import pytest
 
-from utils.checks import InvalidConfigurationError
-
 from models.config import LlamaStackConfiguration
+from utils.checks import InvalidConfigurationError
 
 
 def test_llama_stack_configuration_constructor() -> None:

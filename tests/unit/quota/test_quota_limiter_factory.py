@@ -4,10 +4,10 @@ import pytest
 from pytest_mock import MockerFixture
 
 from models.config import (
-    QuotaLimiterConfiguration,
     PostgreSQLDatabaseConfiguration,
-    SQLiteDatabaseConfiguration,
     QuotaHandlersConfiguration,
+    QuotaLimiterConfiguration,
+    SQLiteDatabaseConfiguration,
 )
 from quota.cluster_quota_limiter import ClusterQuotaLimiter
 from quota.quota_limiter_factory import QuotaLimiterFactory

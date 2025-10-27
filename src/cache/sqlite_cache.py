@@ -1,16 +1,15 @@
 """Cache that uses SQLite to store cached values."""
 
-from time import time
-
-import sqlite3
 import json
+import sqlite3
+from time import time
 
 from cache.cache import Cache
 from cache.cache_error import CacheError
+from log import get_logger
 from models.cache_entry import CacheEntry
 from models.config import SQLiteDatabaseConfiguration
 from models.responses import ConversationData, ReferencedDocument
-from log import get_logger
 from utils.connection_decorator import connection
 
 logger = get_logger("cache.sqlite_cache")

@@ -1,9 +1,8 @@
 """Unit tests for Customization model."""
 
 import pytest
-from pytest_subtests import SubTests
-
 from pydantic import ValidationError
+from pytest_subtests import SubTests
 
 from models.config import Customization
 

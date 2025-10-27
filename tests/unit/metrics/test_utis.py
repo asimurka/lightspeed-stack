@@ -1,6 +1,7 @@
 """Unit tests for functions defined in metrics/utils.py"""
 
 from pytest_mock import MockerFixture
+
 from metrics.utils import setup_model_metrics, update_llm_token_count_from_turn
 
 

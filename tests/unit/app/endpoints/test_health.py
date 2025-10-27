@@ -1,15 +1,15 @@
 """Unit tests for the /health REST API endpoint."""
 
-from pytest_mock import MockerFixture
-
 import pytest
 from llama_stack.providers.datatypes import HealthStatus
-from authentication.interface import AuthTuple
+from pytest_mock import MockerFixture
+
 from app.endpoints.health import (
-    readiness_probe_get_method,
-    liveness_probe_get_method,
     get_providers_health_statuses,
+    liveness_probe_get_method,
+    readiness_probe_get_method,
 )
+from authentication.interface import AuthTuple
 from models.responses import ProviderHealthStatus, ReadinessResponse
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
 
@@ -113,7 +113,9 @@ class TestProviderHealthStatus:
 
     def test_provider_health_status_optional_fields(self) -> None:
         """Test creating a ProviderHealthStatus with minimal fields."""
-        status = ProviderHealthStatus(provider_id="test_provider", status="ok")
+        status = ProviderHealthStatus(
+            provider_id="test_provider", status="ok", message=None
+        )
         assert status.provider_id == "test_provider"
         assert status.status == "ok"
         assert status.message is None

@@ -1,11 +1,13 @@
 """Authorization middleware and decorators."""
 
 import logging
-from functools import wraps, lru_cache
+from functools import lru_cache, wraps
 from typing import Any, Callable, Tuple
-from fastapi import HTTPException, status
+
+from fastapi import HTTPException
 from starlette.requests import Request
 
+import constants
 from authorization.resolvers import (
     AccessResolver,
     GenericAccessResolver,
@@ -14,9 +16,12 @@ from authorization.resolvers import (
     NoopRolesResolver,
     RolesResolver,
 )
-from models.config import Action
 from configuration import configuration
-import constants
+from models.config import Action
+from models.responses import (
+    ForbiddenResponse,
+    InternalServerErrorResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +64,10 @@ def get_authorization_resolvers() -> Tuple[RolesResolver, AccessResolver]:
             )
 
         case _:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Internal server error",
+            response = InternalServerErrorResponse(
+                response="Internal server error", cause="Unknown authentication module"
             )
+            raise HTTPException(**response.model_dump())
 
 
 async def _perform_authorization_check(
@@ -78,10 +83,11 @@ async def _perform_authorization_check(
             "Authorization only allowed on endpoints that accept "
             "'auth: Any = Depends(get_auth_dependency())'"
         )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Internal server error",
-        ) from exc
+        response = InternalServerErrorResponse(
+            response="Internal server error",
+            cause="Authorization dependency not found in endpoint",
+        )
+        raise HTTPException(**response.model_dump()) from exc
 
     # Everyone gets the everyone (aka *) role
     everyone_roles = {"*"}
@@ -89,10 +95,8 @@ async def _perform_authorization_check(
     user_roles = await role_resolver.resolve_roles(auth) | everyone_roles
 
     if not access_resolver.check_access(action, user_roles):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=f"Insufficient permissions for action: {action}",
-        )
+        response = ForbiddenResponse.endpoint(user_id=auth[1])
+        raise HTTPException(**response.model_dump())
 
     authorized_actions = access_resolver.get_actions(user_roles)
 

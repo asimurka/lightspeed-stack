@@ -3,16 +3,14 @@
 from pathlib import Path
 
 import pytest
-
 from pydantic import ValidationError
 
-from models.config import ByokRag
-
 from constants import (
-    DEFAULT_RAG_TYPE,
-    DEFAULT_EMBEDDING_MODEL,
     DEFAULT_EMBEDDING_DIMENSION,
+    DEFAULT_EMBEDDING_MODEL,
+    DEFAULT_RAG_TYPE,
 )
+from models.config import ByokRag
 
 
 def test_byok_rag_configuration_default_values() -> None:

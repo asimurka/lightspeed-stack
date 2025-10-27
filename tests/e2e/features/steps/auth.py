@@ -3,6 +3,7 @@
 import requests
 from behave import given, when  # pyright: ignore[reportAttributeAccessIssue]
 from behave.runner import Context
+
 from tests.e2e.utils.utils import normalize_endpoint
 
 

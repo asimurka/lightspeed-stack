@@ -5,8 +5,7 @@ from typing import Any
 import yaml
 
 from log import get_logger
-
-from models.config import Configuration, ByokRag
+from models.config import ByokRag, Configuration
 
 logger = get_logger(__name__)
 

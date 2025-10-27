@@ -1,11 +1,11 @@
 """Unit tests for QueryRequest model."""
 
 from logging import Logger
-from pytest_mock import MockerFixture
 
 import pytest
+from pytest_mock import MockerFixture
 
-from models.requests import QueryRequest, Attachment
+from models.requests import Attachment, QueryRequest
 
 
 class TestQueryRequest:

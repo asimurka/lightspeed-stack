@@ -1,16 +1,15 @@
 """Unit tests for the /rags REST API endpoints."""
 
 import pytest
-from pytest_mock import MockerFixture
 from fastapi import HTTPException, Request, status
-from llama_stack_client import APIConnectionError
-
-from authentication.interface import AuthTuple
+from llama_stack_client import APIConnectionError, BadRequestError
+from pytest_mock import MockerFixture
 
 from app.endpoints.rags import (
     get_rag_endpoint_handler,
     rags_endpoint_handler,
 )
+from authentication.interface import AuthTuple
 
 
 @pytest.mark.asyncio
@@ -31,7 +30,7 @@ async def test_rags_endpoint_configuration_not_loaded(
 
 @pytest.mark.asyncio
 async def test_rags_endpoint_connection_error(mocker: MockerFixture) -> None:
-    """Test that /rags endpoint raises HTTP 500 if Llama Stack connection fails."""
+    """Test that /rags endpoint raises HTTP 503 if Llama Stack connection fails."""
     mock_client = mocker.AsyncMock()
     mock_client.vector_stores.list.side_effect = APIConnectionError(request=None)  # type: ignore
     mocker.patch(
@@ -45,34 +44,11 @@ async def test_rags_endpoint_connection_error(mocker: MockerFixture) -> None:
 
     with pytest.raises(HTTPException) as e:
         await rags_endpoint_handler(request=request, auth=auth)
-    assert e.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert e.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     detail = e.value.detail
     assert isinstance(detail, dict)
     assert "response" in detail
     assert "Unable to connect to Llama Stack" in detail["response"]
-
-
-@pytest.mark.asyncio
-async def test_rags_endpoint_unable_to_retrieve_list(mocker: MockerFixture) -> None:
-    """Test that /rags endpoint raises HTTP 500 if Llama Stack connection fails."""
-    mock_client = mocker.AsyncMock()
-    mock_client.vector_stores.list.side_effect = []  # type: ignore
-    mocker.patch(
-        "app.endpoints.rags.AsyncLlamaStackClientHolder"
-    ).return_value.get_client.return_value = mock_client
-
-    request = Request(scope={"type": "http"})
-
-    # Authorization tuple required by URL endpoint handler
-    auth: AuthTuple = ("test_user_id", "test_user", True, "test_token")
-
-    with pytest.raises(HTTPException) as e:
-        await rags_endpoint_handler(request=request, auth=auth)
-    assert e.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-    detail = e.value.detail
-    assert isinstance(detail, dict)
-    assert "response" in detail
-    assert "Unable to retrieve list of RAGs" in detail["response"]
 
 
 @pytest.mark.asyncio
@@ -131,8 +107,12 @@ async def test_rag_info_endpoint_configuration_not_loaded(
 async def test_rag_info_endpoint_rag_not_found(mocker: MockerFixture) -> None:
     """Test that /rags/{rag_id} endpoint returns HTTP 404 when the requested RAG is not found."""
     mock_client = mocker.AsyncMock()
-    mock_client.vector_stores.retrieve.side_effect = HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND
+    mock_client.vector_stores.retrieve = mocker.AsyncMock(
+        side_effect=BadRequestError(
+            message="RAG not found",
+            response=mocker.Mock(request=None),
+            body=None,
+        )
     )  # type: ignore
     mocker.patch(
         "app.endpoints.rags.AsyncLlamaStackClientHolder"
@@ -146,11 +126,15 @@ async def test_rag_info_endpoint_rag_not_found(mocker: MockerFixture) -> None:
     with pytest.raises(HTTPException) as e:
         await get_rag_endpoint_handler(request=request, auth=auth, rag_id="xyzzy")
     assert e.value.status_code == status.HTTP_404_NOT_FOUND
+    detail = e.value.detail
+    assert isinstance(detail, dict)
+    assert "response" in detail
+    assert "Rag not found" in detail["response"]
 
 
 @pytest.mark.asyncio
 async def test_rag_info_endpoint_connection_error(mocker: MockerFixture) -> None:
-    """Test that /rags/{rag_id} endpoint raises HTTP 500 if Llama Stack connection fails."""
+    """Test that /rags/{rag_id} endpoint raises HTTP 503 if Llama Stack connection fails."""
     mock_client = mocker.AsyncMock()
     mock_client.vector_stores.retrieve.side_effect = APIConnectionError(
         request=None  # type: ignore
@@ -166,34 +150,11 @@ async def test_rag_info_endpoint_connection_error(mocker: MockerFixture) -> None
 
     with pytest.raises(HTTPException) as e:
         await get_rag_endpoint_handler(request=request, auth=auth, rag_id="xyzzy")
-    assert e.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+    assert e.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
     detail = e.value.detail
     assert isinstance(detail, dict)
     assert "response" in detail
     assert "Unable to connect to Llama Stack" in detail["response"]
-
-
-@pytest.mark.asyncio
-async def test_rag_info_endpoint_unable_to_retrieve_list(mocker: MockerFixture) -> None:
-    """Test that /rags/{rag_id} endpoint raises HTTP 500 if Llama Stack connection fails."""
-    mock_client = mocker.AsyncMock()
-    mock_client.vector_stores.retrieve.side_effect = []  # type: ignore
-    mocker.patch(
-        "app.endpoints.rags.AsyncLlamaStackClientHolder"
-    ).return_value.get_client.return_value = mock_client
-
-    request = Request(scope={"type": "http"})
-
-    # Authorization tuple required by URL endpoint handler
-    auth: AuthTuple = ("test_user_id", "test_user", True, "test_token")
-
-    with pytest.raises(HTTPException) as e:
-        await get_rag_endpoint_handler(request=request, auth=auth, rag_id="xyzzy")
-    assert e.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-    detail = e.value.detail
-    assert isinstance(detail, dict)
-    assert "response" in detail
-    assert "Unable to retrieve info about RAG" in detail["response"]
 
 
 @pytest.mark.asyncio

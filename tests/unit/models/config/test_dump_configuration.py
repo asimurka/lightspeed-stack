@@ -1,25 +1,24 @@
 """Unit tests checking ability to dump configuration."""
 
 import json
-
 from pathlib import Path
 
 from pydantic import SecretStr
 
 from models.config import (
-    ModelContextProtocolServer,
-    LlamaStackConfiguration,
-    UserDataCollection,
-    DatabaseConfiguration,
-    PostgreSQLDatabaseConfiguration,
-    CORSConfiguration,
     Configuration,
+    CORSConfiguration,
+    DatabaseConfiguration,
+    InferenceConfiguration,
+    LlamaStackConfiguration,
+    ModelContextProtocolServer,
+    PostgreSQLDatabaseConfiguration,
     QuotaHandlersConfiguration,
     QuotaLimiterConfiguration,
     QuotaSchedulerConfiguration,
     ServiceConfiguration,
-    InferenceConfiguration,
     TLSConfiguration,
+    UserDataCollection,
 )
 
 

@@ -1,12 +1,11 @@
 """Unit tests for PostgreSQL connection handler."""
 
 import pytest
+from psycopg2 import OperationalError
 from pytest_mock import MockerFixture
 
-from psycopg2 import OperationalError
-
-from quota.connect_pg import connect_pg
 from models.config import PostgreSQLDatabaseConfiguration
+from quota.connect_pg import connect_pg
 
 
 def test_connect_pg_when_connection_established(mocker: MockerFixture) -> None:

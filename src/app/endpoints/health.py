@@ -17,13 +17,30 @@ from authorization.middleware import authorize
 from client import AsyncLlamaStackClientHolder
 from models.config import Action
 from models.responses import (
+    ForbiddenResponse,
     LivenessResponse,
     ProviderHealthStatus,
     ReadinessResponse,
+    ServiceUnavailableResponse,
+    UnauthorizedResponse,
 )
 
 logger = logging.getLogger("app.endpoints.handlers")
 router = APIRouter(tags=["health"])
+
+
+get_readiness_responses: dict[int | str, dict[str, Any]] = {
+    200: ReadinessResponse.openapi_response(),
+    401: UnauthorizedResponse.openapi_response(),
+    403: ForbiddenResponse.openapi_response(examples=["endpoint"]),
+    503: ServiceUnavailableResponse.openapi_response(),
+}
+
+get_liveness_responses: dict[int | str, dict[str, Any]] = {
+    200: LivenessResponse.openapi_response(),
+    401: UnauthorizedResponse.openapi_response(),
+    403: ForbiddenResponse.openapi_response(examples=["endpoint"]),
+}
 
 
 async def get_providers_health_statuses() -> list[ProviderHealthStatus]:
@@ -63,18 +80,6 @@ async def get_providers_health_statuses() -> list[ProviderHealthStatus]:
         ]
 
 
-get_readiness_responses: dict[int | str, dict[str, Any]] = {
-    200: {
-        "description": "Service is ready",
-        "model": ReadinessResponse,
-    },
-    503: {
-        "description": "Service is not ready",
-        "model": ReadinessResponse,
-    },
-}
-
-
 @router.get("/readiness", responses=get_readiness_responses)
 @authorize(Action.INFO)
 async def readiness_probe_get_method(
@@ -110,15 +115,6 @@ async def readiness_probe_get_method(
         reason = "All providers are healthy"
 
     return ReadinessResponse(ready=ready, reason=reason, providers=unhealthy_providers)
-
-
-get_liveness_responses: dict[int | str, dict[str, Any]] = {
-    200: {
-        "description": "Service is alive",
-        "model": LivenessResponse,
-    },
-    # HTTP_503_SERVICE_UNAVAILABLE will never be returned when unreachable
-}
 
 
 @router.get("/liveness", responses=get_liveness_responses)

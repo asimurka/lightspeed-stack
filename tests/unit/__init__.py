@@ -1,6 +1,7 @@
 """Unit tests."""
 
 from typing import Any
+
 from configuration import configuration  # noqa: F401
 
 config_dict: dict[str, Any] = {

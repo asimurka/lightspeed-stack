@@ -1,23 +1,24 @@
+# pylint: disable=protected-access
+
 """Unit tests for tools endpoint."""
 
 import pytest
-from pytest_mock import MockerFixture, MockType
 from fastapi import HTTPException
-
 from llama_stack_client import APIConnectionError
-
-from authentication.interface import AuthTuple
+from pytest_mock import MockerFixture, MockType
 
 # Import the function directly to bypass decorators
 from app.endpoints import tools
-from models.responses import ToolsResponse
+from authentication.interface import AuthTuple
+from configuration import AppConfig
 from models.config import (
     Configuration,
-    ServiceConfiguration,
     LlamaStackConfiguration,
-    UserDataCollection,
     ModelContextProtocolServer,
+    ServiceConfiguration,
+    UserDataCollection,
 )
+from models.responses import ToolsResponse
 
 # Shared mock auth tuple with 4 fields as expected by the application
 MOCK_AUTH: AuthTuple = ("mock_user_id", "mock_username", False, "mock_token")
@@ -43,7 +44,7 @@ def mock_configuration() -> Configuration:
                 url="http://localhost:3001",
             ),
         ],
-    )
+    )  # type: ignore
 
 
 @pytest.fixture
@@ -110,8 +111,10 @@ async def test_tools_endpoint_success(
     mock_tools_response: list[MockType],  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test successful tools endpoint response."""
-    # Mock configuration
-    mocker.patch("app.endpoints.tools.configuration", mock_configuration)
+    # Mock configuration - wrap in AppConfig
+    app_config = AppConfig()
+    app_config._configuration = mock_configuration
+    mocker.patch("app.endpoints.tools.configuration", app_config)
 
     # Mock authorization decorator to bypass i
     mocker.patch("app.endpoints.tools.authorize", lambda action: lambda func: func)
@@ -168,7 +171,7 @@ async def test_tools_endpoint_success(
 @pytest.mark.asyncio
 async def test_tools_endpoint_no_mcp_servers(mocker: MockerFixture) -> None:
     """Test tools endpoint with no MCP servers configured."""
-    # Mock configuration with no MCP servers
+    # Mock configuration with no MCP servers - wrap in AppConfig
     mock_config = Configuration(
         name="test",
         service=ServiceConfiguration(),
@@ -176,7 +179,9 @@ async def test_tools_endpoint_no_mcp_servers(mocker: MockerFixture) -> None:
         user_data_collection=UserDataCollection(feedback_enabled=False),
         mcp_servers=[],
     )
-    mocker.patch("app.endpoints.tools.configuration", mock_config)
+    app_config = AppConfig()
+    app_config._configuration = mock_config
+    mocker.patch("app.endpoints.tools.configuration", app_config)
 
     # Mock authorization decorator to bypass i
     mocker.patch("app.endpoints.tools.authorize", lambda action: lambda func: func)
@@ -194,7 +199,9 @@ async def test_tools_endpoint_no_mcp_servers(mocker: MockerFixture) -> None:
     mock_auth = MOCK_AUTH
 
     # Call the endpoint
-    response = await tools.tools_endpoint_handler.__wrapped__(mock_request, mock_auth)
+    response = await tools.tools_endpoint_handler.__wrapped__(
+        mock_request, mock_auth
+    )  # type: ignore
 
     # Verify response
     assert isinstance(response, ToolsResponse)
@@ -207,8 +214,10 @@ async def test_tools_endpoint_api_connection_error(
     mock_configuration: Configuration,  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test tools endpoint with API connection error from individual servers."""
-    # Mock configuration
-    mocker.patch("app.endpoints.tools.configuration", mock_configuration)
+    # Mock configuration - wrap in AppConfig
+    app_config = AppConfig()
+    app_config._configuration = mock_configuration
+    mocker.patch("app.endpoints.tools.configuration", app_config)
 
     # Mock authorization decorator to bypass i
     mocker.patch("app.endpoints.tools.authorize", lambda action: lambda func: func)
@@ -248,8 +257,10 @@ async def test_tools_endpoint_partial_failure(  # pylint: disable=redefined-oute
     mock_tools_response: list[MockType],
 ) -> None:
     """Test tools endpoint with one MCP server failing."""
-    # Mock configuration
-    mocker.patch("app.endpoints.tools.configuration", mock_configuration)
+    # Mock configuration - wrap in AppConfig
+    app_config = AppConfig()
+    app_config._configuration = mock_configuration
+    mocker.patch("app.endpoints.tools.configuration", app_config)
 
     # Mock authorization decorator to bypass i
     mocker.patch("app.endpoints.tools.authorize", lambda action: lambda func: func)
@@ -295,8 +306,10 @@ async def test_tools_endpoint_builtin_toolgroup(
     mock_configuration: Configuration,  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test tools endpoint with built-in toolgroups."""
-    # Mock configuration
-    mocker.patch("app.endpoints.tools.configuration", mock_configuration)
+    # Mock configuration - wrap in AppConfig
+    app_config = AppConfig()
+    app_config._configuration = mock_configuration
+    mocker.patch("app.endpoints.tools.configuration", app_config)
 
     # Mock authorization decorator to bypass i
     mocker.patch("app.endpoints.tools.authorize", lambda action: lambda func: func)
@@ -347,7 +360,7 @@ async def test_tools_endpoint_builtin_toolgroup(
 @pytest.mark.asyncio
 async def test_tools_endpoint_mixed_toolgroups(mocker: MockerFixture) -> None:
     """Test tools endpoint with both MCP and built-in toolgroups."""
-    # Mock configuration with MCP servers
+    # Mock configuration with MCP servers - wrap in AppConfig
     mock_config = Configuration(
         name="test",
         service=ServiceConfiguration(),
@@ -361,7 +374,9 @@ async def test_tools_endpoint_mixed_toolgroups(mocker: MockerFixture) -> None:
             ),
         ],
     )
-    mocker.patch("app.endpoints.tools.configuration", mock_config)
+    app_config = AppConfig()
+    app_config._configuration = mock_config
+    mocker.patch("app.endpoints.tools.configuration", app_config)
 
     # Mock authorization decorator to bypass i
     mocker.patch("app.endpoints.tools.authorize", lambda action: lambda func: func)
@@ -438,8 +453,10 @@ async def test_tools_endpoint_value_attribute_error(
     mock_configuration: Configuration,  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test tools endpoint with ValueError/AttributeError in toolgroups.list."""
-    # Mock configuration
-    mocker.patch("app.endpoints.tools.configuration", mock_configuration)
+    # Mock configuration - wrap in AppConfig
+    app_config = AppConfig()
+    app_config._configuration = mock_configuration
+    mocker.patch("app.endpoints.tools.configuration", app_config)
 
     # Mock authorization decorator to bypass i
     mocker.patch("app.endpoints.tools.authorize", lambda action: lambda func: func)
@@ -456,12 +473,9 @@ async def test_tools_endpoint_value_attribute_error(
     mock_request = mocker.Mock()
     mock_auth = MOCK_AUTH
 
-    # Call the endpointt - should not raise exception but return empty tools
-    response = await tools.tools_endpoint_handler.__wrapped__(mock_request, mock_auth)
-
-    # Verify response - should be empty since toolgroups.list failed
-    assert isinstance(response, ToolsResponse)
-    assert len(response.tools) == 0
+    # Call the endpointt - should raise exception since toolgroups.list failed
+    with pytest.raises(ValueError, match="Invalid response format"):
+        await tools.tools_endpoint_handler.__wrapped__(mock_request, mock_auth)  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -469,8 +483,10 @@ async def test_tools_endpoint_apiconnection_error_toolgroups(  # pylint: disable
     mocker: MockerFixture, mock_configuration: Configuration
 ) -> None:
     """Test tools endpoint with APIConnectionError in toolgroups.list."""
-    # Mock configuration
-    mocker.patch("app.endpoints.tools.configuration", mock_configuration)
+    # Mock configuration - wrap in AppConfig
+    app_config = AppConfig()
+    app_config._configuration = mock_configuration
+    mocker.patch("app.endpoints.tools.configuration", app_config)
 
     # Mock authorization decorator to bypass i
     mocker.patch("app.endpoints.tools.authorize", lambda action: lambda func: func)
@@ -490,13 +506,13 @@ async def test_tools_endpoint_apiconnection_error_toolgroups(  # pylint: disable
 
     # Call the endpointt and expect HTTPException
     with pytest.raises(HTTPException) as exc_info:
-        await tools.tools_endpoint_handler.__wrapped__(mock_request, mock_auth)
+        await tools.tools_endpoint_handler.__wrapped__(mock_request, mock_auth)  # type: ignore
 
-    assert exc_info.value.status_code == 500
+    assert exc_info.value.status_code == 503
 
     detail = exc_info.value.detail
     assert isinstance(detail, dict)
-    assert "Unable to connect to Llama Stack" in detail["response"]
+    assert detail["response"] == "Unable to connect to Llama Stack"  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -504,15 +520,17 @@ async def test_tools_endpoint_client_holder_apiconnection_error(  # pylint: disa
     mocker: MockerFixture, mock_configuration: Configuration
 ) -> None:
     """Test tools endpoint with APIConnectionError in client holder."""
-    # Mock configuration
-    mocker.patch("app.endpoints.tools.configuration", mock_configuration)
+    # Mock configuration - wrap in AppConfig
+    app_config = AppConfig()
+    app_config._configuration = mock_configuration
+    mocker.patch("app.endpoints.tools.configuration", app_config)
 
     # Mock authorization decorator to bypass i
     mocker.patch("app.endpoints.tools.authorize", lambda action: lambda func: func)
 
     # Mock client holder to raise APIConnectionError
     mock_client_holder = mocker.patch("app.endpoints.tools.AsyncLlamaStackClientHolder")
-    api_error = APIConnectionError(request=mocker.Mock())
+    api_error = APIConnectionError(request=None)  # type: ignore
     mock_client_holder.return_value.get_client.side_effect = api_error
 
     # Mock request and auth
@@ -521,13 +539,13 @@ async def test_tools_endpoint_client_holder_apiconnection_error(  # pylint: disa
 
     # Call the endpointt and expect HTTPException
     with pytest.raises(HTTPException) as exc_info:
-        await tools.tools_endpoint_handler.__wrapped__(mock_request, mock_auth)
+        await tools.tools_endpoint_handler.__wrapped__(mock_request, mock_auth)  # type: ignore
 
-    assert exc_info.value.status_code == 500
+    assert exc_info.value.status_code == 503
 
     detail = exc_info.value.detail
     assert isinstance(detail, dict)
-    assert "Unable to connect to Llama Stack" in detail["response"]
+    assert detail["response"] == "Unable to connect to Llama Stack"  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -536,8 +554,10 @@ async def test_tools_endpoint_general_exception(
     mock_configuration: Configuration,  # pylint: disable=redefined-outer-name
 ) -> None:
     """Test tools endpoint with general exception."""
-    # Mock configuration
-    mocker.patch("app.endpoints.tools.configuration", mock_configuration)
+    # Mock configuration - wrap in AppConfig
+    app_config = AppConfig()
+    app_config._configuration = mock_configuration
+    mocker.patch("app.endpoints.tools.configuration", app_config)
 
     # Mock authorization decorator to bypass i
     mocker.patch("app.endpoints.tools.authorize", lambda action: lambda func: func)
@@ -552,12 +572,6 @@ async def test_tools_endpoint_general_exception(
     mock_request = mocker.Mock()
     mock_auth = MOCK_AUTH
 
-    # Call the endpointt and expect HTTPException
-    with pytest.raises(HTTPException) as exc_info:
-        await tools.tools_endpoint_handler.__wrapped__(mock_request, mock_auth)
-
-    assert exc_info.value.status_code == 500
-
-    detail = exc_info.value.detail
-    assert isinstance(detail, dict)
-    assert "Unable to retrieve list of tools" in detail["response"]
+    # Call the endpointt and expect the exception to propagate (not caught)
+    with pytest.raises(Exception, match="Unexpected error"):
+        await tools.tools_endpoint_handler.__wrapped__(mock_request, mock_auth)  # type: ignore
