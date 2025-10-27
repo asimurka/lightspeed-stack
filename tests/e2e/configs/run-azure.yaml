@@ -87,6 +87,7 @@ providers:
   - config: {}
     provider_id: sentence-transformers
     provider_type: inline::sentence-transformers
+
   safety:
   - config:
       excluded_categories: []

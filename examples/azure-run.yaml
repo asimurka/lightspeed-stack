@@ -1,128 +1,137 @@
-version: '2'
-image_name: minimal-viable-llama-stack-configuration
-
 apis:
   - agents
+  - batches
   - datasetio
   - eval
   - files
   - inference
-  - post_training
   - safety
   - scoring
-  - telemetry
   - tool_runtime
   - vector_io
 benchmarks: []
-container_image: null
-datasets: []
-external_providers_dir: null
-inference_store:
-  db_path: .llama/distributions/ollama/inference_store.db
+conversations_store:
+  db_path: ~/.llama/storage/conversations.db
   type: sqlite
-logging: null
+datasets: []
+image_name: starter
+inference_store:
+  db_path: ~/.llama/storage/inference-store.db
+  type: sqlite
 metadata_store:
-  db_path: .llama/distributions/ollama/registry.db
-  namespace: null
+  db_path: ~/.llama/storage/registry.db
   type: sqlite
 providers:
-  files:
-  - provider_id: localfs
-    provider_type: inline::localfs
-    config:
-      storage_dir: /tmp/llama-stack-files
-      metadata_store:
-        type: sqlite
-        db_path: .llama/distributions/ollama/files_metadata.db
   agents:
-  - provider_id: meta-reference
-    provider_type: inline::meta-reference
-    config:
-      persistence_store:
-        db_path: .llama/distributions/ollama/agents_store.db
-        namespace: null
-        type: sqlite
-      responses_store:
-        db_path: .llama/distributions/ollama/responses_store.db
-        type: sqlite
+    - config:
+        persistence:
+          agent_state:
+            backend: kv_default
+            namespace: agents_state
+          responses:
+            backend: sql_default
+            table_name: agents_responses
+      provider_id: meta-reference
+      provider_type: inline::meta-reference
+  batches:
+    - config:
+        kvstore:
+          backend: kv_default
+          namespace: batches_store
+      provider_id: reference
+      provider_type: inline::reference
   datasetio:
-  - provider_id: huggingface
-    provider_type: remote::huggingface
-    config:
-      kvstore:
-        db_path: .llama/distributions/ollama/huggingface_datasetio.db
-        namespace: null
-        type: sqlite
-  - provider_id: localfs
-    provider_type: inline::localfs
-    config:
-      kvstore:
-        db_path: .llama/distributions/ollama/localfs_datasetio.db
-        namespace: null
-        type: sqlite
+    - config:
+        kvstore:
+          backend: kv_default
+          namespace: huggingface_datasetio
+      provider_id: huggingface
+      provider_type: remote::huggingface
+    - config:
+        kvstore:
+          backend: kv_default
+          namespace: localfs_datasetio
+      provider_id: localfs
+      provider_type: inline::localfs
   eval:
-  - provider_id: meta-reference
-    provider_type: inline::meta-reference
-    config:
-      kvstore:
-        db_path: .llama/distributions/ollama/meta_reference_eval.db
-        namespace: null
-        type: sqlite
+    - config:
+        kvstore:
+          backend: kv_default
+          namespace: eval_store
+      provider_id: meta-reference
+      provider_type: inline::meta-reference
+  files:
+    - config:
+        metadata_store:
+          backend: sql_default
+          table_name: files_metadata
+        storage_dir: ~/.llama/storage
+      provider_id: meta-reference-files
+      provider_type: inline::localfs
   inference:
-    - provider_id: azure
-      provider_type: remote::azure
-      config: 
-        api_key: ${env.AZURE_API_KEY}
+    - config:
         api_base: https://ols-test.openai.azure.com/
-        api_version: 2024-02-15-preview
-        api_type: ${env.AZURE_API_TYPE:=}
-  post_training:
-  - provider_id: huggingface
-    provider_type: inline::huggingface-gpu
-    config:
-      checkpoint_format: huggingface
-      device: cpu
-      distributed_backend: null
-      dpo_output_dir: "."
+        api_key: ${env.AZURE_API_KEY}
+        api_version: 2025-01-01-preview
+      provider_id: azure
+      provider_type: remote::azure
   safety:
-  - provider_id: llama-guard
-    provider_type: inline::llama-guard
-    config:
-      excluded_categories: []
+    - config:
+        excluded_categories: []
+      provider_id: llama-guard
+      provider_type: inline::llama-guard
   scoring:
-  - provider_id: basic
-    provider_type: inline::basic
-    config: {}
-  - provider_id: llm-as-judge
-    provider_type: inline::llm-as-judge
-    config: {}
-  - provider_id: braintrust
-    provider_type: inline::braintrust
-    config:
-      openai_api_key: '********'
-  telemetry:
-  - provider_id: meta-reference
-    provider_type: inline::meta-reference
-    config:
-      service_name: 'lightspeed-stack-telemetry'
-      sinks: sqlite
-      sqlite_db_path: .llama/distributions/ollama/trace_store.db
+    - config: {}
+      provider_id: basic
+      provider_type: inline::basic
+    - config: {}
+      provider_id: llm-as-judge
+      provider_type: inline::llm-as-judge
   tool_runtime:
-    - provider_id: model-context-protocol
-      provider_type: remote::model-context-protocol
-      config: {}
+    - config: {}
+      provider_id: rag-runtime
+      provider_type: inline::rag-runtime
+  vector_io:
+    - config:
+        persistence:
+          backend: kv_default
+          namespace: faiss_store
+      provider_id: faiss
+      provider_type: inline::faiss
+registered_resources:
+  benchmarks: []
+  datasets: []
+  models: []
+  scoring_fns: []
+  shields: []
+  tool_groups:
+    - provider_id: rag-runtime
+      toolgroup_id: builtin::rag
+  vector_dbs: []
 scoring_fns: []
 server:
-  auth: null
-  host: null
   port: 8321
-  quota: null
-  tls_cafile: null
-  tls_certfile: null
-  tls_keyfile: null
-shields: []
-models:
-  - model_id: gpt-4o-mini
-    model_type: llm
-    provider_id: azure
-    provider_model_id: gpt-4o-mini
+storage:
+  backends:
+    kv_default:
+      db_path: ~/.llama/storage/kv_store.db
+      type: kv_sqlite
+    sql_default:
+      db_path: ~/.llama/storage/sql_store.db
+      type: sql_sqlite
+  stores:
+    conversations:
+      backend: sql_default
+      table_name: openai_conversations
+    inference:
+      backend: sql_default
+      max_write_queue_size: 10000
+      num_writers: 4
+      table_name: inference_store
+    metadata:
+      backend: kv_default
+      namespace: registry
+    prompts:
+      backend: kv_default
+      namespace: prompts
+version: 2
