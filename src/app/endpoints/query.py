@@ -405,6 +405,7 @@ async def query_endpoint_handler_base(  # pylint: disable=R0914
             response=summary.llm_response,
             rag_chunks=summary.rag_chunks if summary.rag_chunks else [],
             tool_calls=tool_calls if tool_calls else None,
+            tool_results=None,
             referenced_documents=referenced_documents,
             truncated=False,  # TODO: implement truncation detection
             input_tokens=token_usage.input_tokens,
@@ -760,6 +761,7 @@ async def retrieve_response(  # pylint: disable=too-many-locals,too-many-branche
         stream=False,
         toolgroups=toolgroups,
     )
+    logger.info("Response: %s", response)
     response = cast(Turn, response)
 
     summary = TurnSummary(

@@ -39,6 +39,13 @@ class ToolCall(BaseModel):
     result: dict[str, Any] | None = Field(None, description="Result from the tool")
 
 
+class ToolResult(BaseModel):
+    """Model representing a tool result."""
+
+    tool_name: str = Field(description="Name of the tool")
+    result: dict[str, Any] = Field(description="Result from the tool")
+
+
 class AbstractSuccessfulResponse(BaseModel):
     """Base class for all successful response models."""
 
@@ -346,6 +353,7 @@ class QueryResponse(AbstractSuccessfulResponse):
         rag_chunks: List of RAG chunks used to generate the response.
         referenced_documents: The URLs and titles for the documents used to generate the response.
         tool_calls: List of tool calls made during response generation.
+        tool_results: List of tool results.
         truncated: Whether conversation history was truncated.
         input_tokens: Number of tokens sent to LLM.
         output_tokens: Number of tokens received from LLM.
@@ -373,6 +381,11 @@ class QueryResponse(AbstractSuccessfulResponse):
     tool_calls: list[ToolCall] | None = Field(
         None,
         description="List of tool calls made during response generation",
+    )
+
+    tool_results: list[ToolResult] | None = Field(
+        None,
+        description="List of tool results",
     )
 
     referenced_documents: list[ReferencedDocument] = Field(
