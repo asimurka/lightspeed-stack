@@ -23,6 +23,7 @@ from models.config import Action
 from models.requests import QueryRequest
 from models.responses import (
     ForbiddenResponse,
+    PromptTooLongResponse,
     InternalServerErrorResponse,
     NotFoundResponse,
     QueryResponse,
@@ -57,6 +58,7 @@ query_v2_response: dict[int | str, dict[str, Any]] = {
     404: NotFoundResponse.openapi_response(
         examples=["conversation", "model", "provider"]
     ),
+    413: PromptTooLongResponse.openapi_response(),
     422: UnprocessableEntityResponse.openapi_response(),
     429: QuotaExceededResponse.openapi_response(),
     500: InternalServerErrorResponse.openapi_response(examples=["configuration"]),

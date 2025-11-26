@@ -316,7 +316,6 @@ async def get_agent(
         enable_session_persistence=True,
     )
     await agent.initialize()
-
     if existing_agent_id and conversation_id:
         logger.debug("Existing conversation ID: %s", conversation_id)
         logger.debug("Existing agent ID: %s", existing_agent_id)

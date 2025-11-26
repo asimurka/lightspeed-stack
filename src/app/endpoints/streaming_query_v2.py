@@ -38,6 +38,7 @@ from models.responses import (
     ForbiddenResponse,
     InternalServerErrorResponse,
     NotFoundResponse,
+    PromptTooLongResponse,
     QuotaExceededResponse,
     ServiceUnavailableResponse,
     StreamingQueryResponse,
@@ -69,6 +70,7 @@ streaming_query_v2_responses: dict[int | str, dict[str, Any]] = {
     404: NotFoundResponse.openapi_response(
         examples=["conversation", "model", "provider"]
     ),
+    413: PromptTooLongResponse.openapi_response(),
     422: UnprocessableEntityResponse.openapi_response(),
     429: QuotaExceededResponse.openapi_response(),
     500: InternalServerErrorResponse.openapi_response(examples=["configuration"]),

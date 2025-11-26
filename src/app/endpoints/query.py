@@ -5,21 +5,26 @@ import json
 import logging
 import re
 from datetime import UTC, datetime
-from typing import Annotated, Any, Optional, cast
+from typing import Annotated, Any, AsyncIterator, Optional, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from litellm.exceptions import RateLimitError
 from llama_stack_client import (
     APIConnectionError,
     AsyncLlamaStackClient,  # type: ignore
 )
 from llama_stack_client.lib.agents.event_logger import interleaved_content_as_str
 from llama_stack_client.types import Shield, UserMessage  # type: ignore
+from llama_stack_client.types.agents.agent_turn_response_stream_chunk import (
+    AgentTurnResponseStreamChunk,
+)
 from llama_stack_client.types.agents.turn import Turn
 from llama_stack_client.types.agents.turn_create_params import (
     Document,
     Toolgroup,
     ToolgroupAgentToolGroupWithArgs,
+)
+from llama_stack_client.types.agents.turn_response_event_payload import (
+    AgentTurnResponseTurnCompletePayload,
 )
 from llama_stack_client.types.model_list_response import ModelListResponse
 from llama_stack_client.types.shared.interleaved_content_item import TextContentItem
@@ -43,10 +48,10 @@ from models.responses import (
     InternalServerErrorResponse,
     NotFoundResponse,
     QueryResponse,
+    PromptTooLongResponse,
     QuotaExceededResponse,
     ReferencedDocument,
     ServiceUnavailableResponse,
-    ToolCall,
     UnauthorizedResponse,
     UnprocessableEntityResponse,
 )
@@ -85,6 +90,7 @@ query_response: dict[int | str, dict[str, Any]] = {
     404: NotFoundResponse.openapi_response(
         examples=["model", "conversation", "provider"]
     ),
+    413: PromptTooLongResponse.openapi_response(),
     422: UnprocessableEntityResponse.openapi_response(),
     429: QuotaExceededResponse.openapi_response(),
     500: InternalServerErrorResponse.openapi_response(examples=["configuration"]),
@@ -380,20 +386,6 @@ async def query_endpoint_handler_base(  # pylint: disable=R0914
 
         # Convert tool calls to response format
         logger.info("Processing tool calls...")
-        tool_calls = [
-            ToolCall(
-                tool_name=tc.name,
-                arguments=(
-                    tc.args if isinstance(tc.args, dict) else {"query": str(tc.args)}
-                ),
-                result=(
-                    {"response": tc.response}
-                    if tc.response and tc.name != constants.DEFAULT_RAG_TOOL
-                    else None
-                ),
-            )
-            for tc in summary.tool_calls
-        ]
 
         logger.info("Using referenced documents from response...")
 
@@ -404,8 +396,8 @@ async def query_endpoint_handler_base(  # pylint: disable=R0914
             conversation_id=conversation_id,
             response=summary.llm_response,
             rag_chunks=summary.rag_chunks if summary.rag_chunks else [],
-            tool_calls=tool_calls if tool_calls else None,
-            tool_results=None,
+            tool_calls=summary.tool_calls,
+            tool_results=summary.tool_results,
             referenced_documents=referenced_documents,
             truncated=False,  # TODO: implement truncation detection
             input_tokens=token_usage.input_tokens,
@@ -429,7 +421,7 @@ async def query_endpoint_handler_base(  # pylint: disable=R0914
         logger.exception("Error persisting conversation details: %s", e)
         response = InternalServerErrorResponse.database_error()
         raise HTTPException(**response.model_dump()) from e
-    except RateLimitError as e:
+    except Exception as e:
         used_model = getattr(e, "model", "")
         response = QuotaExceededResponse.model(used_model)
         raise HTTPException(**response.model_dump()) from e
@@ -758,11 +750,16 @@ async def retrieve_response(  # pylint: disable=too-many-locals,too-many-branche
         messages=[UserMessage(role="user", content=query_request.query)],
         session_id=session_id,
         documents=documents,
-        stream=False,
+        stream=True,
         toolgroups=toolgroups,
     )
-    logger.info("Response: %s", response)
-    response = cast(Turn, response)
+    response = cast(AsyncIterator[AgentTurnResponseStreamChunk], response)
+    chunks = [x async for x in response]
+    if not chunks:
+        raise Exception("Turn did not complete")
+    completed_chunk = chunks[-1].event.payload
+    completed_turn = cast(AgentTurnResponseTurnCompletePayload, completed_chunk).turn
+    response = cast(Turn, completed_turn)
 
     summary = TurnSummary(
         llm_response=(
@@ -773,7 +770,6 @@ async def retrieve_response(  # pylint: disable=too-many-locals,too-many-branche
             )
             else ""
         ),
-        tool_calls=[],
     )
 
     referenced_documents = parse_referenced_documents(response)
