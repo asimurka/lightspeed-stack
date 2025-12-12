@@ -901,7 +901,6 @@ async def streaming_query_endpoint_handler_base(  # pylint: disable=too-many-loc
             client = client_holder.get_client_with_updated_azure_headers(
                 access_token=azure_token_manager.access_token,
                 api_base=str(azure_config.get("api_base")),
-                api_version=str(azure_config.get("api_version")),
             )
             client_holder.set_client(client)
 

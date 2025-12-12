@@ -582,7 +582,7 @@ async def test_query_endpoint_quota_exceeded(
     mocker.patch("app.endpoints.query.check_tokens_available")
     mocker.patch("app.endpoints.query.get_session")
     mocker.patch("app.endpoints.query.is_transcripts_enabled", return_value=False)
-    mocker.patch("app.endpoints.query_v2.get_available_shields", return_value=[])
+    # mocker.patch("app.endpoints.query_v2.get_available_shields", return_value=[])
     mocker.patch(
         "app.endpoints.query_v2.prepare_tools_for_responses_api", return_value=None
     )
@@ -600,10 +600,10 @@ async def test_query_endpoint_quota_exceeded(
 
 @pytest.mark.asyncio
 async def test_retrieve_response_with_shields_available(mocker: MockerFixture) -> None:
-    """Test that shields are listed and passed to responses API when available."""
+    """Test that shields are listed but NOT passed to responses API (currently disabled)."""
     mock_client = mocker.Mock()
 
-    # Mock shields.list to return available shields
+    # Mock shields.list to return available shields (even though they won't be used)
     shield1 = mocker.Mock()
     shield1.identifier = "shield-1"
     shield2 = mocker.Mock()
@@ -640,11 +640,12 @@ async def test_retrieve_response_with_shields_available(mocker: MockerFixture) -
     assert conv_id == "abc123def456"  # Normalized (without conv_ prefix)
     assert summary.llm_response == "Safe response"
 
-    # Verify that shields were passed in extra_body
+    # Verify that shields were NOT passed in extra_body (functionality is currently disabled)
     kwargs = mock_client.responses.create.call_args.kwargs
-    assert "extra_body" in kwargs
-    assert "guardrails" in kwargs["extra_body"]
-    assert kwargs["extra_body"]["guardrails"] == ["shield-1", "shield-2"]
+    assert "extra_body" not in kwargs
+    # assert "extra_body" in kwargs
+    # assert "guardrails" in kwargs["extra_body"]
+    # assert kwargs["extra_body"]["guardrails"] == ["shield-1", "shield-2"]
 
 
 @pytest.mark.asyncio

@@ -1079,4 +1079,5 @@ def test_dump_configuration_pg_namespace(tmp_path: Path) -> None:
                 },
                 "enable_token_history": False,
             },
+            "azure_entra_id": None,
         }

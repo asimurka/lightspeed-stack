@@ -2,6 +2,8 @@
 
 """Unit tests for functions defined in authentication/api_key_token.py"""
 
+from typing import Any, cast
+
 import pytest
 from fastapi import HTTPException, Request
 from pydantic import SecretStr

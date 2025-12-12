@@ -129,6 +129,19 @@ def main() -> None:
             raise SystemExit(1) from e
         return
 
+    # Setup Azure Entra ID token if configured - this needs to happen before
+    # Llama Stack is started so the token is available via environment variable
+    if configuration.azure_entra_id:
+        logger.info("Azure Entra ID is configured, setting up token manager")
+        AzureEntraIDTokenManager().set_config(configuration.azure_entra_id)
+        AzureEntraIDTokenManager().refresh_token()
+        access_token = AzureEntraIDTokenManager().access_token
+        if access_token:
+            os.environ["AZURE_API_KEY"] = access_token
+            logger.info("Azure access token set in AZURE_API_KEY environment variable")
+        else:
+            logger.warning("Failed to obtain Azure access token")
+
     # -g or --generate-llama-stack-configuration CLI flags are used to (re)generate
     # configuration for Llama Stack
     if args.generate_llama_stack_configuration:
@@ -148,13 +161,11 @@ def main() -> None:
         return
 
     # Store config path in env so each uvicorn worker can load it
-    # (step is needed because process context isn’t shared).
+    # (step is needed because process context isn't shared).
     os.environ["LIGHTSPEED_STACK_CONFIG_PATH"] = args.config_file
 
     # start the runners
     start_quota_scheduler(configuration.configuration)
-    if configuration.azure_entra_id:
-        AzureEntraIDTokenManager().set_config(configuration.azure_entra_id)
     # if every previous steps don't fail, start the service on specified port
     start_uvicorn(configuration.service_configuration)
     logger.info("Lightspeed Core Stack finished")

@@ -278,10 +278,10 @@ async def test_streaming_query_endpoint_handler_v2_api_connection_error(
 
 @pytest.mark.asyncio
 async def test_retrieve_response_with_shields_available(mocker: MockerFixture) -> None:
-    """Test that shields are listed and passed to streaming responses API."""
+    """Test shields are listed but NOT passed to streaming responses API (disabled)."""
     mock_client = mocker.Mock()
 
-    # Mock shields.list to return available shields
+    # Mock shields.list to return available shields (even though they won't be used)
     shield1 = mocker.Mock()
     shield1.identifier = "shield-1"
     shield2 = mocker.Mock()
@@ -307,11 +307,12 @@ async def test_retrieve_response_with_shields_available(mocker: MockerFixture) -
     qr = QueryRequest(query="hello")
     await retrieve_response(mock_client, "model-shields", qr, token="tok")
 
-    # Verify that shields were passed in extra_body
+    # Verify that shields were NOT passed in extra_body (functionality is currently disabled)
     kwargs = mock_client.responses.create.call_args.kwargs
-    assert "extra_body" in kwargs
-    assert "guardrails" in kwargs["extra_body"]
-    assert kwargs["extra_body"]["guardrails"] == ["shield-1", "shield-2"]
+    assert "extra_body" not in kwargs
+    # assert "extra_body" in kwargs
+    # assert "guardrails" in kwargs["extra_body"]
+    # assert kwargs["extra_body"]["guardrails"] == ["shield-1", "shield-2"]
 
 
 @pytest.mark.asyncio
@@ -585,9 +586,9 @@ async def test_streaming_query_endpoint_handler_v2_quota_exceeded(
         return_value=("openai/gpt-4-turbo", "gpt-4-turbo", "openai"),
     )
     mocker.patch("app.endpoints.streaming_query.validate_model_provider_override")
-    mocker.patch(
-        "app.endpoints.streaming_query_v2.get_available_shields", return_value=[]
-    )
+    # mocker.patch(
+    #     "app.endpoints.streaming_query_v2.get_available_shields", return_value=[]
+    # )
     mocker.patch(
         "app.endpoints.streaming_query_v2.prepare_tools_for_responses_api",
         return_value=None,

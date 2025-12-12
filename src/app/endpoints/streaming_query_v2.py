@@ -53,7 +53,7 @@ from utils.endpoints import (
 from utils.quota import consume_tokens, get_available_quotas
 from utils.suid import normalize_conversation_id, to_llama_stack_conversation_id
 from utils.mcp_headers import mcp_headers_dependency
-from utils.shields import detect_shield_violations, get_available_shields
+from utils.shields import detect_shield_violations
 from utils.token_counter import TokenCounter
 from utils.transcripts import store_transcript
 from utils.types import ToolCallSummary, TurnSummary
@@ -395,7 +395,7 @@ async def retrieve_response(  # pylint: disable=too-many-locals
         and the conversation ID.
     """
     # List available shields for Responses API
-    available_shields = await get_available_shields(client)
+    # available_shields = await get_available_shields(client)
 
     # use system prompt from request or default one
     system_prompt = get_system_prompt(query_request, configuration)
@@ -452,8 +452,8 @@ async def retrieve_response(  # pylint: disable=too-many-locals
     }
 
     # Add shields to extra_body if available
-    if available_shields:
-        create_params["extra_body"] = {"guardrails": available_shields}
+    # if available_shields:
+    #     create_params["extra_body"] = {"guardrails": available_shields}
 
     response = await client.responses.create(**create_params)
     response_stream = cast(AsyncIterator[OpenAIResponseObjectStream], response)

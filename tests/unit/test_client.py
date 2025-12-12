@@ -95,7 +95,6 @@ async def test_get_client_with_updated_azure_headers_preserves_existing_data() -
         "existing_field": "keep_this",
         "azure_api_key": "old_token",
         "azure_api_base": "https://old.example.com",
-        "azure_api_version": "v0",
     }
     original_client._custom_headers["X-LlamaStack-Provider-Data"] = json.dumps(
         original_provider_data
@@ -103,12 +102,10 @@ async def test_get_client_with_updated_azure_headers_preserves_existing_data() -
 
     access_token = "new_token"
     api_base = "https://new.example.com"
-    api_version = "v1"
 
     new_client = holder.get_client_with_updated_azure_headers(
         access_token=access_token,
         api_base=api_base,
-        api_version=api_version,
     )
 
     assert new_client is not original_client
@@ -127,5 +124,3 @@ async def test_get_client_with_updated_azure_headers_preserves_existing_data() -
     # Azure fields are overwritten
     assert provider_data["azure_api_key"] == access_token
     assert provider_data["azure_api_base"] == api_base
-    assert provider_data["azure_api_version"] == api_version
-    assert provider_data.get("azure_api_type") is None

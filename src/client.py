@@ -1,8 +1,7 @@
 """Llama Stack client retrieval class."""
 
-import logging
 import json
-
+import logging
 from typing import Optional
 
 from llama_stack import (
@@ -97,14 +96,33 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
         self,
         access_token: str,
         api_base: str,
-        api_version: str,
     ) -> AsyncLlamaStackClient:
-        """Return a new client with updated Azure headers, preserving other headers."""
+        """Return a new client with updated Azure headers, preserving other headers.
+
+        For remote clients (AsyncLlamaStackClient): Creates a copy with updated headers.
+        For library clients (AsyncLlamaStackAsLibraryClient): Updates the provider_data
+        attribute directly since library clients don't support the copy() method.
+        """
         if not self._lsc:
             raise RuntimeError(
                 "AsyncLlamaStackClient has not been initialised. Ensure 'load(..)' has been called."
             )
 
+        # Library client doesn't have a copy method. Instead, update the provider_data
+        # attribute directly - this gets serialized to headers on each request.
+        logger.error(
+            "Library client %s", isinstance(self._lsc, AsyncLlamaStackAsLibraryClient)
+        )
+        if isinstance(self._lsc, AsyncLlamaStackAsLibraryClient):
+            if self._lsc.provider_data is None:
+                self._lsc.provider_data = {}
+            self._lsc.provider_data["azure_api_key"] = access_token
+            self._lsc.provider_data["azure_api_base"] = api_base
+            logger.info("Updated Azure credentials in library client provider_data")
+            logger.info("Library client provider_data: %s", self._lsc.provider_data)
+            return self._lsc
+
+        # Remote client: create a copy with updated headers
         current_headers = self._lsc.default_headers if self._lsc else {}
         provider_data_json = current_headers.get("X-LlamaStack-Provider-Data")
 
@@ -118,8 +136,6 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
             {
                 "azure_api_key": access_token,
                 "azure_api_base": api_base,
-                "azure_api_version": api_version,
-                "azure_api_type": None,  # deprecated attribute
             }
         )
 

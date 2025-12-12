@@ -43,7 +43,7 @@ from utils.endpoints import (
 from utils.suid import normalize_conversation_id, to_llama_stack_conversation_id
 from utils.mcp_headers import mcp_headers_dependency
 from utils.responses import extract_text_from_response_output_item
-from utils.shields import detect_shield_violations, get_available_shields
+from utils.shields import detect_shield_violations
 from utils.token_counter import TokenCounter
 from utils.types import ToolCallSummary, ToolResultSummary, TurnSummary
 
@@ -323,7 +323,7 @@ async def retrieve_response(  # pylint: disable=too-many-locals,too-many-branche
         and token usage information.
     """
     # List available shields for Responses API
-    available_shields = await get_available_shields(client)
+    # available_shields = await get_available_shields(client)
 
     # use system prompt from request or default one
     system_prompt = get_system_prompt(query_request, configuration)
@@ -382,8 +382,8 @@ async def retrieve_response(  # pylint: disable=too-many-locals,too-many-branche
     }
 
     # Add shields to extra_body if available
-    if available_shields:
-        create_kwargs["extra_body"] = {"guardrails": available_shields}
+    # if available_shields:
+    #     create_kwargs["extra_body"] = {"guardrails": available_shields}
 
     response = await client.responses.create(**create_kwargs)
     response = cast(OpenAIResponseObject, response)

@@ -69,7 +69,6 @@ from utils.suid import normalize_conversation_id
 from utils.token_counter import TokenCounter, extract_and_update_token_metrics
 from utils.transcripts import store_transcript
 from utils.types import TurnSummary, content_to_str
-from utils.token_counter import extract_and_update_token_metrics, TokenCounter
 from authorization.azure_token_manager import AzureEntraIDTokenManager
 
 
@@ -333,7 +332,6 @@ async def query_endpoint_handler_base(  # pylint: disable=R0914
             client = client_holder.get_client_with_updated_azure_headers(
                 access_token=azure_token_manager.access_token,
                 api_base=str(azure_config.get("api_base")),
-                api_version=str(azure_config.get("api_version")),
             )
             client_holder.set_client(client)
 
