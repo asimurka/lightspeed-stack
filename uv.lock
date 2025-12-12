@@ -1374,6 +1374,8 @@ source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
     { name = "authlib" },
+    { name = "azure-core" },
+    { name = "azure-identity" },
     { name = "cachetools" },
     { name = "email-validator" },
     { name = "fastapi" },
@@ -1423,8 +1425,6 @@ dev = [
 llslibdev = [
     { name = "aiosqlite" },
     { name = "autoevals" },
-    { name = "azure-core" },
-    { name = "azure-identity" },
     { name = "blobfile" },
     { name = "datasets" },
     { name = "emoji" },
@@ -1458,6 +1458,8 @@ llslibdev = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.12.14" },
     { name = "authlib", specifier = ">=1.6.0" },
+    { name = "azure-core" },
+    { name = "azure-identity" },
     { name = "cachetools", specifier = ">=6.1.0" },
     { name = "email-validator", specifier = ">=2.2.0" },
     { name = "fastapi", specifier = ">=0.115.12" },
@@ -1507,8 +1509,6 @@ dev = [
 llslibdev = [
     { name = "aiosqlite", specifier = ">=0.21.0" },
     { name = "autoevals", specifier = ">=0.0.129" },
-    { name = "azure-core" },
-    { name = "azure-identity" },
     { name = "blobfile", specifier = ">=3.0.0" },
     { name = "datasets", specifier = ">=3.6.0" },
     { name = "emoji", specifier = ">=2.1.0" },

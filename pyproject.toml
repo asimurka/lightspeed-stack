@@ -53,6 +53,8 @@ dependencies = [
     "psycopg2-binary>=2.9.10",
     "litellm>=1.75.5.post1",
     "urllib3==2.6.2",
+    "azure-core",
+    "azure-identity",
 ]
 
 
@@ -168,8 +170,6 @@ llslibdev = [
     "opentelemetry-instrumentation>=0.55b0",
     "blobfile>=3.0.0",
     "psutil>=7.0.0",
-    "azure-core",
-    "azure-identity",
 ]
 
 build = [
