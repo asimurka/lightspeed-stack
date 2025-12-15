@@ -316,24 +316,24 @@ async def query_endpoint_handler_base(  # pylint: disable=R0914
             ),
         )
 
-        azure_token_manager = AzureEntraIDTokenManager()
-        if (
-            provider_id == "azure"
-            and azure_token_manager.is_entra_id_configured
-            and azure_token_manager.is_token_expired
-        ):
-            azure_token_manager.refresh_token()
-            azure_config = next(
-                p.config
-                for p in await client.providers.list()
-                if p.provider_type == "remote::azure"
-            )
+        if provider_id == "azure":
+            azure_token_manager = AzureEntraIDTokenManager()
+            if (
+                azure_token_manager.is_entra_id_configured
+                and azure_token_manager.is_token_expired
+            ):
+                azure_token_manager.refresh_token()
+                azure_config = next(
+                    p.config
+                    for p in await client.providers.list()
+                    if p.provider_type == "remote::azure"
+                )
 
-            client = client_holder.get_client_with_updated_azure_headers(
-                access_token=azure_token_manager.access_token,
-                api_base=str(azure_config.get("api_base")),
-            )
-            client_holder.set_client(client)
+                updated_client = client_holder.update_provider_data({
+                    "azure_api_key": azure_token_manager.access_token,
+                    "azure_api_base": str(azure_config.get("api_base")),
+                })
+                client_holder.set_client(updated_client)
 
         summary, conversation_id, referenced_documents, token_usage = (
             await retrieve_response_func(

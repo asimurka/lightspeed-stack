@@ -29,10 +29,20 @@ from llama_stack_configuration import (
 )
 
 
+def byok_to_dict(byok: ByokRag) -> dict[str, Any]:
+    """Convert ByokRag to dict for testing."""
+    return {
+        "vector_db_id": byok.vector_db_id,
+        "embedding_model": byok.embedding_model,
+        "embedding_dimension": byok.embedding_dimension,
+        "rag_type": byok.rag_type,
+    }
+
+
 def test_construct_vector_dbs_section_init() -> None:
     """Test the function construct_vector_dbs_section for no vector_dbs configured before."""
     ls_config: dict[str, Any] = {}
-    byok_rag: list[ByokRag] = []
+    byok_rag: list[dict[str, Any]] = []
     output = construct_vector_dbs_section(ls_config, byok_rag)
     assert len(output) == 0
 
@@ -55,7 +65,7 @@ def test_construct_vector_dbs_section_init_with_existing_data() -> None:
             },
         ]
     }
-    byok_rag: list[ByokRag] = []
+    byok_rag: list[dict[str, Any]] = []
     output = construct_vector_dbs_section(ls_config, byok_rag)
     assert len(output) == 2
     assert output[0] == {
@@ -75,17 +85,17 @@ def test_construct_vector_dbs_section_init_with_existing_data() -> None:
 def test_construct_vector_dbs_section_append() -> None:
     """Test the function construct_vector_dbs_section for no vector_dbs configured before."""
     ls_config: dict[str, Any] = {}
-    byok_rag: list[ByokRag] = [
-        ByokRag(
+    byok_rag = [
+        byok_to_dict(ByokRag(
             rag_id="rag_id_1",
             vector_db_id="vector_db_id_1",
             db_path=Path("tests/configuration/rag.txt"),
-        ),
-        ByokRag(
+        )),
+        byok_to_dict(ByokRag(
             rag_id="rag_id_2",
             vector_db_id="vector_db_id_2",
             db_path=Path("tests/configuration/rag.txt"),
-        ),
+        )),
     ]
     output = construct_vector_dbs_section(ls_config, byok_rag)
     assert len(output) == 2
@@ -122,16 +132,16 @@ def test_construct_vector_dbs_section_full_merge() -> None:
         ]
     }
     byok_rag = [
-        ByokRag(
+        byok_to_dict(ByokRag(
             rag_id="rag_id_1",
             vector_db_id="vector_db_id_1",
             db_path=Path("tests/configuration/rag.txt"),
-        ),
-        ByokRag(
+        )),
+        byok_to_dict(ByokRag(
             rag_id="rag_id_2",
             vector_db_id="vector_db_id_2",
             db_path=Path("tests/configuration/rag.txt"),
-        ),
+        )),
     ]
     output = construct_vector_dbs_section(ls_config, byok_rag)
     assert len(output) == 4
@@ -164,7 +174,7 @@ def test_construct_vector_dbs_section_full_merge() -> None:
 def test_construct_vector_io_providers_section_init() -> None:
     """Test construct_vector_io_providers_section for no vector_io_providers configured before."""
     ls_config: dict[str, Any] = {"providers": {}}
-    byok_rag: list[ByokRag] = []
+    byok_rag: list[dict[str, Any]] = []
     output = construct_vector_io_providers_section(ls_config, byok_rag)
     assert len(output) == 0
 
@@ -185,7 +195,7 @@ def test_construct_vector_io_providers_section_init_with_existing_data() -> None
             ]
         }
     }
-    byok_rag: list[ByokRag] = []
+    byok_rag: list[dict[str, Any]] = []
     output = construct_vector_io_providers_section(ls_config, byok_rag)
     assert len(output) == 2
     assert output[0] == {
@@ -202,16 +212,16 @@ def test_construct_vector_io_providers_section_append() -> None:
     """Test construct_vector_io_providers_section for no vector_io_providers configured before."""
     ls_config: dict[str, Any] = {"providers": {}}
     byok_rag = [
-        ByokRag(
+        byok_to_dict(ByokRag(
             rag_id="rag_id_1",
             vector_db_id="vector_db_id_1",
             db_path=Path("tests/configuration/rag.txt"),
-        ),
-        ByokRag(
+        )),
+        byok_to_dict(ByokRag(
             rag_id="rag_id_2",
             vector_db_id="vector_db_id_2",
             db_path=Path("tests/configuration/rag.txt"),
-        ),
+        )),
     ]
     output = construct_vector_io_providers_section(ls_config, byok_rag)
     assert len(output) == 2
@@ -256,16 +266,16 @@ def test_construct_vector_io_providers_section_full_merge() -> None:
         }
     }
     byok_rag = [
-        ByokRag(
+        byok_to_dict(ByokRag(
             rag_id="rag_id_1",
             vector_db_id="vector_db_id_1",
             db_path=Path("tests/configuration/rag.txt"),
-        ),
-        ByokRag(
+        )),
+        byok_to_dict(ByokRag(
             rag_id="rag_id_2",
             vector_db_id="vector_db_id_2",
             db_path=Path("tests/configuration/rag.txt"),
-        ),
+        )),
     ]
     output = construct_vector_io_providers_section(ls_config, byok_rag)
     assert len(output) == 4
@@ -318,7 +328,7 @@ def test_generate_configuration_no_input_file(tmpdir: Path) -> None:
     outfile = tmpdir / "run.xml"
     # try to generate new configuration file
     with pytest.raises(FileNotFoundError, match="No such file"):
-        generate_configuration("/does/not/exist", str(outfile), cfg)
+        generate_configuration("/does/not/exist", str(outfile), cfg.model_dump())
 
 
 def test_generate_configuration_proper_input_file_no_byok(tmpdir: Path) -> None:
@@ -337,7 +347,7 @@ def test_generate_configuration_proper_input_file_no_byok(tmpdir: Path) -> None:
     )
     outfile = tmpdir / "run.xml"
     # try to generate new configuration file
-    generate_configuration("tests/configuration/run.yaml", str(outfile), cfg)
+    generate_configuration("tests/configuration/run.yaml", str(outfile), cfg.model_dump())
 
     with open(outfile, "r", encoding="utf-8") as fin:
         generated = yaml.safe_load(fin)
@@ -374,7 +384,7 @@ def test_generate_configuration_proper_input_file_configured_byok(tmpdir: Path) 
     )
     outfile = tmpdir / "run.xml"
     # try to generate new configuration file
-    generate_configuration("tests/configuration/run.yaml", str(outfile), cfg)
+    generate_configuration("tests/configuration/run.yaml", str(outfile), cfg.model_dump())
 
     with open(outfile, "r", encoding="utf-8") as fin:
         generated = yaml.safe_load(fin)

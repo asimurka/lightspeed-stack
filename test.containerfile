@@ -1,5 +1,5 @@
 # Custom Red Hat llama-stack image with missing dependencies
-FROM quay.io/aipcc/llama-stack/cpu-ubi9:rhoai-3.2 
+FROM quay.io/aipcc/llama-stack/cpu-ubi9:rhoai-3.2
 
 # Install missing dependencies and create required directories
 USER root
@@ -10,5 +10,13 @@ RUN pip install faiss-cpu==1.11.0 && \
     mkdir -p /opt/app-root/src/.llama/storage /opt/app-root/src/.llama/providers.d && \
     chown -R 1001:0 /opt/app-root/src/.llama
 
+# Copy enrichment scripts for runtime config enrichment
+COPY src/llama_stack_configuration.py /opt/app-root/enrich_llama_config.py
+COPY scripts/llama-stack-entrypoint.sh /opt/app-root/entrypoint.sh
+RUN chmod +x /opt/app-root/entrypoint.sh /opt/app-root/enrich_llama_config.py && \
+    chown 1001:0 /opt/app-root/entrypoint.sh /opt/app-root/enrich_llama_config.py
+
 # Switch back to the original user
 USER 1001
+
+ENTRYPOINT ["/opt/app-root/entrypoint.sh"]

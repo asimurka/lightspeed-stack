@@ -2,12 +2,16 @@
 
 import json
 import logging
+import os
+import tempfile
 from typing import Optional
 
 from llama_stack import (
     AsyncLlamaStackAsLibraryClient,  # type: ignore
 )
 from llama_stack_client import AsyncLlamaStackClient  # type: ignore
+from configuration import configuration
+from llama_stack_configuration import generate_configuration
 from models.config import LlamaStackConfiguration
 from utils.types import Singleton
 
@@ -46,9 +50,13 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
         if llama_stack_config.use_as_library_client is True:
             if llama_stack_config.library_client_config_path is not None:
                 logger.info("Using Llama stack as library client")
-                client = AsyncLlamaStackAsLibraryClient(
+
+                # Enrich the llama-stack config with dynamic values before loading
+                enriched_config_path = self._enrich_library_config(
                     llama_stack_config.library_client_config_path
                 )
+
+                client = AsyncLlamaStackAsLibraryClient(enriched_config_path)
                 await client.initialize()
                 self._lsc = client
             else:
@@ -66,6 +74,35 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
                     else None
                 ),
             )
+
+    def _enrich_library_config(self, input_config_path: str) -> str:
+        """Enrich llama-stack config with dynamic values from lightspeed config.
+
+        Returns the path to the enriched config file.
+        """
+        # Generate enriched config to a temp file
+        # Use a deterministic name so we don't create multiple temp files
+        enriched_path = os.path.join(
+            tempfile.gettempdir(), "llama_stack_enriched_config.yaml"
+        )
+
+        try:
+            generate_configuration(
+                input_config_path,
+                enriched_path,
+                configuration.configuration,
+            )
+            logger.info(
+                "Enriched llama-stack config: %s -> %s",
+                input_config_path,
+                enriched_path,
+            )
+            return enriched_path
+        except Exception as e:
+            logger.warning(
+                "Failed to enrich llama-stack config, using original: %s", e
+            )
+            return input_config_path
 
     def get_client(self) -> AsyncLlamaStackClient:
         """
@@ -92,38 +129,27 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
         """
         self._lsc = new_client
 
-    def get_client_with_updated_azure_headers(
-        self,
-        access_token: str,
-        api_base: str,
-    ) -> AsyncLlamaStackClient:
-        """Return a new client with updated Azure headers, preserving other headers.
+    def update_provider_data(self, updates: dict[str, str]) -> AsyncLlamaStackClient:
+        """Update provider_data with the given key-value pairs, preserving existing data.
 
-        For remote clients (AsyncLlamaStackClient): Creates a copy with updated headers.
         For library clients (AsyncLlamaStackAsLibraryClient): Updates the provider_data
         attribute directly since library clients don't support the copy() method.
+        For remote clients (AsyncLlamaStackClient): Creates a copy with updated headers.
         """
         if not self._lsc:
             raise RuntimeError(
                 "AsyncLlamaStackClient has not been initialised. Ensure 'load(..)' has been called."
             )
 
-        # Library client doesn't have a copy method. Instead, update the provider_data
-        # attribute directly - this gets serialized to headers on each request.
-        logger.error(
-            "Library client %s", isinstance(self._lsc, AsyncLlamaStackAsLibraryClient)
-        )
+        # Library client: update provider_data directly
         if isinstance(self._lsc, AsyncLlamaStackAsLibraryClient):
             if self._lsc.provider_data is None:
                 self._lsc.provider_data = {}
-            self._lsc.provider_data["azure_api_key"] = access_token
-            self._lsc.provider_data["azure_api_base"] = api_base
-            logger.info("Updated Azure credentials in library client provider_data")
-            logger.info("Library client provider_data: %s", self._lsc.provider_data)
+            self._lsc.provider_data.update(updates)
             return self._lsc
 
         # Remote client: create a copy with updated headers
-        current_headers = self._lsc.default_headers if self._lsc else {}
+        current_headers = self._lsc.default_headers or {}
         provider_data_json = current_headers.get("X-LlamaStack-Provider-Data")
 
         try:
@@ -131,13 +157,7 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
         except (json.JSONDecodeError, TypeError):
             provider_data = {}
 
-        # Update only Azure-specific fields
-        provider_data.update(
-            {
-                "azure_api_key": access_token,
-                "azure_api_base": api_base,
-            }
-        )
+        provider_data.update(updates)
 
         updated_headers = {
             **current_headers,

@@ -11,6 +11,10 @@ TORCH_VERSION := 2.7.1
 run: ## Run the service locally
 	uv run src/lightspeed_stack.py
 
+run-llama-stack: ## Start Llama Stack with enriched config (for local service mode)
+	uv run src/llama_stack_configuration.py -c lightspeed-stack.yaml
+	uv run llama stack run run_.yaml
+
 test-unit: ## Run the unit tests
 	@echo "Running unit tests..."
 	@echo "Reports will be written to ${ARTIFACT_DIR}"
