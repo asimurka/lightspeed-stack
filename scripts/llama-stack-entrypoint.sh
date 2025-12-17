@@ -20,6 +20,7 @@ if [ -f "$LIGHTSPEED_CONFIG" ]; then
 
     # Source .env if generated (contains AZURE_API_KEY)
     if [ -f "$ENV_FILE" ]; then
+        # shellcheck source=/dev/null
         set -a && . "$ENV_FILE" && set +a
     fi
 

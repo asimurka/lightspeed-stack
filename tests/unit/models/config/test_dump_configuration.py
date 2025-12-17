@@ -514,6 +514,7 @@ def test_dump_configuration_with_quota_limiters(tmp_path: Path) -> None:
                 },
                 "enable_token_history": True,
             },
+            "azure_entra_id": None,
         }
 
 
@@ -909,6 +910,7 @@ def test_dump_configuration_byok(tmp_path: Path) -> None:
                 },
                 "enable_token_history": False,
             },
+            "azure_entra_id": None,
         }
 
 
