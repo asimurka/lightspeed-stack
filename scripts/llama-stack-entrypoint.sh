@@ -5,16 +5,23 @@
 set -e
 
 INPUT_CONFIG="${LLAMA_STACK_CONFIG:-/opt/app-root/run.yaml}"
-ENRICHED_CONFIG="/tmp/run_enriched.yaml"
+ENRICHED_CONFIG="/opt/app-root/run_enriched.yaml"
 LIGHTSPEED_CONFIG="${LIGHTSPEED_CONFIG:-/opt/app-root/lightspeed-stack.yaml}"
+ENV_FILE="/opt/app-root/.env"
 
 # Enrich config if lightspeed config exists
 if [ -f "$LIGHTSPEED_CONFIG" ]; then
     echo "Enriching llama-stack config..."
-    python3 /opt/app-root/enrich_llama_config.py \
+    python3 /opt/app-root/llama_stack_configuration.py \
         -c "$LIGHTSPEED_CONFIG" \
         -i "$INPUT_CONFIG" \
-        -o "$ENRICHED_CONFIG" 2>&1 || true
+        -o "$ENRICHED_CONFIG" \
+        -e "$ENV_FILE" 2>&1 || true
+
+    # Source .env if generated (contains AZURE_API_KEY)
+    if [ -f "$ENV_FILE" ]; then
+        set -a && . "$ENV_FILE" && set +a
+    fi
 
     if [ -f "$ENRICHED_CONFIG" ]; then
         echo "Using enriched config: $ENRICHED_CONFIG"

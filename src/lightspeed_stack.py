@@ -14,6 +14,7 @@ from log import get_logger
 from configuration import configuration
 from runners.uvicorn import start_uvicorn
 from runners.quota_scheduler import start_quota_scheduler
+from authorization.azure_token_manager import AzureEntraIDManager
 
 FORMAT = "%(message)s"
 logging.basicConfig(
@@ -108,6 +109,12 @@ def main() -> None:
     # Store config path in env so each uvicorn worker can load it
     # (step is needed because process context isn't shared).
     os.environ["LIGHTSPEED_STACK_CONFIG_PATH"] = args.config_file
+
+    # Setup Azure EntraID config if configured
+    azure_config = configuration.configuration.azure_entra_id
+    if azure_config is not None:
+        AzureEntraIDManager().set_config(azure_config)
+        logger.info("Azure Entra ID configuration loaded")
 
     # start the runners
     start_quota_scheduler(configuration.configuration)

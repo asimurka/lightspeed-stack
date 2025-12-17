@@ -12,7 +12,7 @@ from pydantic import SecretStr
 from pytest_mock import MockerFixture
 
 from authorization.azure_token_manager import (
-    AzureEntraIDTokenManager,
+    AzureEntraIDManager,
     TOKEN_EXPIRATION_LEEWAY,
 )
 from configuration import AzureEntraIdConfiguration
@@ -31,25 +31,25 @@ def dummy_config_fixture() -> AzureEntraIdConfiguration:
 @pytest.fixture(autouse=True)
 def reset_singleton() -> Generator[None, None, None]:
     """Reset the singleton instance before each test."""
-    AzureEntraIDTokenManager._instances = {}  # type: ignore[attr-defined]
+    AzureEntraIDManager._instances = {}  # type: ignore[attr-defined]
     yield
 
 
 @pytest.fixture(name="token_manager")
-def token_manager_fixture() -> AzureEntraIDTokenManager:
+def token_manager_fixture() -> AzureEntraIDManager:
     """Return a fresh AzureEntraIDTokenManager instance."""
-    return AzureEntraIDTokenManager()
+    return AzureEntraIDManager()
 
 
 class TestAzureEntraIDTokenManager:
     """Unit tests for AzureEntraIDTokenManager."""
 
-    def test_singleton_behavior(self, token_manager: AzureEntraIDTokenManager) -> None:
+    def test_singleton_behavior(self, token_manager: AzureEntraIDManager) -> None:
         """Verify the singleton returns the same instance."""
-        manager2 = AzureEntraIDTokenManager()
+        manager2 = AzureEntraIDManager()
         assert token_manager is manager2
 
-    def test_initial_state(self, token_manager: AzureEntraIDTokenManager) -> None:
+    def test_initial_state(self, token_manager: AzureEntraIDManager) -> None:
         """Check the initial token manager state."""
         assert token_manager.access_token == ""
         assert token_manager.is_token_expired
@@ -57,16 +57,14 @@ class TestAzureEntraIDTokenManager:
 
     def test_set_config(
         self,
-        token_manager: AzureEntraIDTokenManager,
+        token_manager: AzureEntraIDManager,
         dummy_config: AzureEntraIdConfiguration,
     ) -> None:
         """Set the Azure configuration on the token manager."""
         token_manager.set_config(dummy_config)
         assert token_manager.is_entra_id_configured
 
-    def test_token_expiration_logic(
-        self, token_manager: AzureEntraIDTokenManager
-    ) -> None:
+    def test_token_expiration_logic(self, token_manager: AzureEntraIDManager) -> None:
         """Verify token expiration logic works correctly."""
         token_manager._expires_on = int(time.time()) + 100
         assert not token_manager.is_token_expired
@@ -76,14 +74,14 @@ class TestAzureEntraIDTokenManager:
 
     @pytest.mark.asyncio
     async def test_refresh_token_raises_without_config(
-        self, token_manager: AzureEntraIDTokenManager
+        self, token_manager: AzureEntraIDManager
     ) -> None:
         """Raise ValueError when refresh_token is called without config."""
-        with pytest.raises(ValueError, match="Azure configuration is not set"):
+        with pytest.raises(ValueError, match="Azure Entra ID configuration not set"):
             token_manager.refresh_token()
 
     def test_update_access_token_sets_token_and_expiration(
-        self, token_manager: AzureEntraIDTokenManager
+        self, token_manager: AzureEntraIDManager
     ) -> None:
         """Update the token and its expiration in the token manager."""
         expires_on = int(time.time()) + 3600
@@ -94,7 +92,7 @@ class TestAzureEntraIDTokenManager:
     @pytest.mark.asyncio
     async def test_refresh_token_success(
         self,
-        token_manager: AzureEntraIDTokenManager,
+        token_manager: AzureEntraIDManager,
         dummy_config: AzureEntraIdConfiguration,
         mocker: MockerFixture,
     ) -> None:
@@ -119,14 +117,14 @@ class TestAzureEntraIDTokenManager:
         )
 
     @pytest.mark.asyncio
-    async def test_refresh_token_failure_raises_runtime_error(
+    async def test_refresh_token_failure_logs_error(
         self,
-        token_manager: AzureEntraIDTokenManager,
+        token_manager: AzureEntraIDManager,
         dummy_config: AzureEntraIdConfiguration,
         mocker: MockerFixture,
         caplog: Any,
     ) -> None:
-        """Raise RuntimeError when token retrieval fails due to ClientAuthenticationError."""
+        """Log error when token retrieval fails due to ClientAuthenticationError."""
         token_manager.set_config(dummy_config)
         mock_credential_instance = mocker.Mock()
         mock_credential_instance.get_token.side_effect = ClientAuthenticationError(
@@ -138,14 +136,11 @@ class TestAzureEntraIDTokenManager:
         )
 
         with caplog.at_level("ERROR"):
-            with pytest.raises(
-                RuntimeError, match="Failed to retrieve Azure access token"
-            ):
-                token_manager.refresh_token()
-            assert "Error retrieving access token" in caplog.text
+            token_manager.refresh_token()
+            assert "Failed to retrieve Azure access token" in caplog.text
 
     def test_token_expired_property_dynamic(
-        self, token_manager: AzureEntraIDTokenManager, mocker: MockerFixture
+        self, token_manager: AzureEntraIDManager, mocker: MockerFixture
     ) -> None:
         """Simulate time passage to test token expiration property."""
         now = 1000000

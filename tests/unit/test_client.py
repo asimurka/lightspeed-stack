@@ -2,6 +2,8 @@
 
 # pylint: disable=protected-access
 
+import json
+
 import pytest
 from client import AsyncLlamaStackClientHolder
 from models.config import LlamaStackConfiguration
@@ -67,8 +69,8 @@ async def test_get_async_llama_stack_wrong_configuration() -> None:
     )
     cfg.library_client_config_path = None
     with pytest.raises(
-        Exception,
-        match="Configuration problem: library_client_config_path option is not set",
+        ValueError,
+        match="library_client_config_path is required for library mode",
     ):
         client = AsyncLlamaStackClientHolder()
         await client.load(cfg)
@@ -77,8 +79,6 @@ async def test_get_async_llama_stack_wrong_configuration() -> None:
 @pytest.mark.asyncio
 async def test_update_provider_data_remote_client_returns_copy() -> None:
     """Test that update_provider_data returns a new client copy for remote clients."""
-    import json
-
     cfg = LlamaStackConfiguration(
         url="http://localhost:8321",
         api_key=None,
@@ -91,21 +91,28 @@ async def test_update_provider_data_remote_client_returns_copy() -> None:
     original_client = holder.get_client()
 
     # Pre-populate with existing provider data via headers
-    original_client._custom_headers["X-LlamaStack-Provider-Data"] = json.dumps({
-        "existing_field": "keep_this",
-        "azure_api_key": "old_token",
-    })
+    original_client._custom_headers["X-LlamaStack-Provider-Data"] = json.dumps(
+        {
+            "existing_field": "keep_this",
+            "azure_api_key": "old_token",
+        }
+    )
 
-    new_client = holder.update_provider_data({
-        "azure_api_key": "new_token",
-        "azure_api_base": "https://new.example.com",
-    })
+    holder.update_provider_data(
+        {
+            "azure_api_key": "new_token",
+            "azure_api_base": "https://new.example.com",
+        }
+    )
 
-    # Remote client returns a new copy
-    assert new_client is not original_client
+    # Remote client is replaced with a new copy
+    updated_client = holder.get_client()
+    assert updated_client is not original_client
 
-    # Verify headers on new client
-    provider_data_json = new_client.default_headers.get("X-LlamaStack-Provider-Data")
+    # Verify headers on updated client
+    provider_data_json = updated_client.default_headers.get(
+        "X-LlamaStack-Provider-Data"
+    )
     assert provider_data_json is not None
     provider_data = json.loads(provider_data_json)
 
@@ -135,13 +142,15 @@ async def test_update_provider_data_library_client_updates_in_place() -> None:
         "azure_api_key": "old_token",
     }
 
-    returned_client = holder.update_provider_data({
-        "azure_api_key": "new_token",
-        "azure_api_base": "https://new.example.com",
-    })
+    holder.update_provider_data(
+        {
+            "azure_api_key": "new_token",
+            "azure_api_base": "https://new.example.com",
+        }
+    )
 
-    # Library client returns the same instance
-    assert returned_client is original_client
+    # Library client is updated in place (same instance)
+    assert holder.get_client() is original_client
 
     # Verify in-place update
     assert original_client.provider_data["existing_field"] == "keep_this"

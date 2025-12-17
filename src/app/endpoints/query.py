@@ -69,7 +69,7 @@ from utils.suid import normalize_conversation_id
 from utils.token_counter import TokenCounter, extract_and_update_token_metrics
 from utils.transcripts import store_transcript
 from utils.types import TurnSummary, content_to_str
-from authorization.azure_token_manager import AzureEntraIDTokenManager
+from authorization.azure_token_manager import AzureEntraIDManager
 
 
 logger = logging.getLogger("app.endpoints.handlers")
@@ -317,23 +317,23 @@ async def query_endpoint_handler_base(  # pylint: disable=R0914
         )
 
         if provider_id == "azure":
-            azure_token_manager = AzureEntraIDTokenManager()
             if (
-                azure_token_manager.is_entra_id_configured
-                and azure_token_manager.is_token_expired
+                AzureEntraIDManager().is_entra_id_configured
+                and AzureEntraIDManager().is_token_expired
             ):
-                azure_token_manager.refresh_token()
+                AzureEntraIDManager().refresh_token()
                 azure_config = next(
                     p.config
                     for p in await client.providers.list()
                     if p.provider_type == "remote::azure"
                 )
 
-                updated_client = client_holder.update_provider_data({
-                    "azure_api_key": azure_token_manager.access_token,
-                    "azure_api_base": str(azure_config.get("api_base")),
-                })
-                client_holder.set_client(updated_client)
+                client_holder.update_provider_data(
+                    {
+                        "azure_api_key": AzureEntraIDManager().access_token,
+                        "azure_api_base": str(azure_config.get("api_base")),
+                    }
+                )
 
         summary, conversation_id, referenced_documents, token_usage = (
             await retrieve_response_func(

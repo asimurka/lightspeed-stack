@@ -6,15 +6,16 @@ import os
 import tempfile
 from typing import Optional
 
+import yaml
 from llama_stack import (
     AsyncLlamaStackAsLibraryClient,  # type: ignore
 )
 from llama_stack_client import AsyncLlamaStackClient  # type: ignore
+from authorization.azure_token_manager import AzureEntraIDManager
 from configuration import configuration
-from llama_stack_configuration import generate_configuration
+from llama_stack_configuration import enrich_byok_rag, YamlDumper
 from models.config import LlamaStackConfiguration
 from utils.types import Singleton
-
 
 logger = logging.getLogger(__name__)
 
@@ -25,84 +26,69 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
     _lsc: Optional[AsyncLlamaStackClient] = None
 
     async def load(self, llama_stack_config: LlamaStackConfiguration) -> None:
-        """
-        Load and initialize the holder's AsyncLlamaStackClient according to the provided config.
-
-        If `llama_stack_config.use_as_library_client` is set to True, a
-        library-mode client is created using
-        `llama_stack_config.library_client_config_path` and initialized before
-        being stored.
-
-        Otherwise, a service-mode client is created using
-        `llama_stack_config.url` and optional `llama_stack_config.api_key`.
-        The created client is stored on the instance for later retrieval via
-        `get_client()`.
-
-        Parameters:
-            llama_stack_config (LlamaStackConfiguration): Configuration that
-            selects client mode and provides either a library client config
-            path or service connection details (URL and optional API key).
-
-        Raises:
-            ValueError: If `use_as_library_client` is True but
-            `library_client_config_path` is not set.
-        """
-        if llama_stack_config.use_as_library_client is True:
-            if llama_stack_config.library_client_config_path is not None:
-                logger.info("Using Llama stack as library client")
-
-                # Enrich the llama-stack config with dynamic values before loading
-                enriched_config_path = self._enrich_library_config(
-                    llama_stack_config.library_client_config_path
-                )
-
-                client = AsyncLlamaStackAsLibraryClient(enriched_config_path)
-                await client.initialize()
-                self._lsc = client
-            else:
-                msg = "Configuration problem: library_client_config_path option is not set"
-                logger.error(msg)
-                # tisnik: use custom exception there - with cause etc.
-                raise ValueError(msg)
+        """Initialize the Llama Stack client based on configuration."""
+        if llama_stack_config.use_as_library_client:
+            await self._load_library_client(llama_stack_config)
         else:
-            logger.info("Using Llama stack running as a service")
-            self._lsc = AsyncLlamaStackClient(
-                base_url=llama_stack_config.url,
-                api_key=(
-                    llama_stack_config.api_key.get_secret_value()
-                    if llama_stack_config.api_key is not None
-                    else None
-                ),
-            )
+            self._load_service_client(llama_stack_config)
+
+    async def _load_library_client(self, config: LlamaStackConfiguration) -> None:
+        """Initialize client in library mode."""
+        if config.library_client_config_path is None:
+            raise ValueError("library_client_config_path is required for library mode")
+
+        logger.info("Initializing Llama Stack as library client")
+        enriched_config_path = self._enrich_library_config(
+            config.library_client_config_path
+        )
+        client = AsyncLlamaStackAsLibraryClient(enriched_config_path)
+        await client.initialize()
+        self._lsc = client
+
+    def _load_service_client(self, config: LlamaStackConfiguration) -> None:
+        """Initialize client in service mode (remote HTTP)."""
+        logger.info("Initializing Llama Stack as remote service client")
+        api_key = config.api_key.get_secret_value() if config.api_key else None
+        self._lsc = AsyncLlamaStackClient(base_url=config.url, api_key=api_key)
 
     def _enrich_library_config(self, input_config_path: str) -> str:
-        """Enrich llama-stack config with dynamic values from lightspeed config.
+        """Enrich llama-stack config with dynamic values."""
+        self._setup_azure_token()
 
-        Returns the path to the enriched config file.
-        """
-        # Generate enriched config to a temp file
-        # Use a deterministic name so we don't create multiple temp files
+        try:
+            with open(input_config_path, "r", encoding="utf-8") as f:
+                ls_config = yaml.safe_load(f)
+        except (OSError, yaml.YAMLError) as e:
+            logger.warning("Failed to read llama-stack config: %s", e)
+            return input_config_path
+
+        byok_rag = [b.model_dump() for b in configuration.configuration.byok_rag]
+        enrich_byok_rag(ls_config, byok_rag)
+
         enriched_path = os.path.join(
             tempfile.gettempdir(), "llama_stack_enriched_config.yaml"
         )
+        try:
+            with open(enriched_path, "w", encoding="utf-8") as f:
+                yaml.dump(ls_config, f, Dumper=YamlDumper, default_flow_style=False)
+            logger.info("Wrote enriched llama-stack config to %s", enriched_path)
+            return enriched_path
+        except OSError as e:
+            logger.warning("Failed to write enriched config: %s", e)
+            return input_config_path
+
+    def _setup_azure_token(self) -> None:
+        """Set up Azure Entra ID token in environment for library mode."""
+        if not AzureEntraIDManager().is_entra_id_configured:
+            logger.debug("Azure Entra ID not configured, skipping token setup")
+            return
 
         try:
-            generate_configuration(
-                input_config_path,
-                enriched_path,
-                configuration.configuration,
-            )
-            logger.info(
-                "Enriched llama-stack config: %s -> %s",
-                input_config_path,
-                enriched_path,
-            )
-            return enriched_path
-        except Exception as e:
-            logger.warning(
-                "Failed to enrich llama-stack config, using original: %s", e
-            )
-            return input_config_path
+            AzureEntraIDManager().refresh_token()
+            os.environ["AZURE_API_KEY"] = AzureEntraIDManager().access_token
+            logger.info("Azure Entra ID token set in environment")
+        except ValueError as e:
+            logger.error("Failed to refresh Azure token: %s", e)
 
     def get_client(self) -> AsyncLlamaStackClient:
         """
@@ -120,35 +106,24 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
             )
         return self._lsc
 
-    def set_client(self, new_client: AsyncLlamaStackClient) -> None:
-        """
-        Replace the currently stored AsyncLlamaStackClient instance.
+    def update_provider_data(self, updates: dict[str, str]) -> None:
+        """Update provider_data with the given key-value pairs.
 
-        This method allows updating the client reference when
-        configuration or runtime attributes have changed.
-        """
-        self._lsc = new_client
-
-    def update_provider_data(self, updates: dict[str, str]) -> AsyncLlamaStackClient:
-        """Update provider_data with the given key-value pairs, preserving existing data.
-
-        For library clients (AsyncLlamaStackAsLibraryClient): Updates the provider_data
-        attribute directly since library clients don't support the copy() method.
-        For remote clients (AsyncLlamaStackClient): Creates a copy with updated headers.
+        For library clients: Updates provider_data attribute directly.
+        For remote clients: Creates a copy with updated headers.
         """
         if not self._lsc:
             raise RuntimeError(
                 "AsyncLlamaStackClient has not been initialised. Ensure 'load(..)' has been called."
             )
 
-        # Library client: update provider_data directly
         if isinstance(self._lsc, AsyncLlamaStackAsLibraryClient):
             if self._lsc.provider_data is None:
                 self._lsc.provider_data = {}
             self._lsc.provider_data.update(updates)
-            return self._lsc
+            return
 
-        # Remote client: create a copy with updated headers
+        # Remote client: update via headers
         current_headers = self._lsc.default_headers or {}
         provider_data_json = current_headers.get("X-LlamaStack-Provider-Data")
 
@@ -163,4 +138,4 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
             **current_headers,
             "X-LlamaStack-Provider-Data": json.dumps(provider_data),
         }
-        return self._lsc.copy(set_default_headers=updated_headers)  # type: ignore
+        self._lsc = self._lsc.copy(set_default_headers=updated_headers)  # type: ignore
