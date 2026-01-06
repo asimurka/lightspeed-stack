@@ -7,10 +7,10 @@ import tempfile
 from typing import Optional
 
 import yaml
-from llama_stack import (
-    AsyncLlamaStackAsLibraryClient,  # type: ignore
-)
+from llama_stack import AsyncLlamaStackAsLibraryClient  # type: ignore
+from llama_stack.core.stack import replace_env_vars
 from llama_stack_client import AsyncLlamaStackClient  # type: ignore
+
 from authorization.azure_token_manager import AzureEntraIDManager
 from configuration import configuration
 from llama_stack_configuration import enrich_byok_rag, YamlDumper
@@ -58,6 +58,7 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
         try:
             with open(input_config_path, "r", encoding="utf-8") as f:
                 ls_config = yaml.safe_load(f)
+                ls_config = replace_env_vars(ls_config)
         except (OSError, yaml.YAMLError) as e:
             logger.warning("Failed to read llama-stack config: %s", e)
             return input_config_path
