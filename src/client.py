@@ -45,6 +45,14 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
         await client.initialize()
         self._lsc = client
 
+        # Set initial provider_data with Azure token if configured
+        # (llama-stack needs token in provider_data at request time, not just in config)
+        if AzureEntraIDManager().is_entra_id_configured:
+            if client.provider_data is None:
+                client.provider_data = {}
+            client.provider_data["azure_api_key"] = AzureEntraIDManager().access_token
+            logger.info("Azure API key set in library client provider_data")
+
     def _load_service_client(self, config: LlamaStackConfiguration) -> None:
         """Initialize client in service mode (remote HTTP)."""
         logger.info("Initializing Llama Stack as remote service client")

@@ -198,6 +198,7 @@ jobs:
         if: matrix.mode == 'library'
         env: 
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # AZURE_API_KEY is obtained dynamically via Entra ID (TENANT_ID, CLIENT_ID, CLIENT_SECRET)
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           TENANT_ID: ${{ secrets.TENANT_ID }}
@@ -215,7 +216,6 @@ jobs:
             exit 1
           else
             echo "Service started successfully"
-            echo "AZURE_API_KEY is set: $([ -n "$AZURE_API_KEY" ] && echo 'YES' || echo 'NO')"
           fi
 
       - name: Wait for services
@@ -246,7 +246,6 @@ jobs:
           pip install uv
           uv sync
 
-          echo "AZURE_API_KEY is set: $([ -n "$AZURE_API_KEY" ] && echo 'YES' || echo 'NO')"
           echo "Running comprehensive e2e test suite..."
           make test-e2e
 

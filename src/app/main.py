@@ -4,10 +4,12 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Awaitable, Callable
 
-from fastapi import FastAPI, Request, Response
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from starlette.routing import Mount, Route, WebSocketRoute
 
+from authorization.azure_token_manager import AzureEntraIDManager
 import metrics
 import version
 from app import routers
@@ -15,6 +17,7 @@ from app.database import create_tables, initialize_database
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
+from models.responses import InternalServerErrorResponse
 from utils.common import register_mcp_servers_async
 from utils.llama_stack_version import check_llama_stack_version
 
@@ -36,6 +39,22 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     logger, and database before serving requests.
     """
     configuration.load_configuration(os.environ["LIGHTSPEED_STACK_CONFIG_PATH"])
+
+    # Setup Azure EntraID config and obtain token BEFORE llama-stack client init
+    # The token must be in os.environ["AZURE_API_KEY"] so replace_env_vars() can substitute it
+    azure_config = configuration.configuration.azure_entra_id
+    if azure_config is not None:
+        AzureEntraIDManager().set_config(azure_config)
+        try:
+            AzureEntraIDManager().refresh_token()
+            os.environ["AZURE_API_KEY"] = AzureEntraIDManager().access_token
+            logger.info(
+                "Azure Entra ID token obtained and set in environment (length: %d)",
+                len(os.environ.get("AZURE_API_KEY", "")),
+            )
+        except (ValueError, RuntimeError) as e:
+            logger.error("Failed to obtain Azure token: %s", e)
+
     await AsyncLlamaStackClientHolder().load(configuration.configuration.llama_stack)
     client = AsyncLlamaStackClientHolder().get_client()
     # check if the Llama Stack version is supported by the service
@@ -108,23 +127,23 @@ async def rest_api_metrics(
     return response
 
 
-# @app.middleware("http")
-# async def global_exception_middleware(
-#     request: Request, call_next: Callable[[Request], Awaitable[Response]]
-# ) -> Response:
-#     """Middleware to handle uncaught exceptions from all endpoints."""
-#     try:
-#         response = await call_next(request)
-#         return response
-#     except HTTPException:
-#         raise
-#     except Exception as exc:  # pylint: disable=broad-exception-caught
-#         logger.exception("Uncaught exception in endpoint: %s", exc)
-#         error_response = InternalServerErrorResponse.generic()
-#         return JSONResponse(
-#             status_code=error_response.status_code,
-#             content={"detail": error_response.detail.model_dump()},
-#         )
+@app.middleware("http")
+async def global_exception_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Middleware to handle uncaught exceptions from all endpoints."""
+    try:
+        response = await call_next(request)
+        return response
+    except HTTPException:
+        raise
+    except Exception as exc:  # pylint: disable=broad-exception-caught
+        logger.exception("Uncaught exception in endpoint: %s", exc)
+        error_response = InternalServerErrorResponse.generic()
+        return JSONResponse(
+            status_code=error_response.status_code,
+            content={"detail": error_response.detail.model_dump()},
+        )
 
 
 logger.info("Including routers")
