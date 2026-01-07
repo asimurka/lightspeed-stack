@@ -40,20 +40,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     """
     configuration.load_configuration(os.environ["LIGHTSPEED_STACK_CONFIG_PATH"])
 
-    # Setup Azure EntraID config and obtain token BEFORE llama-stack client init
-    # The token must be in os.environ["AZURE_API_KEY"] so replace_env_vars() can substitute it
     azure_config = configuration.configuration.azure_entra_id
     if azure_config is not None:
         AzureEntraIDManager().set_config(azure_config)
-        try:
-            AzureEntraIDManager().refresh_token()
-            os.environ["AZURE_API_KEY"] = AzureEntraIDManager().access_token
-            logger.info(
-                "Azure Entra ID token obtained and set in environment (length: %d)",
-                len(os.environ.get("AZURE_API_KEY", "")),
-            )
-        except (ValueError, RuntimeError) as e:
-            logger.error("Failed to obtain Azure token: %s", e)
 
     await AsyncLlamaStackClientHolder().load(configuration.configuration.llama_stack)
     client = AsyncLlamaStackClientHolder().get_client()

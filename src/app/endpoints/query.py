@@ -269,6 +269,15 @@ async def query_endpoint_handler_base(  # pylint: disable=R0914
 
     # log Llama Stack configuration
     logger.info("Llama stack config: %s", configuration.llama_stack_configuration)
+    logger.info(
+        "Is expired: %s, Token length: %d",
+        AzureEntraIDManager().is_token_expired,
+        (
+            len(AzureEntraIDManager().access_token)
+            if AzureEntraIDManager().access_token
+            else 0
+        ),
+    )
 
     user_id, _, _skip_userid_check, token = auth
 
@@ -327,7 +336,6 @@ async def query_endpoint_handler_base(  # pylint: disable=R0914
                     for p in await client.providers.list()
                     if p.provider_type == "remote::azure"
                 )
-
                 client_holder.update_provider_data(
                     {
                         "azure_api_key": AzureEntraIDManager().access_token,
