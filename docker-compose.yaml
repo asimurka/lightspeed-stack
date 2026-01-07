@@ -58,7 +58,7 @@ services:
       - ./lightspeed-stack.yaml:/app-root/lightspeed-stack.yaml:z
     environment:
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - AZURE_API_KEY=${AZURE_API_KEY:-}
+      - AZURE_API_KEY=${AZURE_API_KEY}
       - TENANT_ID=${TENANT_ID:-}
       - CLIENT_ID=${CLIENT_ID:-}
       - CLIENT_SECRET=${CLIENT_SECRET:-}

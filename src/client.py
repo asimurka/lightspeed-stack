@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import tempfile
 from typing import Optional
 
 import yaml
@@ -10,7 +11,6 @@ from llama_stack import AsyncLlamaStackAsLibraryClient  # type: ignore
 from llama_stack.core.stack import replace_env_vars
 from llama_stack_client import AsyncLlamaStackClient  # type: ignore
 
-from authorization.azure_token_manager import AzureEntraIDManager
 from configuration import configuration
 from llama_stack_configuration import enrich_byok_rag, YamlDumper
 from models.config import LlamaStackConfiguration
@@ -60,7 +60,7 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
 
     def _enrich_library_config(self, input_config_path: str) -> str:
         """Enrich llama-stack config with dynamic values."""
-        self._setup_azure_token()
+        # self._setup_azure_token()
 
         try:
             with open(input_config_path, "r", encoding="utf-8") as f:
@@ -73,8 +73,10 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
         byok_rag = [b.model_dump() for b in configuration.configuration.byok_rag]
         enrich_byok_rag(ls_config, byok_rag)
 
-        # Write to /app-root so it's visible in mounted volume for debugging
-        enriched_path = "/app-root/llama_stack_enriched_config.yaml"
+        enriched_path = os.path.join(
+            tempfile.gettempdir(), "llama_stack_enriched_config.yaml"
+        )
+
         try:
             with open(enriched_path, "w", encoding="utf-8") as f:
                 yaml.dump(ls_config, f, Dumper=YamlDumper, default_flow_style=False)
@@ -84,19 +86,11 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
             logger.warning("Failed to write enriched config: %s", e)
             return input_config_path
 
-    def _setup_azure_token(self) -> None:
-        """Set up Azure Entra ID token in environment for library mode."""
-        if not AzureEntraIDManager().is_entra_id_configured:
-            logger.debug("Azure Entra ID not configured, skipping token setup")
-            return
-
-        if AzureEntraIDManager().is_token_expired:
-            try:
-                AzureEntraIDManager().refresh_token()
-                os.environ["AZURE_API_KEY"] = AzureEntraIDManager().access_token
-                logger.info("Azure Entra ID token set in environment")
-            except ValueError as e:
-                logger.error("Failed to refresh Azure token: %s", e)
+    # def _setup_azure_token(self) -> None:
+    #     """Set up Azure Entra ID token in environment for library mode."""
+    #     if not AzureEntraIDManager().is_entra_id_configured:
+    #         logger.info("Azure Entra ID not configured, skipping token setup")
+    #         return
 
     def get_client(self) -> AsyncLlamaStackClient:
         """
