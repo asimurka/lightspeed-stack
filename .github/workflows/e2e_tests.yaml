@@ -198,7 +198,6 @@ jobs:
         if: matrix.mode == 'library'
         env: 
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          # AZURE_API_KEY is obtained dynamically via Entra ID (TENANT_ID, CLIENT_ID, CLIENT_SECRET)
           CLIENT_SECRET: ${{ secrets.CLIENT_SECRET }}
           CLIENT_ID: ${{ secrets.CLIENT_ID }}
           TENANT_ID: ${{ secrets.TENANT_ID }}
@@ -223,6 +222,22 @@ jobs:
           echo "Waiting for services to be healthy..."
           sleep 20
 
+      - name: Debug container environment (Library Mode)
+        if: matrix.mode == 'library'
+        run: |
+          echo "=== Checking if Azure credentials reached the container ==="
+          docker exec lightspeed-stack sh -c '
+            echo "TENANT_ID set: $([ -n "$TENANT_ID" ] && echo "YES (${#TENANT_ID} chars)" || echo "NO")"
+            echo "CLIENT_ID set: $([ -n "$CLIENT_ID" ] && echo "YES (${#CLIENT_ID} chars)" || echo "NO")"
+            echo "CLIENT_SECRET set: $([ -n "$CLIENT_SECRET" ] && echo "YES (${#CLIENT_SECRET} chars)" || echo "NO")"
+          '
+          echo ""
+          echo "=== Checking Azure token acquisition in logs ==="
+          docker compose -f docker-compose-library.yaml logs lightspeed-stack 2>&1 | grep -i -E "(azure|entra|token|AZURE_API_KEY)" || echo "No Azure-related log entries found"
+          echo ""
+          echo "=== Container startup logs (last 50 lines) ==="
+          docker compose -f docker-compose-library.yaml logs --tail=50 lightspeed-stack
+
       - name: Quick connectivity test
         run: |
           echo "Testing basic connectivity before full test suite..."
@@ -235,6 +250,13 @@ jobs:
             fi
             exit 1
           }
+          
+          # Debug: Check if AZURE_API_KEY is set inside Python process
+          if [ "${{ matrix.mode }}" == "library" ]; then
+            echo ""
+            echo "=== Checking AZURE_API_KEY in Python process ==="
+            docker exec lightspeed-stack python3.12 -c "import os; key=os.environ.get('AZURE_API_KEY',''); print(f'AZURE_API_KEY length: {len(key)}, first 5 chars: {key[:5]}...' if key else 'AZURE_API_KEY is NOT SET or EMPTY')"
+          fi
 
       - name: Run e2e tests
         env:
