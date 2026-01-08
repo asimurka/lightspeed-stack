@@ -44,14 +44,6 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
         await client.initialize()
         self._lsc = client
 
-        # Set initial provider_data with Azure token if configured
-        # (llama-stack needs token in provider_data at request time, not just in config)
-        # if AzureEntraIDManager().is_entra_id_configured:
-        #     if client.provider_data is None:
-        #         client.provider_data = {}
-        #     client.provider_data["azure_api_key"] = AzureEntraIDManager().access_token
-        #     logger.info("Azure API key set in library client provider_data")
-
     def _load_service_client(self, config: LlamaStackConfiguration) -> None:
         """Initialize client in service mode (remote HTTP)."""
         logger.info("Initializing Llama Stack as remote service client")
@@ -60,8 +52,6 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
 
     def _enrich_library_config(self, input_config_path: str) -> str:
         """Enrich llama-stack config with dynamic values."""
-        # self._setup_azure_token()
-
         try:
             with open(input_config_path, "r", encoding="utf-8") as f:
                 ls_config = yaml.safe_load(f)
@@ -85,12 +75,6 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
         except OSError as e:
             logger.warning("Failed to write enriched config: %s", e)
             return input_config_path
-
-    # def _setup_azure_token(self) -> None:
-    #     """Set up Azure Entra ID token in environment for library mode."""
-    #     if not AzureEntraIDManager().is_entra_id_configured:
-    #         logger.info("Azure Entra ID not configured, skipping token setup")
-    #         return
 
     def get_client(self) -> AsyncLlamaStackClient:
         """
