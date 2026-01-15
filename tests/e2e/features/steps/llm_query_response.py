@@ -162,6 +162,83 @@ def compare_streamed_responses(context: Context) -> None:
     ), f"{response} and {complete_response} do not match"
 
 
+@step("I verify that shields are configured")
+def verify_shields_configured(context: Context) -> None:
+    """Verify that at least one shield is configured in the system."""
+    base = f"http://{context.hostname}:{context.port}"
+    path = f"{context.api_prefix}/shields".replace("//", "/")
+    url = base + path
+    headers = context.auth_headers if hasattr(context, "auth_headers") else {}
+
+    response = requests.get(url, headers=headers, timeout=DEFAULT_LLM_TIMEOUT)
+    response.raise_for_status()
+
+    response_json = response.json()
+    assert "shields" in response_json, "Response missing 'shields' field"
+    shields = response_json["shields"]
+    assert len(shields) > 0, "No shields are configured in the system"
+
+    # Store shields info in context for potential later use
+    context.shields = shields
+
+
+@then("The response contains moderation message")
+def check_moderation_message(context: Context) -> None:
+    """Check that the response contains text indicating moderation was used.
+
+    This checks for common moderation-related phrases like "policy restrictions",
+    "cannot process", etc. that indicate shield moderation blocked the request.
+    """
+    assert context.response is not None, "Request needs to be performed first"
+    response_json = context.response.json()
+
+    assert "response" in response_json, "Response missing 'response' field"
+    response_text = response_json["response"].lower()
+
+    # Check for common moderation-related phrases
+    moderation_phrases = [
+        "policy restrictions",
+        "cannot process",
+        "i cannot",
+        "restricted",
+        "policy",
+    ]
+
+    found = any(phrase in response_text for phrase in moderation_phrases)
+    assert found, (
+        f"Response does not contain moderation-related text. "
+        f"Response was: '{response_json['response']}'"
+    )
+
+
+@then("The streamed response contains moderation message")
+def check_streamed_moderation_message(context: Context) -> None:
+    """Check that the streamed response contains text indicating moderation was used.
+
+    This checks for common moderation-related phrases in the streamed response
+    that indicate shield moderation blocked the request.
+    """
+    assert hasattr(context, "response_data"), "Streaming response data not available"
+    assert "response" in context.response_data, "Response data missing 'response' field"
+
+    response_text = context.response_data["response"].lower()
+
+    # Check for common moderation-related phrases
+    moderation_phrases = [
+        "policy restrictions",
+        "cannot process",
+        "i cannot",
+        "restricted",
+        "policy",
+    ]
+
+    found = any(phrase in response_text for phrase in moderation_phrases)
+    assert found, (
+        f"Streamed response does not contain moderation-related text. "
+        f"Response was: '{context.response_data['response']}'"
+    )
+
+
 def _parse_streaming_response(response_text: str) -> dict:
     """Parse streaming SSE response and reconstruct the full message."""
     lines = response_text.strip().split("\n")
