@@ -22,7 +22,7 @@ from llama_stack_client.types.conversations.item_list_response import (
 from constants import DEFAULT_RAG_TOOL
 from models.database.conversations import UserTurn
 from models.responses import ConversationTurn, Message
-from utils.query import parse_arguments_string
+from utils.responses import parse_arguments_string
 from utils.types import ToolCallSummary, ToolResultSummary
 
 

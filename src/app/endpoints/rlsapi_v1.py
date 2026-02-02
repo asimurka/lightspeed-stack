@@ -146,7 +146,7 @@ async def retrieve_simple_response(question: str, instructions: str) -> str:
     """Retrieve a simple response from the LLM for a stateless query.
 
     Uses the Responses API for simple stateless inference, consistent with
-    other endpoints (query_v2, streaming_query_v2).
+    other endpoints (query, streaming_query).
 
     Args:
         question: The combined user input (question + context).

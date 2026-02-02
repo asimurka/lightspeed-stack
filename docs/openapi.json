@@ -1293,11 +1293,11 @@
         "/v1/query": {
             "post": {
                 "tags": [
-                    "query_v1"
+                    "query"
                 ],
-                "summary": "Query Endpoint Handler V1",
-                "description": "Handle request to the /query endpoint using Responses API.\n\nThis is a wrapper around query_endpoint_handler_base that provides\nthe Responses API specific retrieve_response and get_topic_summary functions.\n\nReturns:\n    QueryResponse: Contains the conversation ID and the LLM-generated response.",
-                "operationId": "query_endpoint_handler_v2_v1_query_post",
+                "summary": "Query Endpoint Handler",
+                "description": "Handle request to the /query endpoint using Responses API.\n\nProcesses a POST request to a query endpoint, forwarding the\nuser's query to a selected Llama Stack LLM and returning the generated response.\n\nReturns:\n    QueryResponse: Contains the conversation ID and the LLM-generated response.\n\nRaises:\n    HTTPException:\n        - 401: Unauthorized - Missing or invalid credentials\n        - 403: Forbidden - Insufficient permissions or model override not allowed\n        - 404: Not Found - Conversation, model, or provider not found\n        - 413: Prompt too long - Prompt exceeded model's context window size\n        - 422: Unprocessable Entity - Request validation failed\n        - 429: Quota limit exceeded - The token quota for model or userhas been exceeded\n        - 500: Internal Server Error - Configuration not loaded or other server errors\n        - 503: Service Unavailable - Unable to connect to Llama Stack backend",
+                "operationId": "query_endpoint_handler_v1_query_post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -1446,6 +1446,26 @@
                                             "detail": {
                                                 "cause": "Model with ID gpt-4-turbo is not configured",
                                                 "response": "Model not found"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Prompt is too long",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PromptTooLongResponse"
+                                },
+                                "examples": {
+                                    "prompt too long": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "The prompt exceeds the maximum allowed length.",
+                                                "response": "Prompt is too long"
                                             }
                                         }
                                     }
@@ -1603,11 +1623,11 @@
         "/v1/streaming_query": {
             "post": {
                 "tags": [
-                    "streaming_query_v1"
+                    "streaming_query"
                 ],
-                "summary": "Streaming Query Endpoint Handler V1",
-                "description": "Handle request to the /streaming_query endpoint using Responses API.\n\nReturns a streaming response using Server-Sent Events (SSE) format with\ncontent type text/event-stream.\n\nReturns:\n    StreamingResponse: An HTTP streaming response yielding\n    SSE-formatted events for the query lifecycle with content type\n    text/event-stream.\n\nRaises:\n    HTTPException:\n        - 401: Unauthorized - Missing or invalid credentials\n        - 403: Forbidden - Insufficient permissions or model override not allowed\n        - 404: Not Found - Conversation, model, or provider not found\n        - 422: Unprocessable Entity - Request validation failed\n        - 429: Too Many Requests - Quota limit exceeded\n        - 500: Internal Server Error - Configuration not loaded or other server errors\n        - 503: Service Unavailable - Unable to connect to Llama Stack backend",
-                "operationId": "streaming_query_endpoint_handler_v2_v1_streaming_query_post",
+                "summary": "Streaming Query Endpoint Handler",
+                "description": "Handle request to the /streaming_query endpoint using Responses API.\n\nReturns a streaming response using Server-Sent Events (SSE) format with\ncontent type text/event-stream.\n\nReturns:\n    StreamingResponse: An HTTP streaming response yielding\n    SSE-formatted events for the query lifecycle. Content type depends on\n    the request's media_type parameter, defaulting to text/plain for\n    successful responses, or text/event-stream for certain error responses.\n\nRaises:\n    HTTPException:\n        - 401: Unauthorized - Missing or invalid credentials\n        - 403: Forbidden - Insufficient permissions or model override not allowed\n        - 404: Not Found - Conversation, model, or provider not found\n        - 413: Prompt too long - Prompt exceeded model's context window size\n        - 422: Unprocessable Entity - Request validation failed\n        - 429: Quota limit exceeded - The token quota for model or userhas been exceeded\n        - 500: Internal Server Error - Configuration not loaded or other server errors\n        - 503: Service Unavailable - Unable to connect to Llama Stack backend",
+                "operationId": "streaming_query_endpoint_handler_v1_streaming_query_post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -1724,6 +1744,26 @@
                                             "detail": {
                                                 "cause": "Model with ID gpt-4-turbo is not configured",
                                                 "response": "Model not found"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "413": {
+                        "description": "Prompt is too long",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/PromptTooLongResponse"
+                                },
+                                "examples": {
+                                    "prompt too long": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "The prompt exceeds the maximum allowed length.",
+                                                "response": "Prompt is too long"
                                             }
                                         }
                                     }
@@ -7517,6 +7557,33 @@
                 "title": "PostgreSQLDatabaseConfiguration",
                 "description": "PostgreSQL database configuration.\n\nPostgreSQL database is used by Lightspeed Core Stack service for storing\ninformation about conversation IDs. It can also be leveraged to store\nconversation history and information about quota usage.\n\nUseful resources:\n\n- [Psycopg: connection classes](https://www.psycopg.org/psycopg3/docs/api/connections.html)\n- [PostgreSQL connection strings](https://www.connectionstrings.com/postgresql/)\n- [How to Use PostgreSQL in Python](https://www.freecodecamp.org/news/postgresql-in-python/)"
             },
+            "PromptTooLongResponse": {
+                "properties": {
+                    "status_code": {
+                        "type": "integer",
+                        "title": "Status Code"
+                    },
+                    "detail": {
+                        "$ref": "#/components/schemas/DetailModel"
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "status_code",
+                    "detail"
+                ],
+                "title": "PromptTooLongResponse",
+                "description": "413 Payload Too Large - Prompt is too long.",
+                "examples": [
+                    {
+                        "detail": {
+                            "cause": "The prompt exceeds the maximum allowed length.",
+                            "response": "Prompt is too long"
+                        },
+                        "label": "prompt too long"
+                    }
+                ]
+            },
             "ProviderHealthStatus": {
                 "properties": {
                     "provider_id": {
@@ -7965,7 +8032,7 @@
                     "truncated": {
                         "type": "boolean",
                         "title": "Truncated",
-                        "description": "Whether conversation history was truncated",
+                        "description": "Deprecated:Whether conversation history was truncated",
                         "default": false,
                         "examples": [
                             false,
@@ -9401,6 +9468,13 @@
                     "type": {
                         "type": "string",
                         "title": "Error Type"
+                    },
+                    "input": {
+                        "title": "Input"
+                    },
+                    "ctx": {
+                        "type": "object",
+                        "title": "Context"
                     }
                 },
                 "type": "object",
