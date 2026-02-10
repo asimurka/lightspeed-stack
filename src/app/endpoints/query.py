@@ -190,13 +190,16 @@ async def query_endpoint_handler(
         quota_limiters=configuration.quota_limiters, user_id=user_id
     )
 
+    completed_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     conversation_id = normalize_conversation_id(responses_params.conversation)
+
     logger.info("Storing query results")
     store_query_results(
         user_id=user_id,
         conversation_id=conversation_id,
-        model_id=responses_params.model,
+        model=responses_params.model,
         started_at=started_at,
+        completed_at=completed_at,
         summary=turn_summary,
         query_request=query_request,
         configuration=configuration,

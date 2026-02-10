@@ -366,13 +366,15 @@ async def generate_response(
         turn_summary.referenced_documents,
         context.query_request.media_type or MEDIA_TYPE_JSON,
     )
+    completed_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     # Store query results (transcript, conversation details, cache)
     logger.info("Storing query results")
     store_query_results(
         user_id=context.user_id,
         conversation_id=context.conversation_id,
-        model_id=responses_params.model,
+        model=responses_params.model,
+        completed_at=completed_at,
         started_at=context.started_at,
         summary=turn_summary,
         query_request=context.query_request,
