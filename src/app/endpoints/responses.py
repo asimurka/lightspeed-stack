@@ -55,7 +55,6 @@ from utils.query import (
     handle_known_apistatus_errors,
     persist_user_conversation_details,
     store_conversation_into_cache,
-    store_query_results,
     update_azure_token,
 )
 from utils.quota import check_tokens_available, get_available_quotas
@@ -151,13 +150,17 @@ async def responses_endpoint_handler(
             "Conversation ID specified in request: %s", responses_request.conversation
         )
         user_conversation = validate_and_retrieve_conversation(
-            normalized_conv_id=normalize_conversation_id(responses_request.conversation),
+            normalized_conv_id=normalize_conversation_id(
+                responses_request.conversation
+            ),
             user_id=user_id,
             others_allowed=Action.READ_OTHERS_CONVERSATIONS
             in request.state.authorized_actions,
         )
         # Convert to llama-stack format if needed
-        responses_request.conversation = to_llama_stack_conversation_id(user_conversation.id)
+        responses_request.conversation = to_llama_stack_conversation_id(
+            user_conversation.id
+        )
 
     client = AsyncLlamaStackClientHolder().get_client()
 
@@ -206,7 +209,7 @@ async def responses_endpoint_handler(
             )
 
         response = await client.responses.create(**api_params)
-        
+
         # Handle streaming response
         if responses_request.stream:
             stream_iterator = cast(AsyncIterator[OpenAIResponseObjectStream], response)
@@ -219,7 +222,7 @@ async def responses_endpoint_handler(
                 ),
                 media_type="text/event-stream",
             )
-        
+
         response = cast(OpenAIResponseObject, response)
 
     except RuntimeError as e:  # library mode wraps 413 into runtime error
@@ -259,7 +262,9 @@ async def responses_endpoint_handler(
     if not user_conversation and responses_request.generate_topic_summary:
         logger.debug("Generating topic summary for new conversation")
         topic_summary = await get_topic_summary(
-            extract_text_from_input(responses_request.input), client, api_params["model"]
+            extract_text_from_input(responses_request.input),
+            client,
+            api_params["model"],
         )
     else:
         topic_summary = None
@@ -271,7 +276,7 @@ async def responses_endpoint_handler(
             user_id=user_id,
             conversation_id=responses_request.conversation or "",
             model=api_params["model"],
-            provider_id=api_params["model"].split("/")[0], # type: ignore
+            provider_id=api_params["model"].split("/")[0],  # type: ignore
             topic_summary=topic_summary,
         )
     except SQLAlchemyError as e:
@@ -285,7 +290,7 @@ async def responses_endpoint_handler(
         cache_entry = CacheEntry(
             query=extract_text_from_input(responses_request.input),
             response="",
-            provider=api_params["model"].split("/")[0], # type: ignore
+            provider=api_params["model"].split("/")[0],  # type: ignore
             model=api_params["model"],
             started_at=started_at,
             completed_at=completed_at,
@@ -326,57 +331,59 @@ async def _stream_responses(
     model_id: str,
 ) -> AsyncIterator[str]:
     """Generate SSE-formatted streaming response with LCORE-enriched events.
-    
+
     Processes streaming chunks from Llama Stack and converts them to
     Server-Sent Events (SSE) format, enriching response.created with conversation
     and response.completed with available_quotas. All other events are forwarded
     exactly as received from the stream.
-    
+
     Args:
         stream: The streaming response from Llama Stack
         conversation_id: The conversation ID to include in response.created
         user_id: User ID for quota retrieval
         model_id: Model ID for token usage extraction
-        
+
     Yields:
         SSE-formatted strings for streaming events.
-    """    
-    normalized_conv_id = normalize_conversation_id(conversation_id) if conversation_id else None
+    """
+    normalized_conv_id = (
+        normalize_conversation_id(conversation_id) if conversation_id else None
+    )
     latest_response_object: Optional[OpenAIResponseObject] = None
-    
+
     async for chunk in stream:
         event_type = getattr(chunk, "type", None)
         logger.debug("Processing streaming chunk, type: %s", event_type)
-        
+
         # Get the original chunk data as dict (exact same structure as original)
         chunk_dict = chunk.model_dump() if hasattr(chunk, "model_dump") else {}
-        
+
         # Enrich response.created event with conversation attribute
         if event_type == "response.created":
             response_obj = getattr(chunk, "response", None)
             if response_obj:
                 latest_response_object = cast(OpenAIResponseObject, response_obj)
-            
+
             # Add conversation attribute to the original chunk data
             if normalized_conv_id:
                 chunk_dict["conversation"] = normalized_conv_id
-        
+
         # Enrich response.completed event with available_quotas attribute
         elif event_type == "response.completed":
             response_obj = getattr(chunk, "response", None)
             if response_obj:
                 latest_response_object = cast(OpenAIResponseObject, response_obj)
-            
+
             # Extract token usage
             token_usage_obj = None
             if latest_response_object:
                 token_usage_obj = extract_token_usage(latest_response_object, model_id)
-            
+
             # Get available quotas
             available_quotas = get_available_quotas(
                 quota_limiters=configuration.quota_limiters, user_id=user_id
             )
-            
+
             # Consume tokens
             if token_usage_obj and latest_response_object:
                 consume_query_tokens(
@@ -385,9 +392,9 @@ async def _stream_responses(
                     token_usage=token_usage_obj,
                     configuration=configuration,
                 )
-            
+
             # Add available_quotas attribute to the original chunk data
             if available_quotas:
                 chunk_dict["available_quotas"] = available_quotas
-        
+
         yield json.dumps(chunk_dict)

@@ -2,7 +2,7 @@
 
 import json
 import logging
-from typing import Any, Optional, Union, Iterable, cast
+from typing import Any, Optional, cast
 
 from models.responses_api_types import ResponseInput
 
@@ -56,15 +56,15 @@ logger = logging.getLogger(__name__)
 
 def extract_text_from_input(input_value: Optional[ResponseInput]) -> str:
     """Extract text content from Responses API input field.
-    
+
     The input field can be:
     - A string (simple text input)
     - An iterable of message objects (complex input with role and content)
     - None (if input is optional)
-    
+
     Args:
         input_value: The input value from ResponsesRequest
-        
+
     Returns:
         Extracted text content as a string, or empty string if input is None or cannot be extracted
     """
@@ -72,7 +72,7 @@ def extract_text_from_input(input_value: Optional[ResponseInput]) -> str:
         return ""
     if isinstance(input_value, str):
         return input_value
-    
+
     # Handle iterable of message objects (list, tuple, etc.)
     # Note: str is also iterable, but we've already handled it above
     text_fragments: list[str] = []

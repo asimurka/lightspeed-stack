@@ -1,7 +1,7 @@
 """Models for REST API requests."""
 
 from enum import Enum
-from typing import Dict, Iterable, List, Optional, Self, Union, Any
+from typing import Iterable, List, Optional, Self, Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -11,7 +11,6 @@ from models.responses_api_types import (
     IncludeParameter,
     Prompt,
     ResponseInput,
-    Text,
     Tool,
     ToolChoice,
 )
@@ -332,7 +331,10 @@ class ResponsesRequest(BaseModel):
     conversation: Optional[str] = Field(
         None,
         description="The conversation ID, accepts OpenAI conv_* format or LCORE hex UUID",
-        examples=["conv_0d21ba731f21f798dc9680125d5d6f493e4a7ab79f25670e", "0d21ba731f21f798dc9680125d5d6f493e4a7ab79f25670e"],
+        examples=[
+            "conv_0d21ba731f21f798dc9680125d5d6f493e4a7ab79f25670e",
+            "0d21ba731f21f798dc9680125d5d6f493e4a7ab79f25670e",
+        ],
     )
     include: Optional[List[IncludeParameter]] = Field(
         None,

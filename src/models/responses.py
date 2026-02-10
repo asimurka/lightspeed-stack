@@ -1521,9 +1521,7 @@ class ResponsesStreamCreatedEvent(BaseModel):
 class ResponsesStreamCompletedEvent(BaseModel):
     """Enriched response.completed event with LCORE-specific available_quotas field."""
 
-    usage: Optional[dict[str, Any]] = Field(
-        None, description="Token usage information"
-    )
+    usage: Optional[dict[str, Any]] = Field(None, description="Token usage information")
     available_quotas: Optional[dict[str, int]] = Field(
         None, description="Available quotas (LCORE-specific extension)"
     )

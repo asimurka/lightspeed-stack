@@ -134,7 +134,7 @@ OutputMessageContent: TypeAlias = Union[
 class MessageInput(TypedDict, total=False):
     """
     Message input type for Responses API.
-    
+
     Corresponds to the various Message types in the Responses API.
     They are all under one type because the Responses API gives them all
     the same "type" value, and there is no way to tell them apart in certain
