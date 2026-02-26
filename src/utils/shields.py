@@ -1,10 +1,11 @@
 """Utility functions for working with Llama Stack shields."""
 
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 from fastapi import HTTPException
 from llama_stack_api import OpenAIResponseContentPartRefusal, OpenAIResponseMessage
 from llama_stack_client import APIConnectionError, APIStatusError, AsyncLlamaStackClient
+from llama_stack_client.types.conversations.item_create_params import Item
 
 import metrics
 from configuration import AppConfig
@@ -18,6 +19,7 @@ from models.responses import (
 )
 from utils.suid import get_suid
 from utils.types import (
+    ResponseInput,
     ShieldModerationBlocked,
     ShieldModerationPassed,
     ShieldModerationResult,
@@ -270,3 +272,50 @@ def create_refusal_response(refusal_message: str) -> OpenAIResponseMessage:
         role="assistant",
         content=[refusal_content],
     )
+
+
+async def append_refused_turn_to_conversation(
+    client: AsyncLlamaStackClient,
+    conversation_id: str,
+    user_input: ResponseInput,
+    refusal_message: OpenAIResponseMessage,
+) -> None:
+    """
+    Append the user input and refusal message as one turn to a conversation.
+
+    Called when a shield blocks the request. Persists the user's input and the
+    refusal response so the turn appears in conversation history.
+
+    Args:
+        client: The Llama Stack client.
+        conversation_id: The Llama Stack conversation ID.
+        user_input: Request input (str or list of ResponseInputItem). If a string,
+            wrapped in a single message item; otherwise items are dumped as-is.
+        refusal_message: The refusal message (assistant role) to append after the
+            user input items.
+    """
+    if isinstance(user_input, str):
+        user_message = OpenAIResponseMessage(
+            type="message",
+            role="user",
+            content=user_input,
+        )
+        user_items = [user_message.model_dump()]
+    else:
+        user_items = [item.model_dump() for item in user_input]
+
+    user_items.append(refusal_message.model_dump())
+    try:
+        await client.conversations.items.create(
+            conversation_id,
+            items=cast(list[Item], user_items),
+        )
+    except APIConnectionError as e:
+        error_response = ServiceUnavailableResponse(
+            backend_name="Llama Stack",
+            cause=str(e),
+        )
+        raise HTTPException(**error_response.model_dump()) from e
+    except APIStatusError as e:
+        error_response = InternalServerErrorResponse.generic()
+        raise HTTPException(**error_response.model_dump()) from e

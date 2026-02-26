@@ -1108,3 +1108,21 @@ def deduplicate_referenced_documents(
         seen.add(key)
         out.append(d)
     return out
+
+
+async def create_new_conversation(
+    client: AsyncLlamaStackClient,
+) -> str:
+    """Create a new conversation."""
+    try:
+        conversation = await client.conversations.create(metadata={})
+        return conversation.id
+    except APIConnectionError as e:
+        error_response = ServiceUnavailableResponse(
+            backend_name="Llama Stack",
+            cause=str(e),
+        )
+        raise HTTPException(**error_response.model_dump()) from e
+    except APIStatusError as e:
+        error_response = InternalServerErrorResponse.generic()
+        raise HTTPException(**error_response.model_dump()) from e

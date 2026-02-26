@@ -10,6 +10,7 @@ from llama_stack_api.openai_responses import (
     OpenAIResponseInputTool as InputTool,
     OpenAIResponsePrompt as Prompt,
     OpenAIResponseText as Text,
+    OpenAIResponseToolMCP as OutputToolMCP,
 )
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -19,6 +20,21 @@ from utils import suid
 from utils.types import IncludeParameter, ResponseInput
 
 logger = get_logger(__name__)
+
+# Attribute names that are echoed back in the response.
+_ECHOED_FIELDS = set(
+    {
+        "instructions",
+        "max_tool_calls",
+        "metadata",
+        "parallel_tool_calls",
+        "previous_response_id",
+        "prompt",
+        "temperature",
+        "text",
+        "tool_choice",
+    }
+)
 
 
 class Attachment(BaseModel):
@@ -634,6 +650,9 @@ class ResponsesRequest(BaseModel):
             calls, MCP tools). Defaults to all tools available to the model.
         generate_topic_summary: LCORE-specific flag indicating whether to generate a
             topic summary for new conversations. Defaults to True.
+        shield_ids: LCORE-specific list of safety shield IDs to apply. If None, all
+            configured shields are used. If provided, must contain at least one valid
+            shield ID (empty list raises 422).
         solr: LCORE-specific Solr vector_io provider query parameters (e.g. filter
             queries). Optional.
     """
@@ -656,10 +675,11 @@ class ResponsesRequest(BaseModel):
     tool_choice: Optional[ToolChoice] = ToolChoiceMode.auto
     tools: Optional[list[InputTool]] = None
     generate_topic_summary: Optional[bool] = True
+    shield_ids: Optional[list[str]] = None
     solr: Optional[dict[str, Any]] = None
 
     model_config = {
-        "extra": "forbid",
+        "extra": "ignore",
         "json_schema_extra": {
             "examples": [
                 {
@@ -731,3 +751,29 @@ class ResponsesRequest(BaseModel):
         if value and not suid.check_suid(value):
             raise ValueError(f"Improper conversation ID '{value}'")
         return value
+
+    def echoed_params(self) -> dict[str, Any]:
+        """Dump attributes that are echoed back in the response.
+
+        The ``tools`` attribute is converted from list[InputTool] to list[OutputTool]
+        via model_validate so that the response-side type (OutputTool) is used; MCP
+        tools use a subset of attributes on the output side.
+
+        Args:
+            exclude_none: If True, omit keys whose value is None. Default True.
+
+        Returns:
+            Dict of echoed attributes.
+        """
+        data = self.model_dump(include=_ECHOED_FIELDS)
+        if self.tools is not None:
+            data["tools"] = [
+                (
+                    OutputToolMCP.model_validate(t.model_dump()).model_dump()
+                    if t.type == "mcp"
+                    else t.model_dump()
+                )
+                for t in self.tools
+            ]
+
+        return data

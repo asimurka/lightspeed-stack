@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 
 from llama_stack_client import AsyncLlamaStackClient
 from llama_stack_client.types.query_chunks_response import Chunk
+from llama_stack_api.openai_responses import OpenAIResponseMessage as ResponseMessage
 from pydantic import AnyUrl
 
 import constants
@@ -301,3 +302,8 @@ def format_rag_context_for_injection(
     logger.info("Injecting %d RAG chunks into user message", len(context_chunks))
 
     return rag_context
+
+
+def build_message_from_static_rag(rag_context: str) -> ResponseMessage:
+    """Build a message from static RAG context."""
+    return ResponseMessage(content=rag_context, role="user")

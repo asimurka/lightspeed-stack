@@ -1,12 +1,16 @@
 """Unit tests for utils/shields.py functions."""
 
+from llama_stack_api import OpenAIResponseMessage
+from llama_stack_client import APIConnectionError, APIStatusError
 import pytest
 from fastapi import HTTPException, status
 from pytest_mock import MockerFixture
 
 from utils.shields import (
     DEFAULT_VIOLATION_MESSAGE,
+    append_refused_turn_to_conversation,
     append_turn_to_conversation,
+    create_refusal_response,
     detect_shield_violations,
     get_available_shields,
     run_shield_moderation,
@@ -518,3 +522,108 @@ class TestValidateShieldIdsOverride:
             validate_shield_ids_override(query_request, mock_config)
 
         assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+class TestAppendRefusedTurnToConversation:
+    """Tests for append_refused_turn_to_conversation function."""
+
+    @pytest.mark.asyncio
+    async def test_appends_string_input_and_refusal(
+        self, mocker: MockerFixture
+    ) -> None:
+        """When user_input is a string, wraps it in a user message and appends refusal."""
+        mock_client = mocker.Mock()
+        mock_client.conversations.items.create = mocker.AsyncMock(return_value=None)
+        refusal = create_refusal_response("Blocked by policy")
+
+        await append_refused_turn_to_conversation(
+            mock_client,
+            conversation_id="conv-456",
+            user_input="user text",
+            refusal_message=refusal,
+        )
+
+        mock_client.conversations.items.create.assert_called_once()
+        call_args = mock_client.conversations.items.create.call_args
+        assert call_args[0][0] == "conv-456"
+        items = call_args[1]["items"]
+        assert len(items) == 2
+        assert items[0]["type"] == "message"
+        assert items[0]["role"] == "user"
+        assert items[0]["content"] == "user text"
+        assert items[1]["role"] == "assistant"
+        assert items[1]["content"][0]["refusal"] == "Blocked by policy"
+
+    @pytest.mark.asyncio
+    async def test_appends_list_input_and_refusal(self, mocker: MockerFixture) -> None:
+        """When user_input is a list of items, dumps each and appends refusal."""
+        mock_client = mocker.Mock()
+        mock_client.conversations.items.create = mocker.AsyncMock(return_value=None)
+        user_item = OpenAIResponseMessage(
+            type="message",
+            role="user",
+            content="multi part",
+        )
+        refusal = create_refusal_response("Refused")
+
+        await append_refused_turn_to_conversation(
+            mock_client,
+            conversation_id="conv-789",
+            user_input=[user_item],
+            refusal_message=refusal,
+        )
+
+        mock_client.conversations.items.create.assert_called_once()
+        call_args = mock_client.conversations.items.create.call_args
+        assert call_args[0][0] == "conv-789"
+        items = call_args[1]["items"]
+        assert len(items) == 2
+        assert items[0]["role"] == "user"
+        assert items[0]["content"] == "multi part"
+        assert items[1]["role"] == "assistant"
+
+    @pytest.mark.asyncio
+    async def test_raises_http_exception_on_api_connection_error(
+        self, mocker: MockerFixture
+    ) -> None:
+        """APIConnectionError is converted to HTTPException with 503."""
+        mock_client = mocker.Mock()
+        mock_client.conversations.items.create = mocker.AsyncMock(
+            side_effect=APIConnectionError(request=mocker.Mock())
+        )
+        refusal = create_refusal_response("Blocked")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await append_refused_turn_to_conversation(
+                mock_client,
+                conversation_id="conv-err",
+                user_input="input",
+                refusal_message=refusal,
+            )
+
+        assert exc_info.value.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+
+    @pytest.mark.asyncio
+    async def test_raises_http_exception_on_api_status_error(
+        self, mocker: MockerFixture
+    ) -> None:
+        """APIStatusError is converted to HTTPException with 500."""
+        mock_client = mocker.Mock()
+        mock_client.conversations.items.create = mocker.AsyncMock(
+            side_effect=APIStatusError(
+                message="server error",
+                response=mocker.Mock(request=None),
+                body=None,
+            )
+        )
+        refusal = create_refusal_response("Blocked")
+
+        with pytest.raises(HTTPException) as exc_info:
+            await append_refused_turn_to_conversation(
+                mock_client,
+                conversation_id="conv-err",
+                user_input="input",
+                refusal_message=refusal,
+            )
+
+        assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
