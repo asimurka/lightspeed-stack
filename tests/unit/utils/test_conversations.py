@@ -1,7 +1,7 @@
 """Unit tests for conversation utility functions."""
 
 from datetime import datetime, UTC
-from typing import Any
+from typing import Any, cast
 
 from fastapi import HTTPException
 from llama_stack_api import OpenAIResponseMessage
@@ -12,13 +12,13 @@ from pytest_mock import MockerFixture
 from constants import DEFAULT_RAG_TOOL
 from models.database.conversations import UserTurn
 from utils.conversations import (
-    _build_tool_call_summary_from_item,
     _extract_text_from_content,
     append_turn_items_to_conversation,
     build_conversation_turns_from_items,
     get_all_conversation_items,
 )
-from utils.types import ToolCallSummary
+from utils.tool_handlers import dispatch_response_item
+from utils.types import ResponseItem, ToolCallSummary
 
 # Default conversation start time for tests
 DEFAULT_CONVERSATION_START_TIME = datetime.fromisoformat(
@@ -97,8 +97,8 @@ class TestExtractTextFromContent:
         assert result == "String partFirst partRefusal messageDict textDict refusal"
 
 
-class TestBuildToolCallSummaryFromItem:
-    """Test cases for _build_tool_call_summary_from_item function."""
+class TestDispatchResponseItemForConversationItems:
+    """Test cases for ``dispatch_response_item`` on Conversations API tool items."""
 
     def test_function_call_item(self, mocker: MockerFixture) -> None:
         """Test parsing a function_call item."""
@@ -108,7 +108,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.name = "test_function"
         mock_item.arguments = '{"arg1": "value1"}'
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is not None
         assert isinstance(tool_call, ToolCallSummary)
@@ -129,7 +129,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.status = "success"
         mock_item.results = [mock_result]
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is not None
         assert tool_call.id == "file_search_123"
@@ -153,7 +153,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.status = "success"
         mock_item.results = None
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is not None
         assert tool_result is not None
@@ -166,7 +166,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.id = "web_search_123"
         mock_item.status = "success"
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is not None
         assert tool_call.id == "web_search_123"
@@ -192,7 +192,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.error = "Error occurred"
         mock_item.output = None
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is not None
         assert tool_call.id == "mcp_123"
@@ -216,7 +216,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.error = None
         mock_item.output = "Success output"
 
-        _, tool_result = _build_tool_call_summary_from_item(mock_item)
+        _, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_result is not None
         assert tool_result.status == "success"
@@ -233,7 +233,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.error = None
         mock_item.output = "output"
 
-        tool_call, _ = _build_tool_call_summary_from_item(mock_item)
+        tool_call, _ = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is not None
         assert "server_label" not in tool_call.args
@@ -251,7 +251,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.server_label = "test_server"
         mock_item.tools = [mock_tool]
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is not None
         assert tool_call.id == "list_tools_123"
@@ -272,12 +272,12 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.name = "approve_action"
         mock_item.arguments = '{"action": "delete"}'
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is not None
         assert tool_call.id == "approval_123"
         assert tool_call.name == "approve_action"
-        assert tool_call.type == "tool_call"
+        assert tool_call.type == "mcp_approval_request"
         assert tool_result is None
 
     def test_mcp_approval_response_approved(self, mocker: MockerFixture) -> None:
@@ -288,7 +288,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.approve = True
         mock_item.reason = "Looks good"
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is None
         assert tool_result is not None
@@ -305,7 +305,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.approve = False
         mock_item.reason = "Not allowed"
 
-        _, tool_result = _build_tool_call_summary_from_item(mock_item)
+        _, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_result is not None
         assert tool_result.status == "denied"
@@ -318,7 +318,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.approve = True
         mock_item.reason = None
 
-        _, tool_result = _build_tool_call_summary_from_item(mock_item)
+        _, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_result is not None
         assert tool_result.content == "{}"
@@ -331,7 +331,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.status = "success"
         mock_item.output = "Function result"
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is None
         assert tool_result is not None
@@ -349,7 +349,7 @@ class TestBuildToolCallSummaryFromItem:
         mock_item.status = None
         mock_item.output = "Function result"
 
-        _, tool_result = _build_tool_call_summary_from_item(mock_item)
+        _, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_result is not None
         assert tool_result.status == "success"  # Defaults to "success"
@@ -359,17 +359,17 @@ class TestBuildToolCallSummaryFromItem:
         mock_item = mocker.Mock()
         mock_item.type = "unknown_type"
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is None
         assert tool_result is None
 
     def test_item_without_type_attribute(self, mocker: MockerFixture) -> None:
-        """Test parsing an item without type attribute."""
-        mock_item = mocker.Mock(spec=[])
-        # Don't set type attribute
+        """Test parsing an item with no usable type (None is not a registered key)."""
+        mock_item = mocker.Mock()
+        mock_item.type = None
 
-        tool_call, tool_result = _build_tool_call_summary_from_item(mock_item)
+        tool_call, tool_result = dispatch_response_item(cast(ResponseItem, mock_item))
 
         assert tool_call is None
         assert tool_result is None

@@ -1151,7 +1151,7 @@ class TestHandleStreamingResponse:
         minimal_config: AppConfig,
         mocker: MockerFixture,
     ) -> None:
-        """Test that response output items are passed to build_tool_call_summary."""
+        """Test that response output items are passed to dispatch_output_item."""
         request = _request_with_model_and_conv("Hi", model="provider/model1")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
         mock_moderation = mocker.Mock()
@@ -1185,8 +1185,8 @@ class TestHandleStreamingResponse:
             f"{MODULE}.build_turn_summary",
             return_value=TurnSummary(referenced_documents=[]),
         )
-        mock_build_tool_call = mocker.patch(
-            f"{MODULE}.build_tool_call_summary",
+        mock_dispatch_output = mocker.patch(
+            f"{MODULE}.dispatch_response_item",
             return_value=(mocker.Mock(), mocker.Mock()),
         )
         mocker.patch(
@@ -1223,7 +1223,7 @@ class TestHandleStreamingResponse:
                 else (part if isinstance(part, str) else bytes(part).decode("utf-8"))
             )
             collected.append(chunk_str)
-        mock_build_tool_call.assert_called_once()
+        mock_dispatch_output.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_handle_streaming_with_previous_response_id_appends_turn(

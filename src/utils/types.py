@@ -146,7 +146,7 @@ type IncludeParameter = Literal[
     "reasoning.encrypted_content",
 ]
 
-type ResponseItem = (
+type ResponseItem = Annotated[
     ResponseMessage
     | WebSearchToolCall
     | FileSearchToolCall
@@ -155,8 +155,9 @@ type ResponseItem = (
     | McpListTools
     | McpApprovalRequest
     | FunctionToolCall
-    | McpApprovalResponse
-)
+    | McpApprovalResponse,
+    Field(discriminator="type"),
+]
 
 type ResponseInput = str | list[ResponseItem]
 

@@ -4,33 +4,13 @@
 
 import asyncio
 import datetime
-import json
 from collections.abc import AsyncIterator
-from typing import Annotated, Any, Optional, cast
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from llama_stack_api import (
-    OpenAIResponseObject,
     OpenAIResponseObjectStream,
-)
-from llama_stack_api import (
-    OpenAIResponseObjectStreamResponseMcpCallArgumentsDone as MCPArgsDoneChunk,
-)
-from llama_stack_api import (
-    OpenAIResponseObjectStreamResponseOutputItemAdded as OutputItemAddedChunk,
-)
-from llama_stack_api import (
-    OpenAIResponseObjectStreamResponseOutputItemDone as OutputItemDoneChunk,
-)
-from llama_stack_api import (
-    OpenAIResponseObjectStreamResponseOutputTextDelta as TextDeltaChunk,
-)
-from llama_stack_api import (
-    OpenAIResponseObjectStreamResponseOutputTextDone as TextDoneChunk,
-)
-from llama_stack_api import (
-    OpenAIResponseOutputMessageMCPCall as MCPCall,
 )
 from llama_stack_client import (
     APIConnectionError,
@@ -50,9 +30,6 @@ from configuration import configuration
 from constants import (
     INTERRUPTED_RESPONSE_MESSAGE,
     LLM_TOKEN_EVENT,
-    LLM_TOOL_CALL_EVENT,
-    LLM_TOOL_RESULT_EVENT,
-    LLM_TURN_COMPLETE_EVENT,
     MEDIA_TYPE_EVENT_STREAM,
     MEDIA_TYPE_JSON,
     MEDIA_TYPE_TEXT,
@@ -62,7 +39,6 @@ from models.config import Action
 from models.context import ResponseGeneratorContext
 from models.requests import QueryRequest
 from models.responses import (
-    AbstractErrorResponse,
     ForbiddenResponse,
     InternalServerErrorResponse,
     NotFoundResponse,
@@ -92,13 +68,11 @@ from utils.query import (
 )
 from utils.quota import check_tokens_available, get_available_quotas
 from utils.responses import (
-    build_mcp_tool_call_from_arguments_done,
-    build_tool_call_summary,
-    build_tool_result_from_mcp_output_item_done,
     deduplicate_referenced_documents,
     extract_token_usage,
     extract_vector_store_ids_from_tools,
     get_topic_summary,
+    parse_rag_chunks,
     parse_referenced_documents,
     prepare_responses_params,
 )
@@ -108,6 +82,13 @@ from utils.shields import (
     validate_shield_ids_override,
 )
 from utils.stream_interrupts import get_stream_interrupt_registry
+from utils.streaming import (
+    build_sse_frames_from_chunk,
+    StreamProcessingState,
+    stream_http_error_event,
+    format_stream_data,
+    stream_event,
+)
 from utils.suid import get_suid, normalize_conversation_id
 from utils.token_counter import TokenCounter
 from utils.types import ReferencedDocument, ResponsesApiParams, TurnSummary
@@ -613,7 +594,7 @@ async def generate_response(
     )
 
 
-async def response_generator(  # pylint: disable=too-many-branches,too-many-statements,too-many-locals
+async def response_generator(
     turn_response: AsyncIterator[OpenAIResponseObjectStream],
     context: ResponseGeneratorContext,
     turn_summary: TurnSummary,
@@ -621,8 +602,9 @@ async def response_generator(  # pylint: disable=too-many-branches,too-many-stat
     """Generate SSE formatted streaming response.
 
     Processes streaming chunks from Llama Stack and converts them to
-    Server-Sent Events (SSE) format. Uses handler functions to process
-    different event types and populate turn_summary during streaming.
+    Server-Sent Events (SSE) format. Each chunk is handled by
+    ``sse_frames_for_stream_chunk``, which dispatches on ``chunk.type`` using
+    ``utils.streaming.chunk_handlers.CHUNK_HANDLERS``.
 
     Args:
         turn_response: The streaming response from Llama Stack
@@ -633,158 +615,21 @@ async def response_generator(  # pylint: disable=too-many-branches,too-many-stat
         SSE-formatted strings for tokens, tool calls, tool results,
         turn completion, and error events.
     """
-    chunk_id = 0
-    media_type = context.query_request.media_type or MEDIA_TYPE_JSON
-    text_parts: list[str] = []
-    mcp_calls: dict[int, tuple[str, str]] = (
-        {}
-    )  # output_index -> (mcp_call_id, mcp_call_name)
-    latest_response_object: Optional[OpenAIResponseObject] = None
+    state = StreamProcessingState(
+        turn_summary=turn_summary,
+        context=context,
+    )
 
     logger.debug("Starting streaming response (Responses API) processing")
 
     async for chunk in turn_response:
-        event_type = getattr(chunk, "type", None)
-        logger.debug("Processing chunk %d, type: %s", chunk_id, event_type)
-
-        # Content part started - emit an empty token to kick off UI streaming
-        if event_type == "response.content_part.added":
-            yield stream_event(
-                {
-                    "id": chunk_id,
-                    "token": "",
-                },
-                LLM_TOKEN_EVENT,
-                media_type,
-            )
-            chunk_id += 1
-
-        # Store MCP call item info for later lookup when arguments.done event occurs
-        elif event_type == "response.output_item.added":
-            item_added_chunk = cast(OutputItemAddedChunk, chunk)
-            if item_added_chunk.item.type == "mcp_call":
-                mcp_call_item = cast(MCPCall, item_added_chunk.item)
-                mcp_calls[item_added_chunk.output_index] = (
-                    mcp_call_item.id,
-                    mcp_call_item.name,
-                )
-
-        # Text streaming - emit token delta
-        elif event_type == "response.output_text.delta":
-            delta_chunk = cast(TextDeltaChunk, chunk)
-            text_parts.append(delta_chunk.delta)
-            yield stream_event(
-                {
-                    "id": chunk_id,
-                    "token": delta_chunk.delta,
-                },
-                LLM_TOKEN_EVENT,
-                media_type,
-            )
-            chunk_id += 1
-
-        # Final text of the output (capture, but emit at response.completed)
-        elif event_type == "response.output_text.done":
-            text_done_chunk = cast(TextDoneChunk, chunk)
-            turn_summary.llm_response = text_done_chunk.text
-
-        # Emit tool call when MCP call arguments are done
-        elif event_type == "response.mcp_call.arguments.done":
-            mcp_arguments_done_chunk = cast(MCPArgsDoneChunk, chunk)
-            tool_call = build_mcp_tool_call_from_arguments_done(
-                mcp_arguments_done_chunk.output_index,
-                mcp_arguments_done_chunk.arguments,
-                mcp_calls,
-            )
-            if tool_call:
-                turn_summary.tool_calls.append(tool_call)
-                yield stream_event(
-                    tool_call.model_dump(),
-                    LLM_TOOL_CALL_EVENT,
-                    media_type,
-                )
-
-        # Process tool calls and results when output items are done
-        # For mcp_call, only emit result (call was already emitted when arguments.done)
-        # For other types, emit both call and result
-        elif event_type == "response.output_item.done":
-            output_item_done_chunk = cast(OutputItemDoneChunk, chunk)
-            item_type = output_item_done_chunk.item.type
-            # Skip message items as they are parsed separately
-            if item_type == "message":
-                continue
-
-            output_index = output_item_done_chunk.output_index
-
-            # For mcp_call, only emit result if call was already emitted when arguments.done
-            # (indicated by output_index not being in mcp_calls dict)
-            # If output_index is in dict, process in else branch (emit both call and result)
-            if item_type == "mcp_call" and output_index not in mcp_calls:
-                # Call was already emitted during arguments.done, only emit result
-                mcp_call_item = cast(MCPCall, output_item_done_chunk.item)
-                tool_result = build_tool_result_from_mcp_output_item_done(mcp_call_item)
-                turn_summary.tool_results.append(tool_result)
-                yield stream_event(
-                    tool_result.model_dump(),
-                    LLM_TOOL_RESULT_EVENT,
-                    media_type,
-                )
-            else:
-                # For all other types (and mcp_call when arguments.done didn't happen),
-                # emit both call and result together
-                tool_call, tool_result = build_tool_call_summary(
-                    output_item_done_chunk.item,
-                    turn_summary.rag_chunks,
-                    vector_store_ids=context.vector_store_ids,
-                    rag_id_mapping=context.rag_id_mapping,
-                )
-                if tool_call:
-                    turn_summary.tool_calls.append(tool_call)
-                    yield stream_event(
-                        tool_call.model_dump(),
-                        LLM_TOOL_CALL_EVENT,
-                        media_type,
-                    )
-                if tool_result:
-                    turn_summary.tool_results.append(tool_result)
-                    yield stream_event(
-                        tool_result.model_dump(),
-                        LLM_TOOL_RESULT_EVENT,
-                        media_type,
-                    )
-
-        # Completed response - capture final text and response object
-        elif event_type == "response.completed":
-            latest_response_object = cast(
-                OpenAIResponseObject, getattr(chunk, "response")  # noqa: B009
-            )
-            turn_summary.llm_response = turn_summary.llm_response or "".join(text_parts)
-            yield stream_event(
-                {
-                    "id": chunk_id,
-                    "token": turn_summary.llm_response,
-                },
-                LLM_TURN_COMPLETE_EVENT,
-                media_type,
-            )
-            chunk_id += 1
-
-        # Incomplete or failed response - emit error
-        elif event_type in ("response.incomplete", "response.failed"):
-            latest_response_object = cast(
-                OpenAIResponseObject, getattr(chunk, "response")  # noqa: B009
-            )
-            error_message = (
-                latest_response_object.error.message
-                if latest_response_object.error
-                else "An unexpected error occurred while processing the request."
-            )
-            error_response = (
-                PromptTooLongResponse(model=context.model_id)
-                if "context_length" in error_message.lower()
-                else InternalServerErrorResponse.query_failed(error_message)
-            )
-            yield stream_http_error_event(error_response, media_type)
+        logger.debug(
+            "Processing chunk %d, type: %s",
+            state.chunk_id,
+            getattr(chunk, "type", None),
+        )
+        for sse in build_sse_frames_from_chunk(state, chunk):
+            yield sse
 
     logger.debug(
         "Streaming complete - Tool calls: %d, Response chars: %d",
@@ -793,15 +638,15 @@ async def response_generator(  # pylint: disable=too-many-branches,too-many-stat
     )
 
     # Extract token usage and referenced documents from the final response object
-    if not latest_response_object:
+    if not state.latest_response_object:
         return
 
     turn_summary.token_usage = extract_token_usage(
-        latest_response_object.usage, context.model_id
+        state.latest_response_object.usage, context.model_id
     )
     # Parse tool-based referenced documents from the final response object
     tool_rag_docs = parse_referenced_documents(
-        latest_response_object,
+        state.latest_response_object,
         vector_store_ids=context.vector_store_ids,
         rag_id_mapping=context.rag_id_mapping,
     )
@@ -809,54 +654,12 @@ async def response_generator(  # pylint: disable=too-many-branches,too-many-stat
     turn_summary.referenced_documents = deduplicate_referenced_documents(
         context.inline_rag_context.referenced_documents + tool_rag_docs
     )
-    # Combine inline RAG chunks (BYOK + Solr) with tool-based chunks
-    turn_summary.rag_chunks = (
-        context.inline_rag_context.rag_chunks + turn_summary.rag_chunks
+    tool_rag_chunks = parse_rag_chunks(
+        state.latest_response_object,
+        vector_store_ids=context.vector_store_ids,
+        rag_id_mapping=context.rag_id_mapping,
     )
-
-
-def stream_http_error_event(
-    error: AbstractErrorResponse, media_type: str | None = MEDIA_TYPE_JSON
-) -> str:
-    """
-    Create an SSE-formatted error response for generic LLM or API errors.
-
-    Args:
-        error: An AbstractErrorResponse instance representing the error.
-        media_type: The media type for the response format. Defaults to MEDIA_TYPE_JSON if None.
-    Returns:
-        str: A Server-Sent Events (SSE) formatted error message containing
-            the serialized error details.
-    """
-    logger.error("Error while obtaining answer for user question")
-    media_type = media_type or MEDIA_TYPE_JSON
-    if media_type == MEDIA_TYPE_TEXT:
-        return f"Status: {error.status_code} - {error.detail.response} - {error.detail.cause}"
-
-    return format_stream_data(
-        {
-            "event": "error",
-            "data": {
-                "status_code": error.status_code,
-                "response": error.detail.response,
-                "cause": error.detail.cause,
-            },
-        }
-    )
-
-
-def format_stream_data(d: dict) -> str:
-    """
-    Create a response generator function for Responses API streaming.
-
-    Parameters:
-        d (dict): The data to be formatted as an SSE event.
-
-    Returns:
-        str: The formatted SSE data string.
-    """
-    data = json.dumps(d)
-    return f"data: {data}\n\n"
+    turn_summary.rag_chunks = context.inline_rag_context.rag_chunks + tool_rag_chunks
 
 
 def stream_start_event(conversation_id: str, request_id: str) -> str:
@@ -950,36 +753,6 @@ def stream_end_event(
                 "output_tokens": token_usage.output_tokens,
             },
             "available_quotas": available_quotas,
-        }
-    )
-
-
-def stream_event(data: dict, event_type: str, media_type: str) -> str:
-    """Build an item to yield based on media type.
-
-    Args:
-        data: Dictionary containing the event data
-        event_type: Type of event (token, tool call, etc.)
-        media_type: The media type for the response format
-
-    Returns:
-        SSE-formatted string representing the event
-    """
-    if media_type == MEDIA_TYPE_TEXT:
-        if event_type == LLM_TOKEN_EVENT:
-            return data.get("token", "")
-        if event_type == LLM_TOOL_CALL_EVENT:
-            return f"[Tool Call: {data.get('function_name', 'unknown')}]\n"
-        if event_type == LLM_TOOL_RESULT_EVENT:
-            return "[Tool Result]\n"
-        if event_type == LLM_TURN_COMPLETE_EVENT:
-            return ""
-        return ""
-
-    return format_stream_data(
-        {
-            "event": event_type,
-            "data": data,
         }
     )
 

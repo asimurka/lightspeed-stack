@@ -36,19 +36,10 @@ from llama_stack_api.openai_responses import (
     OpenAIResponseInputToolMCP as InputToolMCP,
 )
 from llama_stack_api.openai_responses import (
-    OpenAIResponseMCPApprovalRequest as MCPApprovalRequest,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseMCPApprovalResponse as MCPApprovalResponse,
-)
-from llama_stack_api.openai_responses import (
     OpenAIResponseMessage as ResponseMessage,
 )
 from llama_stack_api.openai_responses import (
     OpenAIResponseObject as ResponseObject,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutput as ResponseOutput,
 )
 from llama_stack_api.openai_responses import (
     OpenAIResponseOutputMessageContent as OutputMessageContent,
@@ -60,16 +51,7 @@ from llama_stack_api.openai_responses import (
     OpenAIResponseOutputMessageFileSearchToolCall as FileSearchCall,
 )
 from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageFunctionToolCall as FunctionCall,
-)
-from llama_stack_api.openai_responses import (
     OpenAIResponseOutputMessageMCPCall as MCPCall,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageMCPListTools as MCPListTools,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageWebSearchToolCall as WebSearchCall,
 )
 from llama_stack_api.openai_responses import (
     OpenAIResponseUsage as ResponseUsage,
@@ -86,7 +68,6 @@ import constants
 import metrics
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
-from constants import DEFAULT_RAG_TOOL
 from log import get_logger
 from models.config import ByokRag
 from models.database.conversations import UserConversation
@@ -111,10 +92,10 @@ from utils.types import (
     ResponseInput,
     ResponseItem,
     ResponsesApiParams,
-    ToolCallSummary,
     ToolResultSummary,
     TurnSummary,
 )
+from utils.tool_handlers import dispatch_response_item
 
 logger = get_logger(__name__)
 
@@ -646,6 +627,38 @@ def parse_referenced_documents(  # pylint: disable=too-many-locals
     return documents
 
 
+def parse_rag_chunks(
+    response: Optional[ResponseObject],
+    vector_store_ids: Optional[list[str]] = None,
+    rag_id_mapping: Optional[dict[str, str]] = None,
+) -> list[RAGChunk]:
+    """Extract RAG chunks from file_search_call items in a Responses API response.
+
+    Args:
+        response: The OpenAI Response API response object
+        vector_store_ids: Vector store IDs used in the query for source resolution.
+        rag_id_mapping: Mapping from vector_db_id to user-facing rag_id.
+
+    Returns:
+        List of RAG chunks derived from tool file search results (not mutated in place).
+    """
+    if response is None or not response.output:
+        return []
+
+    rag_chunks: list[RAGChunk] = []
+    for output_item in response.output:
+        if output_item.type == "file_search_call":
+            rag_chunks.extend(
+                extract_rag_chunks_from_file_search_item(
+                    cast(FileSearchCall, output_item),
+                    vector_store_ids,
+                    rag_id_mapping,
+                )
+            )
+
+    return rag_chunks
+
+
 def extract_token_usage(usage: Optional[ResponseUsage], model: str) -> TokenCounter:
     """Extract token usage from Responses API usage object and update metrics.
 
@@ -686,196 +699,6 @@ def extract_token_usage(usage: Optional[ResponseUsage], model: str) -> TokenCoun
 
     _increment_llm_call_metric(provider_id, model_id)
     return token_counter
-
-
-def build_tool_call_summary(  # pylint: disable=too-many-return-statements,too-many-branches,too-many-locals
-    output_item: ResponseOutput,
-    rag_chunks: list[RAGChunk],
-    vector_store_ids: Optional[list[str]] = None,
-    rag_id_mapping: Optional[dict[str, str]] = None,
-) -> tuple[Optional[ToolCallSummary], Optional[ToolResultSummary]]:
-    """Translate Responses API tool outputs into ToolCallSummary and ToolResultSummary.
-
-    Args:
-        output_item: A ResponseOutput item from the response.output array
-        rag_chunks: List to append extracted RAG chunks to (from file_search_call items)
-        vector_store_ids: Vector store IDs used in the query for source resolution.
-        rag_id_mapping: Mapping from vector_db_id to user-facing rag_id.
-
-    Returns:
-        Tuple of (ToolCallSummary, ToolResultSummary), one may be None
-    """
-    item_type = getattr(output_item, "type", None)
-
-    if item_type == "function_call":
-        item = cast(FunctionCall, output_item)
-        return (
-            ToolCallSummary(
-                id=item.call_id,
-                name=item.name,
-                args=parse_arguments_string(item.arguments),
-                type="function_call",
-            ),
-            None,  # not supported by Responses API at all
-        )
-
-    if item_type == "file_search_call":
-        file_search_item = cast(FileSearchCall, output_item)
-        extract_rag_chunks_from_file_search_item(
-            file_search_item, rag_chunks, vector_store_ids, rag_id_mapping
-        )
-        response_payload: Optional[dict[str, Any]] = None
-        if file_search_item.results is not None:
-            response_payload = {
-                "results": [result.model_dump() for result in file_search_item.results]
-            }
-        return ToolCallSummary(
-            id=file_search_item.id,
-            name=DEFAULT_RAG_TOOL,
-            args={"queries": file_search_item.queries},
-            type="file_search_call",
-        ), ToolResultSummary(
-            id=file_search_item.id,
-            status=file_search_item.status,
-            content=json.dumps(response_payload) if response_payload else "",
-            type="file_search_call",
-            round=1,
-        )
-
-    # Incomplete OpenAI Responses API definition in LLS: action attribute not supported yet
-    if item_type == "web_search_call":
-        web_search_item = cast(WebSearchCall, output_item)
-        return (
-            ToolCallSummary(
-                id=web_search_item.id,
-                name="web_search",
-                args={},
-                type="web_search_call",
-            ),
-            ToolResultSummary(
-                id=web_search_item.id,
-                status=web_search_item.status,
-                content="",
-                type="web_search_call",
-                round=1,
-            ),
-        )
-
-    if item_type == "mcp_call":
-        mcp_call_item = cast(MCPCall, output_item)
-        args = parse_arguments_string(mcp_call_item.arguments)
-        if mcp_call_item.server_label:
-            args["server_label"] = mcp_call_item.server_label
-        content = (
-            mcp_call_item.error
-            if mcp_call_item.error
-            else (mcp_call_item.output if mcp_call_item.output else "")
-        )
-
-        return ToolCallSummary(
-            id=mcp_call_item.id,
-            name=mcp_call_item.name,
-            args=args,
-            type="mcp_call",
-        ), ToolResultSummary(
-            id=mcp_call_item.id,
-            status="success" if mcp_call_item.error is None else "failure",
-            content=content,
-            type="mcp_call",
-            round=1,
-        )
-
-    if item_type == "mcp_list_tools":
-        mcp_list_tools_item = cast(MCPListTools, output_item)
-        tools_info = [
-            {
-                "name": tool.name,
-                "description": tool.description,
-                "input_schema": tool.input_schema,
-            }
-            for tool in mcp_list_tools_item.tools
-        ]
-        content_dict = {
-            "server_label": mcp_list_tools_item.server_label,
-            "tools": tools_info,
-        }
-        return (
-            ToolCallSummary(
-                id=mcp_list_tools_item.id,
-                name="mcp_list_tools",
-                args={"server_label": mcp_list_tools_item.server_label},
-                type="mcp_list_tools",
-            ),
-            ToolResultSummary(
-                id=mcp_list_tools_item.id,
-                status="success",
-                content=json.dumps(content_dict),
-                type="mcp_list_tools",
-                round=1,
-            ),
-        )
-
-    if item_type == "mcp_approval_request":
-        approval_request_item = cast(MCPApprovalRequest, output_item)
-        args = parse_arguments_string(approval_request_item.arguments)
-        return (
-            ToolCallSummary(
-                id=approval_request_item.id,
-                name=approval_request_item.name,
-                args=args,
-                type="mcp_approval_request",
-            ),
-            None,
-        )
-
-    if item_type == "mcp_approval_response":
-        approval_response_item = cast(MCPApprovalResponse, output_item)
-        content_dict = {}
-        if approval_response_item.reason:
-            content_dict["reason"] = approval_response_item.reason
-        return (
-            None,
-            ToolResultSummary(
-                id=approval_response_item.approval_request_id,
-                status="success" if approval_response_item.approve else "denied",
-                content=json.dumps(content_dict),
-                type="mcp_approval_response",
-                round=1,
-            ),
-        )
-
-    return None, None
-
-
-def build_mcp_tool_call_from_arguments_done(
-    output_index: int,
-    arguments: str,
-    mcp_call_items: dict[int, tuple[str, str]],
-) -> Optional[ToolCallSummary]:
-    """Build ToolCallSummary from MCP call arguments completion event.
-
-    Args:
-        output_index: The output index of the MCP call item
-        arguments: The JSON string of arguments from the arguments.done event
-        mcp_call_items: Dictionary storing item ID and name, keyed by output_index
-
-    Returns:
-        ToolCallSummary for the MCP call, or None if item info not found
-    """
-    item_info = mcp_call_items.get(output_index)
-    if not item_info:
-        return None
-
-    # remove from dict to indicate it was processed during arguments.done
-    del mcp_call_items[output_index]
-    item_id, item_name = item_info
-    args = parse_arguments_string(arguments)
-    return ToolCallSummary(
-        id=item_id,
-        name=item_name,
-        args=args,
-        type="mcp_call",
-    )
 
 
 def build_tool_result_from_mcp_output_item_done(
@@ -963,31 +786,36 @@ def _build_chunk_attributes(result: Any) -> Optional[dict[str, Any]]:
 
 def extract_rag_chunks_from_file_search_item(
     item: FileSearchCall,
-    rag_chunks: list[RAGChunk],
     vector_store_ids: Optional[list[str]] = None,
     rag_id_mapping: Optional[dict[str, str]] = None,
-) -> None:
+) -> list[RAGChunk]:
     """Extract RAG chunks from a file search tool call item.
 
     Args:
         item: The file search tool call item
-        rag_chunks: List to append extracted RAG chunks to
         vector_store_ids: Vector store IDs used in the query for source resolution.
         rag_id_mapping: Mapping from vector_db_id to user-facing rag_id.
+
+    Returns:
+        List of RAG chunks extracted from the file search tool call item.
     """
-    if item.results is not None:
-        for result in item.results:
-            source = _resolve_source_for_result(
-                result, vector_store_ids or [], rag_id_mapping or {}
-            )
-            attributes = _build_chunk_attributes(result)
-            rag_chunk = RAGChunk(
-                content=result.text,
-                source=source,
-                score=result.score,
-                attributes=attributes,
-            )
-            rag_chunks.append(rag_chunk)
+    if item.results is None:
+        return []
+
+    rag_chunks: list[RAGChunk] = []
+    for result in item.results:
+        source = _resolve_source_for_result(
+            result, vector_store_ids or [], rag_id_mapping or {}
+        )
+        attributes = _build_chunk_attributes(result)
+        rag_chunk = RAGChunk(
+            content=result.text,
+            source=source,
+            score=result.score,
+            attributes=attributes,
+        )
+        rag_chunks.append(rag_chunk)
+    return rag_chunks
 
 
 def _increment_llm_call_metric(provider: str, model: str) -> None:
@@ -996,39 +824,6 @@ def _increment_llm_call_metric(provider: str, model: str) -> None:
         metrics.llm_calls_total.labels(provider, model).inc()
     except (AttributeError, TypeError, ValueError) as e:
         logger.warning("Failed to update LLM call metric: %s", e)
-
-
-def parse_arguments_string(arguments_str: str) -> dict[str, Any]:
-    """Parse an arguments string into a dictionary.
-
-    Args:
-        arguments_str: The arguments string to parse
-
-    Returns:
-        Parsed dictionary if successful, otherwise {"args": arguments_str}
-    """
-    # Try parsing as-is first (most common case)
-    try:
-        parsed = json.loads(arguments_str)
-        if isinstance(parsed, dict):
-            return parsed
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    # Try wrapping in {} if string doesn't start with {
-    # This handles cases where the string is just the content without braces
-    stripped = arguments_str.strip()
-    if stripped and not stripped.startswith("{"):
-        try:
-            wrapped = "{" + stripped + "}"
-            parsed = json.loads(wrapped)
-            if isinstance(parsed, dict):
-                return parsed
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    # Fallback: return wrapped in arguments key
-    return {"args": arguments_str}
 
 
 async def check_model_configured(
@@ -1162,13 +957,13 @@ def build_turn_summary(
     )
 
     for item in response.output:
-        tool_call, tool_result = build_tool_call_summary(
-            item, summary.rag_chunks, vector_store_ids, rag_id_mapping
-        )
+        tool_call, tool_result = dispatch_response_item(item)
         if tool_call:
             summary.tool_calls.append(tool_call)
         if tool_result:
             summary.tool_results.append(tool_result)
+
+    summary.rag_chunks = parse_rag_chunks(response, vector_store_ids, rag_id_mapping)
 
     summary.token_usage = extract_token_usage(response.usage, model)
     return summary

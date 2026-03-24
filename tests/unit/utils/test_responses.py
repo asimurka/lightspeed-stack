@@ -4,20 +4,15 @@
 
 import json
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, cast
 
 import pytest
 from fastapi import HTTPException
 from llama_stack_api.openai_responses import (
     OpenAIResponseInputToolFileSearch as InputToolFileSearch,
     OpenAIResponseInputToolMCP as InputToolMCP,
-    OpenAIResponseMCPApprovalRequest as MCPApprovalRequest,
-    OpenAIResponseMCPApprovalResponse as MCPApprovalResponse,
     OpenAIResponseOutputMessageFileSearchToolCall as FileSearchCall,
-    OpenAIResponseOutputMessageFunctionToolCall as FunctionCall,
     OpenAIResponseOutputMessageMCPCall as MCPCall,
-    OpenAIResponseOutputMessageMCPListTools as MCPListTools,
-    OpenAIResponseOutputMessageWebSearchToolCall as WebSearchCall,
 )
 from llama_stack_client import APIConnectionError, APIStatusError, AsyncLlamaStackClient
 from pydantic import AnyUrl
@@ -30,10 +25,8 @@ from utils.responses import (
     _build_chunk_attributes,
     _increment_llm_call_metric,
     _resolve_source_for_result,
-    build_mcp_tool_call_from_arguments_done,
-    build_tool_call_summary,
-    build_tool_result_from_mcp_output_item_done,
     extract_rag_chunks_from_file_search_item,
+    build_tool_result_from_mcp_output_item_done,
     extract_text_from_response_item,
     extract_text_from_response_items,
     extract_token_usage,
@@ -42,13 +35,18 @@ from utils.responses import (
     get_rag_tools,
     get_topic_summary,
     get_vector_store_ids,
-    parse_arguments_string,
+    parse_rag_chunks,
     parse_referenced_documents,
     prepare_responses_params,
     prepare_tools,
     resolve_vector_store_ids,
 )
-from utils.types import RAGChunk
+from utils.tool_handlers import (
+    build_mcp_tool_call_from_arguments_done,
+    dispatch_response_item,
+    parse_arguments_string,
+)
+from utils.types import ResponseItem
 
 
 class MockOutputItem:  # pylint: disable=too-few-public-methods
@@ -1683,190 +1681,6 @@ class TestExtractTokenUsage:
         assert result.output_tokens == 50
 
 
-class TestBuildToolCallSummary:
-    """Tests for build_tool_call_summary function."""
-
-    def test_build_tool_call_summary_function_call(self, mocker: MockerFixture) -> None:
-        """Test building summary for function_call."""
-        mock_item = mocker.Mock(spec=FunctionCall)
-        mock_item.type = "function_call"
-        mock_item.call_id = "call_123"
-        mock_item.name = "test_function"
-        mock_item.arguments = '{"arg1": "value1"}'
-
-        rag_chunks: list[RAGChunk] = []
-        mocker.patch(
-            "utils.responses.parse_arguments_string", return_value={"arg1": "value1"}
-        )
-
-        call_summary, result_summary = build_tool_call_summary(mock_item, rag_chunks)
-        assert call_summary is not None
-        assert call_summary.name == "test_function"
-        assert call_summary.args == {"arg1": "value1"}
-        assert result_summary is None
-
-    def test_build_tool_call_summary_file_search_call(
-        self, mocker: MockerFixture
-    ) -> None:
-        """Test building summary for file_search_call."""
-        mock_result = mocker.Mock()
-        mock_result.text = "chunk text"
-        mock_result.filename = "doc.pdf"
-        mock_result.score = 0.9
-        mock_result.attributes = None
-        mock_result.model_dump = mocker.Mock(
-            return_value={"text": "chunk text", "filename": "doc.pdf", "score": 0.9}
-        )
-
-        mock_item = mocker.Mock(spec=FileSearchCall)
-        mock_item.type = "file_search_call"
-        mock_item.id = "search_123"
-        mock_item.queries = ["query1"]
-        mock_item.results = [mock_result]
-        mock_item.status = "success"
-
-        rag_chunks: list[RAGChunk] = []
-        call_summary, result_summary = build_tool_call_summary(mock_item, rag_chunks)
-
-        assert call_summary is not None
-        assert call_summary.name == "file_search"
-        assert len(rag_chunks) == 1
-        assert result_summary is not None
-        assert result_summary.status == "success"
-
-    def test_build_tool_call_summary_web_search_call(
-        self, mocker: MockerFixture
-    ) -> None:
-        """Test building summary for web_search_call."""
-        mock_item = mocker.Mock(spec=WebSearchCall)
-        mock_item.type = "web_search_call"
-        mock_item.id = "web_123"
-        mock_item.status = "success"
-
-        rag_chunks: list[RAGChunk] = []
-        call_summary, result_summary = build_tool_call_summary(mock_item, rag_chunks)
-
-        assert call_summary is not None
-        assert call_summary.name == "web_search"
-        assert result_summary is not None
-        assert result_summary.status == "success"
-
-    def test_build_tool_call_summary_mcp_call(self, mocker: MockerFixture) -> None:
-        """Test building summary for mcp_call."""
-        mock_item = mocker.Mock(spec=MCPCall)
-        mock_item.type = "mcp_call"
-        mock_item.id = "mcp_123"
-        mock_item.name = "mcp_tool"
-        mock_item.arguments = '{"arg": "value"}'
-        mock_item.server_label = "test_server"
-        mock_item.error = None
-        mock_item.output = "output"
-
-        rag_chunks: list[RAGChunk] = []
-        mocker.patch(
-            "utils.responses.parse_arguments_string", return_value={"arg": "value"}
-        )
-
-        call_summary, result_summary = build_tool_call_summary(mock_item, rag_chunks)
-        assert call_summary is not None
-        assert call_summary.name == "mcp_tool"
-        assert call_summary.args["server_label"] == "test_server"
-        assert result_summary is not None
-        assert result_summary.status == "success"
-
-    def test_build_tool_call_summary_mcp_call_with_error(
-        self, mocker: MockerFixture
-    ) -> None:
-        """Test building summary for mcp_call with error."""
-        mock_item = mocker.Mock(spec=MCPCall)
-        mock_item.type = "mcp_call"
-        mock_item.id = "mcp_123"
-        mock_item.name = "mcp_tool"
-        mock_item.arguments = "{}"
-        mock_item.server_label = None
-        mock_item.error = "Error occurred"
-        mock_item.output = None
-
-        rag_chunks: list[RAGChunk] = []
-        mocker.patch("utils.responses.parse_arguments_string", return_value={})
-
-        _call_summary, result_summary = build_tool_call_summary(mock_item, rag_chunks)
-        assert result_summary is not None
-        assert result_summary.status == "failure"
-        assert result_summary.content == "Error occurred"
-
-    def test_build_tool_call_summary_mcp_list_tools(
-        self, mocker: MockerFixture
-    ) -> None:
-        """Test building summary for mcp_list_tools."""
-        mock_tool = mocker.Mock()
-        mock_tool.name = "tool1"
-        mock_tool.description = "Description"
-        mock_tool.input_schema = {"type": "object"}
-
-        mock_item = mocker.Mock(spec=MCPListTools)
-        mock_item.type = "mcp_list_tools"
-        mock_item.id = "list_123"
-        mock_item.server_label = "test_server"
-        mock_item.tools = [mock_tool]
-
-        rag_chunks: list[RAGChunk] = []
-        call_summary, result_summary = build_tool_call_summary(mock_item, rag_chunks)
-
-        assert call_summary is not None
-        assert call_summary.name == "mcp_list_tools"
-        assert result_summary is not None
-        assert "tools" in json.loads(result_summary.content)
-
-    def test_build_tool_call_summary_mcp_approval_request(
-        self, mocker: MockerFixture
-    ) -> None:
-        """Test building summary for mcp_approval_request."""
-        mock_item = mocker.Mock(spec=MCPApprovalRequest)
-        mock_item.type = "mcp_approval_request"
-        mock_item.id = "approval_123"
-        mock_item.name = "approve_action"
-        mock_item.arguments = '{"action": "delete"}'
-
-        rag_chunks: list[RAGChunk] = []
-        mocker.patch(
-            "utils.responses.parse_arguments_string", return_value={"action": "delete"}
-        )
-
-        call_summary, result_summary = build_tool_call_summary(mock_item, rag_chunks)
-        assert call_summary is not None
-        assert call_summary.name == "approve_action"
-        assert result_summary is None
-
-    def test_build_tool_call_summary_mcp_approval_response(
-        self, mocker: MockerFixture
-    ) -> None:
-        """Test building summary for mcp_approval_response."""
-        mock_item = mocker.Mock(spec=MCPApprovalResponse)
-        mock_item.type = "mcp_approval_response"
-        mock_item.approval_request_id = "request_123"
-        mock_item.approve = True
-        mock_item.reason = "Approved"
-
-        rag_chunks: list[RAGChunk] = []
-        call_summary, result_summary = build_tool_call_summary(mock_item, rag_chunks)
-
-        assert call_summary is None
-        assert result_summary is not None
-        assert result_summary.status == "success"
-        assert "reason" in json.loads(result_summary.content)
-
-    def test_build_tool_call_summary_unknown_type(self, mocker: MockerFixture) -> None:
-        """Test building summary for unknown type returns None."""
-        mock_item = mocker.Mock()
-        mock_item.type = "unknown_type"
-
-        rag_chunks: list[RAGChunk] = []
-        call_summary, result_summary = build_tool_call_summary(mock_item, rag_chunks)
-        assert call_summary is None
-        assert result_summary is None
-
-
 class TestExtractRagChunksFromFileSearchItem:
     """Tests for extract_rag_chunks_from_file_search_item function."""
 
@@ -1887,8 +1701,7 @@ class TestExtractRagChunksFromFileSearchItem:
         mock_item = mocker.Mock(spec=FileSearchCall)
         mock_item.results = [mock_result1, mock_result2]
 
-        rag_chunks: list[RAGChunk] = []
-        extract_rag_chunks_from_file_search_item(mock_item, rag_chunks)
+        rag_chunks = extract_rag_chunks_from_file_search_item(mock_item)
 
         assert len(rag_chunks) == 2
         assert rag_chunks[0].content == "chunk 1"
@@ -1900,8 +1713,7 @@ class TestExtractRagChunksFromFileSearchItem:
         mock_item = mocker.Mock(spec=FileSearchCall)
         mock_item.results = None
 
-        rag_chunks: list[RAGChunk] = []
-        extract_rag_chunks_from_file_search_item(mock_item, rag_chunks)
+        rag_chunks = extract_rag_chunks_from_file_search_item(mock_item)
         assert len(rag_chunks) == 0
 
 
@@ -1991,11 +1803,9 @@ class TestBuildMCPToolCallFromArgumentsDone:
 
     def test_build_mcp_tool_call_with_valid_item(self) -> None:
         """Test building MCP tool call with valid item info."""
-        mcp_call_items = {0: ("call_123", "test_tool")}
         tool_call = build_mcp_tool_call_from_arguments_done(
-            output_index=0,
-            arguments='{"param": "value"}',
-            mcp_call_items=mcp_call_items,
+            ("call_123", "test_tool"),
+            '{"param": "value"}',
         )
 
         assert tool_call is not None
@@ -2003,27 +1813,12 @@ class TestBuildMCPToolCallFromArgumentsDone:
         assert tool_call.name == "test_tool"
         assert tool_call.type == "mcp_call"
         assert tool_call.args == {"param": "value"}
-        # Item should be removed from dict
-        assert 0 not in mcp_call_items
-
-    def test_build_mcp_tool_call_with_missing_item(self) -> None:
-        """Test building MCP tool call when item info is missing."""
-        mcp_call_items: dict[int, tuple[str, str]] = {}
-        tool_call = build_mcp_tool_call_from_arguments_done(
-            output_index=0,
-            arguments='{"param": "value"}',
-            mcp_call_items=mcp_call_items,
-        )
-
-        assert tool_call is None
 
     def test_build_mcp_tool_call_parses_arguments(self) -> None:
         """Test that arguments are properly parsed."""
-        mcp_call_items = {1: ("call_456", "another_tool")}
         tool_call = build_mcp_tool_call_from_arguments_done(
-            output_index=1,
-            arguments='{"key1": "val1", "key2": 42}',
-            mcp_call_items=mcp_call_items,
+            ("call_456", "another_tool"),
+            '{"key1": "val1", "key2": 42}',
         )
 
         assert tool_call is not None
@@ -2298,10 +2093,8 @@ class TestExtractRagChunksWithIndexResolution:
         mock_item = mocker.Mock(spec=FileSearchCall)
         mock_item.results = [mock_result]
 
-        rag_chunks: list[RAGChunk] = []
-        extract_rag_chunks_from_file_search_item(
+        rag_chunks = extract_rag_chunks_from_file_search_item(
             mock_item,
-            rag_chunks,
             vector_store_ids=["vs-001"],
             rag_id_mapping={"vs-001": "ocp-4.18-docs"},
         )
@@ -2323,8 +2116,7 @@ class TestExtractRagChunksWithIndexResolution:
         mock_item = mocker.Mock(spec=FileSearchCall)
         mock_item.results = [mock_result]
 
-        rag_chunks: list[RAGChunk] = []
-        extract_rag_chunks_from_file_search_item(mock_item, rag_chunks)
+        rag_chunks = extract_rag_chunks_from_file_search_item(mock_item)
 
         assert len(rag_chunks) == 1
         assert rag_chunks[0].source is None
@@ -2343,10 +2135,8 @@ class TestExtractRagChunksWithIndexResolution:
         mock_item = mocker.Mock(spec=FileSearchCall)
         mock_item.results = [mock_result]
 
-        rag_chunks: list[RAGChunk] = []
-        extract_rag_chunks_from_file_search_item(
+        rag_chunks = extract_rag_chunks_from_file_search_item(
             mock_item,
-            rag_chunks,
             vector_store_ids=["vs-001", "vs-002"],
             rag_id_mapping={"vs-001": "ocp-docs", "vs-002": "rhel-9-docs"},
         )
@@ -2359,11 +2149,11 @@ class TestExtractRagChunksWithIndexResolution:
         }
 
 
-class TestBuildToolCallSummaryWithIndexResolution:
-    """Tests for build_tool_call_summary with index resolution."""
+class TestParseRagChunksFromResponse:
+    """Tests for parse_rag_chunks_from_response (file_search RAG extraction)."""
 
     def test_file_search_with_mapping(self, mocker: MockerFixture) -> None:
-        """Test that build_tool_call_summary passes mapping to extraction."""
+        """Test that mapping is applied when parsing tool RAG chunks from response."""
         mock_result = mocker.Mock()
         mock_result.text = "chunk text"
         mock_result.filename = "file-uuid"
@@ -2385,10 +2175,11 @@ class TestBuildToolCallSummaryWithIndexResolution:
         mock_item.results = [mock_result]
         mock_item.status = "success"
 
-        rag_chunks: list[RAGChunk] = []
-        call_summary, result_summary = build_tool_call_summary(
-            mock_item,
-            rag_chunks,
+        mock_response = mocker.Mock()
+        mock_response.output = [mock_item]
+
+        rag_chunks = parse_rag_chunks(
+            mock_response,
             vector_store_ids=["vs-001"],
             rag_id_mapping={"vs-001": "ocp-4.18-docs"},
         )
@@ -2396,11 +2187,14 @@ class TestBuildToolCallSummaryWithIndexResolution:
         assert len(rag_chunks) == 1
         assert rag_chunks[0].source == "ocp-4.18-docs"
         assert rag_chunks[0].attributes == {"title": "Doc Title"}
+        call_summary, result_summary = dispatch_response_item(
+            cast(ResponseItem, mock_item)
+        )
         assert call_summary is not None
         assert result_summary is not None
 
     def test_file_search_without_mapping(self, mocker: MockerFixture) -> None:
-        """Test that build_tool_call_summary works without mapping (backward compat)."""
+        """Test parse without mapping (sources None where applicable)."""
         mock_result = mocker.Mock()
         mock_result.text = "chunk text"
         mock_result.filename = "doc.pdf"
@@ -2417,12 +2211,15 @@ class TestBuildToolCallSummaryWithIndexResolution:
         mock_item.results = [mock_result]
         mock_item.status = "success"
 
-        rag_chunks: list[RAGChunk] = []
-        call_summary, _ = build_tool_call_summary(mock_item, rag_chunks)
+        mock_response = mocker.Mock()
+        mock_response.output = [mock_item]
+
+        rag_chunks = parse_rag_chunks(mock_response)
 
         assert len(rag_chunks) == 1
         assert rag_chunks[0].source is None
         assert rag_chunks[0].attributes is None
+        call_summary, _ = dispatch_response_item(cast(ResponseItem, mock_item))
         assert call_summary is not None
 
 

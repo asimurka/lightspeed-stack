@@ -1,46 +1,20 @@
 """Utilities for conversations."""
 
-import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Any, Optional, cast
+from typing import Any, cast
 
 from fastapi import HTTPException
 from llama_stack_api import OpenAIResponseMessage, OpenAIResponseOutput
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageFileSearchToolCall as FileSearchCall,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageFunctionToolCall as FunctionCall,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageMCPCall as MCPCall,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageMCPListTools as MCPListTools,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageWebSearchToolCall as WebSearchCall,
-)
 from llama_stack_client import APIConnectionError, APIStatusError, AsyncLlamaStackClient
 from llama_stack_client.types.conversations.item_create_params import Item
 from llama_stack_client.types.conversations.item_list_response import (
     ItemListResponse,
 )
 from llama_stack_client.types.conversations.item_list_response import (
-    OpenAIResponseInputFunctionToolCallOutput as FunctionToolCallOutput,
-)
-from llama_stack_client.types.conversations.item_list_response import (
-    OpenAIResponseMcpApprovalRequest as MCPApprovalRequest,
-)
-from llama_stack_client.types.conversations.item_list_response import (
-    OpenAIResponseMcpApprovalResponse as MCPApprovalResponse,
-)
-from llama_stack_client.types.conversations.item_list_response import (
     OpenAIResponseMessageOutput as MessageOutput,
 )
 
-from constants import DEFAULT_RAG_TOOL
 from models.database.conversations import UserTurn
 from models.responses import (
     ConversationTurn,
@@ -48,8 +22,8 @@ from models.responses import (
     Message,
     ServiceUnavailableResponse,
 )
-from utils.responses import parse_arguments_string
-from utils.types import ResponseInput, ToolCallSummary, ToolResultSummary
+from utils.tool_handlers import dispatch_response_item
+from utils.types import ResponseInput, ResponseItem, ToolCallSummary, ToolResultSummary
 
 
 def _extract_text_from_content(content: str | list[Any]) -> str:
@@ -98,175 +72,6 @@ def _parse_message_item(item: MessageOutput) -> Message:
     content_text = _extract_text_from_content(item.content)
     message_type = item.role
     return Message(content=content_text, type=message_type, referenced_documents=None)
-
-
-def _build_tool_call_summary_from_item(  # pylint: disable=too-many-return-statements
-    item: ItemListResponse,
-) -> tuple[Optional[ToolCallSummary], Optional[ToolResultSummary]]:
-    """Translate Conversations API tool items into ToolCallSummary and ToolResultSummary records.
-
-    Args:
-        item: A tool item from the Conversations API items list
-
-    Returns:
-        A tuple of (ToolCallSummary, ToolResultSummary) one of them possibly None
-        if the item type doesn't provide both call and result information.
-    """
-    item_type = getattr(item, "type", None)
-
-    if item_type == "function_call":
-        function_call_item = cast(FunctionCall, item)
-        return (
-            ToolCallSummary(
-                id=function_call_item.call_id,
-                name=function_call_item.name,
-                args=parse_arguments_string(function_call_item.arguments),
-                type="function_call",
-            ),
-            None,  # Function call results come as separate function_call_output items
-        )
-
-    if item_type == "file_search_call":
-        file_search_item = cast(FileSearchCall, item)
-        response_payload: Optional[dict[str, Any]] = None
-        if file_search_item.results is not None:
-            response_payload = {
-                "results": [result.model_dump() for result in file_search_item.results]
-            }
-        return (
-            ToolCallSummary(
-                id=file_search_item.id,
-                name=DEFAULT_RAG_TOOL,
-                args={"queries": file_search_item.queries},
-                type="file_search_call",
-            ),
-            ToolResultSummary(
-                id=file_search_item.id,
-                status=file_search_item.status,
-                content=json.dumps(response_payload) if response_payload else "",
-                type="file_search_call",
-                round=1,
-            ),
-        )
-
-    if item_type == "web_search_call":
-        web_search_item = cast(WebSearchCall, item)
-        return (
-            ToolCallSummary(
-                id=web_search_item.id,
-                name="web_search",
-                args={},
-                type="web_search_call",
-            ),
-            ToolResultSummary(
-                id=web_search_item.id,
-                status=web_search_item.status,
-                content="",
-                type="web_search_call",
-                round=1,
-            ),
-        )
-
-    if item_type == "mcp_call":
-        mcp_call_item = cast(MCPCall, item)
-        args = parse_arguments_string(mcp_call_item.arguments)
-        if mcp_call_item.server_label:
-            args["server_label"] = mcp_call_item.server_label
-        content = (
-            mcp_call_item.error
-            if mcp_call_item.error
-            else (mcp_call_item.output if mcp_call_item.output else "")
-        )
-
-        return (
-            ToolCallSummary(
-                id=mcp_call_item.id,
-                name=mcp_call_item.name,
-                args=args,
-                type="mcp_call",
-            ),
-            ToolResultSummary(
-                id=mcp_call_item.id,
-                status="success" if mcp_call_item.error is None else "failure",
-                content=content,
-                type="mcp_call",
-                round=1,
-            ),
-        )
-
-    if item_type == "mcp_list_tools":
-        mcp_list_tools_item = cast(MCPListTools, item)
-        tools_info = [
-            {
-                "name": tool.name,
-                "description": tool.description,
-                "input_schema": tool.input_schema,
-            }
-            for tool in mcp_list_tools_item.tools
-        ]
-        content_dict = {
-            "server_label": mcp_list_tools_item.server_label,
-            "tools": tools_info,
-        }
-        return (
-            ToolCallSummary(
-                id=mcp_list_tools_item.id,
-                name="mcp_list_tools",
-                args={"server_label": mcp_list_tools_item.server_label},
-                type="mcp_list_tools",
-            ),
-            ToolResultSummary(
-                id=mcp_list_tools_item.id,
-                status="success",
-                content=json.dumps(content_dict),
-                type="mcp_list_tools",
-                round=1,
-            ),
-        )
-
-    if item_type == "mcp_approval_request":
-        approval_request_item = cast(MCPApprovalRequest, item)
-        args = parse_arguments_string(approval_request_item.arguments)
-        return (
-            ToolCallSummary(
-                id=approval_request_item.id,
-                name=approval_request_item.name,
-                args=args,
-                type="tool_call",
-            ),
-            None,
-        )
-
-    if item_type == "mcp_approval_response":
-        approval_response_item = cast(MCPApprovalResponse, item)
-        content_dict = {}
-        if approval_response_item.reason:
-            content_dict["reason"] = approval_response_item.reason
-        return (
-            None,
-            ToolResultSummary(
-                id=approval_response_item.approval_request_id,
-                status="success" if approval_response_item.approve else "denied",
-                content=json.dumps(content_dict),
-                type="mcp_approval_response",
-                round=1,
-            ),
-        )
-
-    if item_type == "function_call_output":
-        function_output = cast(FunctionToolCallOutput, item)
-        return (
-            None,
-            ToolResultSummary(
-                id=function_output.call_id,
-                status=function_output.status or "success",
-                content=function_output.output,
-                type="function_call_output",
-                round=1,
-            ),
-        )
-
-    return None, None
 
 
 def _create_dummy_turn_metadata(started_at: datetime) -> UserTurn:
@@ -391,7 +196,7 @@ def _process_turn_items(
             message = _parse_message_item(message_item)
             messages.append(message)
         else:
-            tool_call, tool_result = _build_tool_call_summary_from_item(item)
+            tool_call, tool_result = dispatch_response_item(cast(ResponseItem, item))
             if tool_call is not None:
                 tool_calls.append(tool_call)
             if tool_result is not None:

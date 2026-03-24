@@ -1983,9 +1983,13 @@ class TestResponseGenerator:
 
         mock_tool_call = mocker.Mock()
         mock_tool_call.model_dump.return_value = {"tool": "test"}
-        mocker.patch(
-            "app.endpoints.streaming_query.build_tool_call_summary",
-            return_value=(mock_tool_call, None),
+        mocker.patch.dict(
+            "utils.streaming.chunk_handlers.TOOL_CALL_BUILDERS",
+            {"tool_call": lambda _o: mock_tool_call},
+        )
+        mocker.patch.dict(
+            "utils.streaming.chunk_handlers.TOOL_RESULT_BUILDERS",
+            {"tool_call": lambda _o: None},
         )
 
         mocker.patch(
@@ -2034,9 +2038,13 @@ class TestResponseGenerator:
         mock_tool_call.model_dump.return_value = {"tool": "test"}
         mock_tool_result = mocker.Mock()
         mock_tool_result.model_dump.return_value = {"result": "test_result"}
-        mocker.patch(
-            "app.endpoints.streaming_query.build_tool_call_summary",
-            return_value=(mock_tool_call, mock_tool_result),
+        mocker.patch.dict(
+            "utils.streaming.chunk_handlers.TOOL_CALL_BUILDERS",
+            {"tool_call": lambda _o: mock_tool_call},
+        )
+        mocker.patch.dict(
+            "utils.streaming.chunk_handlers.TOOL_RESULT_BUILDERS",
+            {"tool_call": lambda _o: mock_tool_result},
         )
 
         mocker.patch(
@@ -2063,6 +2071,7 @@ class TestResponseGenerator:
         """Test response generator processes response completed events."""
         mock_response_obj = mocker.Mock(spec=OpenAIResponseObject)
         mock_response_obj.usage = mocker.Mock(input_tokens=10, output_tokens=5)
+        mock_response_obj.output = []
 
         async def mock_turn_response() -> AsyncIterator[OpenAIResponseObjectStream]:
             chunk = mocker.Mock(spec=CompletedChunk)
@@ -2104,6 +2113,7 @@ class TestResponseGenerator:
         """Test response generator uses text_parts when llm_response is empty."""
         mock_response_obj = mocker.Mock(spec=OpenAIResponseObject)
         mock_response_obj.usage = mocker.Mock(input_tokens=10, output_tokens=5)
+        mock_response_obj.output = []
 
         async def mock_turn_response() -> AsyncIterator[OpenAIResponseObjectStream]:
             # Add text delta first
@@ -2379,12 +2389,20 @@ class TestResponseGenerator:
             referenced_documents=[inline_doc],
         )
 
-        tool_chunk = RAGChunk(content="tool chunk content", source="vs-1")
         tool_ref_doc = ReferencedDocument(doc_title="Tool Doc")
+
+        mock_fs_result = mocker.Mock()
+        mock_fs_result.text = "tool chunk content"
+        mock_fs_result.score = 0.9
+        mock_fs_result.attributes = None
+
+        mock_file_search_item = mocker.Mock()
+        mock_file_search_item.type = "file_search_call"
+        mock_file_search_item.results = [mock_fs_result]
 
         mock_response_obj = mocker.Mock(spec=OpenAIResponseObject)
         mock_response_obj.usage = mocker.Mock()
-        mock_response_obj.output = []
+        mock_response_obj.output = [mock_file_search_item]
 
         async def mock_turn_response() -> AsyncIterator[OpenAIResponseObjectStream]:
             completed_chunk = mocker.Mock(spec=CompletedChunk)
@@ -2402,7 +2420,6 @@ class TestResponseGenerator:
         mock_context.inline_rag_context = inline_rag
 
         mock_turn_summary = TurnSummary()
-        mock_turn_summary.rag_chunks = [tool_chunk]
         mock_turn_summary.referenced_documents = [tool_ref_doc]
         mocker.patch(
             "app.endpoints.streaming_query.parse_referenced_documents",
@@ -2586,7 +2603,7 @@ class TestResponseGeneratorMCPCalls:
             "name": "test_mcp_tool",
         }
         mocker.patch(
-            "app.endpoints.streaming_query.build_mcp_tool_call_from_arguments_done",
+            "utils.streaming.chunk_handlers.build_mcp_tool_call_from_arguments_done",
             return_value=mock_tool_call,
         )
 
@@ -2656,31 +2673,15 @@ class TestResponseGeneratorMCPCalls:
         mock_tool_call = mocker.Mock()
         mock_tool_call.model_dump.return_value = {"id": "mcp_call_123"}
 
-        # Use side_effect to actually remove item from mcp_calls dict
         def build_mcp_tool_call_side_effect(
-            output_index: int,
-            arguments: str,
-            mcp_call_items: dict[int, tuple[str, str]],
+            _item_info: tuple[str, str],
+            _arguments: str,
         ) -> Any:
-            # Remove item from dict to simulate real behavior
-            # arguments parameter is required by function signature but unused here
-            _ = arguments
-            mcp_call_items.pop(output_index, None)
             return mock_tool_call
 
         mocker.patch(
-            "app.endpoints.streaming_query.build_mcp_tool_call_from_arguments_done",
+            "utils.streaming.chunk_handlers.build_mcp_tool_call_from_arguments_done",
             side_effect=build_mcp_tool_call_side_effect,
-        )
-
-        mock_tool_result = mocker.Mock()
-        mock_tool_result.model_dump.return_value = {
-            "id": "mcp_call_123",
-            "status": "success",
-        }
-        mocker.patch(
-            "app.endpoints.streaming_query.build_tool_result_from_mcp_output_item_done",
-            return_value=mock_tool_result,
         )
 
         mocker.patch(
@@ -2705,7 +2706,7 @@ class TestResponseGeneratorMCPCalls:
     async def test_response_generator_mcp_call_output_item_done_without_arguments_done(
         self, mocker: MockerFixture
     ) -> None:
-        """Test response generator emits both call and result when MCP output_item.done."""
+        """MCP output_item.done without arguments.done emits call + result from output item."""
         mock_mcp_item = mocker.Mock(spec=MCPCall)
         mock_mcp_item.type = "mcp_call"
         mock_mcp_item.id = "mcp_call_123"
@@ -2741,18 +2742,6 @@ class TestResponseGeneratorMCPCalls:
 
         mock_turn_summary = TurnSummary()
 
-        mock_tool_call = mocker.Mock()
-        mock_tool_call.model_dump.return_value = {"id": "mcp_call_123"}
-        mock_tool_result = mocker.Mock()
-        mock_tool_result.model_dump.return_value = {
-            "id": "mcp_call_123",
-            "status": "success",
-        }
-        mocker.patch(
-            "app.endpoints.streaming_query.build_tool_call_summary",
-            return_value=(mock_tool_call, mock_tool_result),
-        )
-
         mocker.patch(
             "app.endpoints.streaming_query.extract_token_usage",
             return_value=TokenCounter(input_tokens=0, output_tokens=0),
@@ -2767,6 +2756,5 @@ class TestResponseGeneratorMCPCalls:
         ):
             result.append(item)
 
-        # Should have both tool call and result (fallback behavior)
         assert len(mock_turn_summary.tool_calls) == 1
         assert len(mock_turn_summary.tool_results) == 1

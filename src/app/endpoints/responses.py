@@ -67,7 +67,6 @@ from utils.query import (
 )
 from utils.quota import check_tokens_available, get_available_quotas
 from utils.responses import (
-    build_tool_call_summary,
     build_turn_summary,
     check_model_configured,
     deduplicate_referenced_documents,
@@ -77,11 +76,13 @@ from utils.responses import (
     extract_vector_store_ids_from_tools,
     get_topic_summary,
     get_zero_usage,
+    parse_rag_chunks,
     parse_referenced_documents,
     resolve_tool_choice,
     select_model_for_responses,
 )
 from utils.shields import run_shield_moderation
+from utils.tool_handlers import dispatch_response_item
 from utils.suid import (
     normalize_conversation_id,
 )
@@ -533,18 +534,18 @@ async def response_generator(
             inline_rag_context.referenced_documents + tool_rag_docs
         )
         for item in latest_response_object.output:
-            tool_call, tool_result = build_tool_call_summary(
-                item,
-                turn_summary.rag_chunks,
-                vector_store_ids,
-                configuration.rag_id_mapping,
-            )
+            tool_call, tool_result = dispatch_response_item(item)
             if tool_call:
                 turn_summary.tool_calls.append(tool_call)
             if tool_result:
                 turn_summary.tool_results.append(tool_result)
 
-        turn_summary.rag_chunks.extend(inline_rag_context.rag_chunks)
+        tool_rag_chunks = parse_rag_chunks(
+            latest_response_object,
+            vector_store_ids=vector_store_ids,
+            rag_id_mapping=configuration.rag_id_mapping,
+        )
+        turn_summary.rag_chunks.extend(inline_rag_context.rag_chunks + tool_rag_chunks)
 
     client = AsyncLlamaStackClientHolder().get_client()
     # Explicitly append the turn to conversation if context passed by previous response
