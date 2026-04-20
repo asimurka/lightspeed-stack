@@ -1281,7 +1281,7 @@
                     "mcp-servers"
                 ],
                 "summary": "Delete Mcp Server Handler",
-                "description": "Unregister a dynamically registered MCP server.\n\nRemoves the MCP server from the runtime configuration and unregisters\nits toolgroup from Llama Stack. Only servers registered via the API\ncan be deleted; statically configured servers cannot be removed.\n\n### Parameters:\n- request: The incoming HTTP request (used by middleware).\n- auth: Authentication tuple from the auth dependency (used by middleware).\n- name: MCP server name\n\n### Raises:\n- HTTPException: If the server is not found, is statically configured, or\n  Llama Stack unregistration fails.\n\n### Returns:\n- MCPServerDeleteResponse: Confirmation of the deletion.",
+                "description": "Unregister a dynamically registered MCP server.\n\nRemoves the MCP server from the runtime configuration and unregisters\nits toolgroup from Llama Stack. Only servers registered via the API\ncan be deleted; statically configured servers cannot be removed.\n\n### Parameters:\n- request: The incoming HTTP request (used by middleware).\n- auth: Authentication tuple from the auth dependency (used by middleware).\n- name: MCP server name\n\n### Raises:\n- HTTPException: If the server is statically configured (403) or Llama Stack\n  unregistration fails (503).\n\n### Returns:\n- MCPServerDeleteResponse: Whether the server was removed (200 for all other cases,\n  including unknown name, matching conversations v1 delete semantics).",
                 "operationId": "delete_mcp_server_handler_v1_mcp_servers__name__delete",
                 "parameters": [
                     {
@@ -1302,9 +1302,21 @@
                                 "schema": {
                                     "$ref": "#/components/schemas/MCPServerDeleteResponse"
                                 },
-                                "example": {
-                                    "message": "MCP server 'test-mcp-server' unregistered successfully",
-                                    "name": "test-mcp-server"
+                                "examples": {
+                                    "deleted": {
+                                        "value": {
+                                            "name": "test-mcp-server",
+                                            "response": "MCP server 'test-mcp-server' unregistered successfully",
+                                            "success": true
+                                        }
+                                    },
+                                    "not deleted": {
+                                        "value": {
+                                            "name": "unknown-mcp-server",
+                                            "response": "MCP server cannot be deleted",
+                                            "success": false
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -1397,30 +1409,18 @@
                                                 "response": "User does not have permission to access this endpoint"
                                             }
                                         }
-                                    }
-                                },
-                                "schema": {
-                                    "$ref": "#/components/schemas/ForbiddenResponse"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Resource not found",
-                        "content": {
-                            "application/json": {
-                                "examples": {
-                                    "mcp server": {
+                                    },
+                                    "static mcp server": {
                                         "value": {
                                             "detail": {
-                                                "cause": "Mcp Server with ID test-mcp-server does not exist",
-                                                "response": "Mcp Server not found"
+                                                "cause": "MCP server 'static-mcp' was configured in lightspeed-stack.yaml and cannot be removed via the API.",
+                                                "response": "Cannot delete statically configured MCP server"
                                             }
                                         }
                                     }
                                 },
                                 "schema": {
-                                    "$ref": "#/components/schemas/NotFoundResponse"
+                                    "$ref": "#/components/schemas/ForbiddenResponse"
                                 }
                             }
                         }
@@ -5413,7 +5413,7 @@
                     "vector-stores"
                 ],
                 "summary": "Delete Vector Store File",
-                "description": "Delete a file from a vector store.\n\nParameters:\n    request: The incoming HTTP request.\n    vector_store_id: ID of the vector store.\n    file_id: ID of the file to delete.\n    auth: Authentication tuple from the auth dependency.\n\nRaises:\n    HTTPException:\n        - 401: Authentication failed\n        - 403: Authorization failed\n        - 404: File not found in vector store\n        - 500: Lightspeed Stack configuration not loaded\n        - 503: Unable to connect to Llama Stack",
+                "description": "Delete a file from a vector store.\n\nParameters:\n    request: The incoming HTTP request.\n    vector_store_id: ID of the vector store.\n    file_id: ID of the file to delete.\n    auth: Authentication tuple from the auth dependency.\n\nReturns:\n    FileDeleteResponse: Outcome of the delete operation.\n\nRaises:\n    HTTPException:\n        - 401: Authentication failed\n        - 403: Authorization failed\n        - 404: File not found in vector store\n        - 500: Lightspeed Stack configuration not loaded\n        - 503: Unable to connect to Llama Stack",
                 "operationId": "delete_vector_store_file_v1_vector_stores__vector_store_id__files__file_id__delete",
                 "parameters": [
                     {
@@ -5436,8 +5436,197 @@
                     }
                 ],
                 "responses": {
-                    "204": {
-                        "description": "File deleted from vector store"
+                    "200": {
+                        "description": "Successful response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/FileDeleteResponse"
+                                },
+                                "examples": {
+                                    "deleted": {
+                                        "value": {
+                                            "file_id": "file-abc123",
+                                            "response": "File deleted successfully",
+                                            "success": true,
+                                            "vector_store_id": "vs_xyz789"
+                                        }
+                                    },
+                                    "cannot delete": {
+                                        "value": {
+                                            "file_id": "file-abc123",
+                                            "response": "File cannot be deleted",
+                                            "success": false,
+                                            "vector_store_id": "vs_xyz789"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "content": {
+                            "application/json": {
+                                "examples": {
+                                    "missing header": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "No Authorization header found",
+                                                "response": "Missing or invalid credentials provided by client"
+                                            }
+                                        }
+                                    },
+                                    "missing token": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "No token found in Authorization header",
+                                                "response": "Missing or invalid credentials provided by client"
+                                            }
+                                        }
+                                    },
+                                    "expired token": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "Token has expired",
+                                                "response": "Missing or invalid credentials provided by client"
+                                            }
+                                        }
+                                    },
+                                    "invalid signature": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "Invalid token signature",
+                                                "response": "Missing or invalid credentials provided by client"
+                                            }
+                                        }
+                                    },
+                                    "invalid key": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "Token signed by unknown key",
+                                                "response": "Missing or invalid credentials provided by client"
+                                            }
+                                        }
+                                    },
+                                    "missing claim": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "Token missing claim: user_id",
+                                                "response": "Missing or invalid credentials provided by client"
+                                            }
+                                        }
+                                    },
+                                    "invalid k8s token": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "Invalid or expired Kubernetes token",
+                                                "response": "Missing or invalid credentials provided by client"
+                                            }
+                                        }
+                                    },
+                                    "invalid jwk token": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "Authentication key server returned invalid data",
+                                                "response": "Missing or invalid credentials provided by client"
+                                            }
+                                        }
+                                    }
+                                },
+                                "schema": {
+                                    "$ref": "#/components/schemas/UnauthorizedResponse"
+                                }
+                            }
+                        }
+                    },
+                    "403": {
+                        "description": "Permission denied",
+                        "content": {
+                            "application/json": {
+                                "examples": {
+                                    "endpoint": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "User 6789 is not authorized to access this endpoint.",
+                                                "response": "User does not have permission to access this endpoint"
+                                            }
+                                        }
+                                    }
+                                },
+                                "schema": {
+                                    "$ref": "#/components/schemas/ForbiddenResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Resource not found",
+                        "content": {
+                            "application/json": {
+                                "examples": {
+                                    "file": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "File with ID file_abc123 does not exist",
+                                                "response": "File not found"
+                                            }
+                                        }
+                                    }
+                                },
+                                "schema": {
+                                    "$ref": "#/components/schemas/NotFoundResponse"
+                                }
+                            }
+                        }
+                    },
+                    "500": {
+                        "description": "Internal server error",
+                        "content": {
+                            "application/json": {
+                                "examples": {
+                                    "configuration": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "Lightspeed Stack configuration has not been initialized.",
+                                                "response": "Configuration is not loaded"
+                                            }
+                                        }
+                                    }
+                                },
+                                "schema": {
+                                    "$ref": "#/components/schemas/InternalServerErrorResponse"
+                                }
+                            }
+                        }
+                    },
+                    "503": {
+                        "description": "Service unavailable",
+                        "content": {
+                            "application/json": {
+                                "examples": {
+                                    "llama stack": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "Connection error while trying to reach backend service.",
+                                                "response": "Unable to connect to Llama Stack"
+                                            }
+                                        }
+                                    },
+                                    "kubernetes api": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "Failed to connect to Kubernetes API: Service Unavailable (status 503)",
+                                                "response": "Unable to connect to Kubernetes API"
+                                            }
+                                        }
+                                    }
+                                },
+                                "schema": {
+                                    "$ref": "#/components/schemas/ServiceUnavailableResponse"
+                                }
+                            }
+                        }
                     },
                     "503": {
                         "description": "Service unavailable",
@@ -12731,6 +12920,73 @@
                     }
                 ]
             },
+            "FileDeleteResponse": {
+                "properties": {
+                    "file_id": {
+                        "type": "string",
+                        "title": "File Id",
+                        "description": "The file identifier.",
+                        "examples": [
+                            "file-abc123"
+                        ]
+                    },
+                    "vector_store_id": {
+                        "type": "string",
+                        "title": "Vector Store Id",
+                        "description": "The vector store containing the file.",
+                        "examples": [
+                            "vs_xyz789"
+                        ]
+                    },
+                    "success": {
+                        "type": "boolean",
+                        "title": "Success",
+                        "description": "Whether the deletion was successful.",
+                        "examples": [
+                            true,
+                            false
+                        ]
+                    },
+                    "response": {
+                        "type": "string",
+                        "title": "Response",
+                        "description": "A message about the deletion result.",
+                        "examples": [
+                            "File deleted successfully",
+                            "File cannot be deleted"
+                        ]
+                    }
+                },
+                "type": "object",
+                "required": [
+                    "file_id",
+                    "vector_store_id",
+                    "success",
+                    "response"
+                ],
+                "title": "FileDeleteResponse",
+                "description": "Model representing a response for deleting a file from a vector store.\n\nAttributes:\n    file_id: The file identifier that was targeted for deletion.\n    vector_store_id: The vector store containing the file.\n    success: Whether the deletion was successful.\n    response: A message about the deletion result.",
+                "examples": [
+                    {
+                        "label": "deleted",
+                        "value": {
+                            "file_id": "file-abc123",
+                            "response": "File deleted successfully",
+                            "success": true,
+                            "vector_store_id": "vs_xyz789"
+                        }
+                    },
+                    {
+                        "label": "cannot delete",
+                        "value": {
+                            "file_id": "file-abc123",
+                            "response": "File cannot be deleted",
+                            "success": false,
+                            "vector_store_id": "vs_xyz789"
+                        }
+                    }
+                ]
+            },
             "FileResponse": {
                 "properties": {
                     "id": {
@@ -12891,6 +13147,13 @@
                             "response": "This instance does not permit overriding model/provider in the query request (missing permission: MODEL_OVERRIDE). Please remove the model and provider fields from your request."
                         },
                         "label": "model override"
+                    },
+                    {
+                        "detail": {
+                            "cause": "MCP server 'static-mcp' was configured in lightspeed-stack.yaml and cannot be removed via the API.",
+                            "response": "Cannot delete statically configured MCP server"
+                        },
+                        "label": "static mcp server"
                     }
                 ]
             },
@@ -13476,25 +13739,54 @@
                     "name": {
                         "type": "string",
                         "title": "Name",
-                        "description": "Deleted MCP server name"
+                        "description": "MCP server name from the request path.",
+                        "examples": [
+                            "test-mcp-server"
+                        ]
                     },
-                    "message": {
+                    "success": {
+                        "type": "boolean",
+                        "title": "Success",
+                        "description": "Whether the server was removed from runtime configuration.",
+                        "examples": [
+                            true,
+                            false
+                        ]
+                    },
+                    "response": {
                         "type": "string",
-                        "title": "Message",
-                        "description": "Status message"
+                        "title": "Response",
+                        "description": "Human-readable outcome.",
+                        "examples": [
+                            "MCP server 'test-mcp-server' unregistered successfully",
+                            "MCP server cannot be deleted"
+                        ]
                     }
                 },
                 "type": "object",
                 "required": [
                     "name",
-                    "message"
+                    "success",
+                    "response"
                 ],
                 "title": "MCPServerDeleteResponse",
-                "description": "Response for a successful MCP server deletion.",
+                "description": "Result of attempting to unregister an MCP server (HTTP 200, like conversations v1).",
                 "examples": [
                     {
-                        "message": "MCP server 'test-mcp-server' unregistered successfully",
-                        "name": "test-mcp-server"
+                        "label": "deleted",
+                        "value": {
+                            "name": "test-mcp-server",
+                            "response": "MCP server 'test-mcp-server' unregistered successfully",
+                            "success": true
+                        }
+                    },
+                    {
+                        "label": "not deleted",
+                        "value": {
+                            "name": "unknown-mcp-server",
+                            "response": "MCP server cannot be deleted",
+                            "success": false
+                        }
                     }
                 ]
             },

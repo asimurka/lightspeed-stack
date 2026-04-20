@@ -645,7 +645,10 @@ async def test_delete_vector_store_file_success(mocker: MockerFixture) -> None:
     cfg.init_from_dict(config_dict)
 
     mock_client = mocker.AsyncMock()
-    mock_client.vector_stores.files.delete.return_value = None
+    mock_delete_response = mocker.MagicMock()
+    mock_delete_response.id = "file_123"
+    mock_delete_response.deleted = True
+    mock_client.vector_stores.files.delete.return_value = mock_delete_response
     mock_lsc = mocker.patch(
         "app.endpoints.vector_stores.AsyncLlamaStackClientHolder.get_client"
     )
@@ -658,7 +661,10 @@ async def test_delete_vector_store_file_success(mocker: MockerFixture) -> None:
     response = await delete_vector_store_file(
         request=request, vector_store_id="vs_123", file_id="file_123", auth=auth
     )
-    assert response is None
+    assert response.file_id == "file_123"
+    assert response.vector_store_id == "vs_123"
+    assert response.success is True
+    assert response.response == "File deleted successfully"
 
 
 # Additional error path tests

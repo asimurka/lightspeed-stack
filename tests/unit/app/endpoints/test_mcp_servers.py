@@ -288,7 +288,8 @@ async def test_delete_dynamic_mcp_server_success(
 
     assert isinstance(result, MCPServerDeleteResponse)
     assert result.name == "to-delete"
-    assert "unregistered successfully" in result.message
+    assert result.success is True
+    assert "unregistered successfully" in result.response
 
     assert not app_config.is_dynamic_mcp_server("to-delete")
     assert not any(s.name == "to-delete" for s in app_config.mcp_servers)
@@ -317,15 +318,18 @@ async def test_delete_nonexistent_mcp_server(
     mocker: MockerFixture,
     mock_configuration: Configuration,
 ) -> None:
-    """Test that deleting a non-existent server returns 404."""
+    """Test that deleting an unknown server returns 200 with success=False."""
     _make_app_config(mocker, mock_configuration)
     _mock_client(mocker)
 
-    with pytest.raises(HTTPException) as exc_info:
-        await mcp_servers.delete_mcp_server_handler(
-            request=mocker.Mock(), name="no-such-server", auth=MOCK_AUTH
-        )
-    assert exc_info.value.status_code == 404
+    result = await mcp_servers.delete_mcp_server_handler(
+        request=mocker.Mock(), name="no-such-server", auth=MOCK_AUTH
+    )
+
+    assert isinstance(result, MCPServerDeleteResponse)
+    assert result.name == "no-such-server"
+    assert result.success is False
+    assert result.response == "MCP server cannot be deleted"
 
 
 @pytest.mark.asyncio

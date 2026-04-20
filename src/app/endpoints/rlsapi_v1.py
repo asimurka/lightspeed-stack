@@ -614,10 +614,7 @@ def _map_inference_error_to_http_exception(  # pylint: disable=too-many-return-s
 
     if isinstance(error, RateLimitError):
         logger.error("Rate limit exceeded for request %s: %s", request_id, error)
-        error_response = QuotaExceededResponse(
-            response="The quota has been exceeded",
-            cause="Rate limit exceeded, please try again later",
-        )
+        error_response = QuotaExceededResponse.model(model_id)
         return HTTPException(**error_response.model_dump())
 
     if isinstance(error, (APIStatusError, OpenAIAPIStatusError)):

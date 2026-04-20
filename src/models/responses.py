@@ -264,24 +264,6 @@ class MCPServerListResponse(AbstractSuccessfulResponse):
     }
 
 
-class MCPServerDeleteResponse(AbstractSuccessfulResponse):
-    """Response for a successful MCP server deletion."""
-
-    name: str = Field(..., description="Deleted MCP server name")
-    message: str = Field(..., description="Status message")
-
-    model_config = {
-        "json_schema_extra": {
-            "examples": [
-                {
-                    "name": "test-mcp-server",
-                    "message": "MCP server 'test-mcp-server' unregistered successfully",
-                }
-            ]
-        }
-    }
-
-
 class ShieldsResponse(AbstractSuccessfulResponse):
     """Model representing a response to shields request."""
 
@@ -1113,7 +1095,111 @@ class ConversationResponse(AbstractSuccessfulResponse):
     }
 
 
-class ConversationDeleteResponse(AbstractSuccessfulResponse):
+class AbstractDeleteResponse(AbstractSuccessfulResponse):
+    """Base class for delete responses documented with labeled OpenAPI JSON examples.
+
+    Subclasses set ``model_config["json_schema_extra"]["examples"]`` to a list of
+    dicts, each containing ``label`` and ``value`` (typically two entries). The
+    shared :meth:`openapi_response` maps them to named ``application/json``
+    examples for FastAPI.
+    """
+
+    @classmethod
+    def openapi_response(cls) -> dict[str, Any]:
+        """Build OpenAPI metadata with named ``application/json`` examples."""
+        schema = cls.model_json_schema()
+        model_examples = schema.get("examples", [])
+
+        named_examples: dict[str, Any] = {}
+        for ex in model_examples:
+            label = ex.get("label")
+            if label is None:
+                raise SchemaError(f"Example {ex} in {cls.__name__} has no label")
+
+            value = ex.get("value")
+            if value is None:
+                raise SchemaError(f"Example '{label}' in {cls.__name__} has no value")
+
+            named_examples[label] = {"value": value}
+
+        content = {"application/json": {"examples": named_examples or None}}
+
+        return {
+            "description": SUCCESSFUL_RESPONSE_DESCRIPTION,
+            "model": cls,
+            "content": content,
+        }
+
+
+class MCPServerDeleteResponse(AbstractDeleteResponse):
+    """Result of attempting to unregister an MCP server (HTTP 200, like conversations v1)."""
+
+    name: str = Field(
+        ...,
+        description="MCP server name from the request path.",
+        examples=["test-mcp-server"],
+    )
+    success: bool = Field(
+        ...,
+        description="Whether the server was removed from runtime configuration.",
+        examples=[True, False],
+    )
+    response: str = Field(
+        ...,
+        description="Human-readable outcome.",
+        examples=[
+            "MCP server 'test-mcp-server' unregistered successfully",
+            "MCP server cannot be deleted",
+        ],
+    )
+
+    def __init__(self, *, deleted: bool, name: str) -> None:
+        """
+        Build the delete outcome.
+
+        Parameters:
+        ----------
+            deleted: True if the server was removed from configuration.
+            name: MCP server name from the request path.
+        """
+        response_msg = (
+            f"MCP server '{name}' unregistered successfully"
+            if deleted
+            else "MCP server cannot be deleted"
+        )
+        super().__init__(
+            name=name,  # type: ignore[call-arg]
+            success=deleted,  # type: ignore[call-arg]
+            response=response_msg,  # type: ignore[call-arg]
+        )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "label": "deleted",
+                    "value": {
+                        "name": "test-mcp-server",
+                        "success": True,
+                        "response": (
+                            "MCP server 'test-mcp-server' unregistered successfully"
+                        ),
+                    },
+                },
+                {
+                    "label": "not deleted",
+                    "value": {
+                        "name": "unknown-mcp-server",
+                        "success": False,
+                        "response": "MCP server cannot be deleted",
+                    },
+                },
+            ]
+        }
+    }
+
+
+class ConversationDeleteResponse(AbstractDeleteResponse):
     """Model representing a response for deleting a conversation.
 
     Attributes:
@@ -1185,47 +1271,88 @@ class ConversationDeleteResponse(AbstractSuccessfulResponse):
         }
     }
 
-    @classmethod
-    def openapi_response(cls) -> dict[str, Any]:
+
+class FileDeleteResponse(AbstractDeleteResponse):
+    """Model representing a response for deleting a file from a vector store.
+
+    Attributes:
+        file_id: The file identifier that was targeted for deletion.
+        vector_store_id: The vector store containing the file.
+        success: Whether the deletion was successful.
+        response: A message about the deletion result.
+    """
+
+    file_id: str = Field(
+        ...,
+        description="The file identifier.",
+        examples=["file-abc123"],
+    )
+    vector_store_id: str = Field(
+        ...,
+        description="The vector store containing the file.",
+        examples=["vs_xyz789"],
+    )
+    success: bool = Field(
+        ...,
+        description="Whether the deletion was successful.",
+        examples=[True, False],
+    )
+    response: str = Field(
+        ...,
+        description="A message about the deletion result.",
+        examples=[
+            "File deleted successfully",
+            "File cannot be deleted",
+        ],
+    )
+
+    def __init__(self, *, deleted: bool, file_id: str, vector_store_id: str) -> None:
         """
-        Build an OpenAPI-compatible FastAPI response dict using the model's examples.
+        Initialize a FileDeleteResponse and populate its public fields.
 
-        Extracts labeled examples from the model's JSON schema `examples` and
-        places them under `application/json` -> `examples`. The returned
-        mapping includes a `description` ("Successful response"), the `model`
-        (the class itself), and `content` containing the assembled examples.
+        If ``deleted`` is True the response message is "File deleted
+        successfully"; otherwise it is "File cannot be deleted".
 
-        Returns:
-            response (dict[str, Any]): A dict with keys `description`, `model`,
-            and `content` suitable for FastAPI/OpenAPI response registration.
-
-        Raises:
-            SchemaError: If any example in the model's JSON schema is missing a
-                         required `label` or `value`.
+        Parameters:
+        ----------
+            deleted: Whether the file was successfully deleted.
+            file_id: The file identifier.
+            vector_store_id: The vector store identifier.
         """
-        schema = cls.model_json_schema()
-        model_examples = schema.get("examples", [])
+        response_msg = (
+            "File deleted successfully" if deleted else "File cannot be deleted"
+        )
+        super().__init__(
+            file_id=file_id,  # type: ignore[call-arg]
+            vector_store_id=vector_store_id,  # type: ignore[call-arg]
+            success=deleted,  # type: ignore[call-arg]
+            response=response_msg,  # type: ignore[call-arg]
+        )
 
-        named_examples: dict[str, Any] = {}
-
-        for ex in model_examples:
-            label = ex.get("label")
-            if label is None:
-                raise SchemaError(f"Example {ex} in {cls.__name__} has no label")
-
-            value = ex.get("value")
-            if value is None:
-                raise SchemaError(f"Example '{label}' in {cls.__name__} has no value")
-
-            named_examples[label] = {"value": value}
-
-        content = {"application/json": {"examples": named_examples or None}}
-
-        return {
-            "description": SUCCESSFUL_RESPONSE_DESCRIPTION,
-            "model": cls,
-            "content": content,
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "label": "deleted",
+                    "value": {
+                        "file_id": "file-abc123",
+                        "vector_store_id": "vs_xyz789",
+                        "success": True,
+                        "response": "File deleted successfully",
+                    },
+                },
+                {
+                    "label": "cannot delete",
+                    "value": {
+                        "file_id": "file-abc123",
+                        "vector_store_id": "vs_xyz789",
+                        "success": False,
+                        "response": "File cannot be deleted",
+                    },
+                },
+            ]
         }
+    }
 
 
 class ConversationDetails(BaseModel):
@@ -2025,6 +2152,16 @@ class ForbiddenResponse(AbstractErrorResponse):
                         ),
                     },
                 },
+                {
+                    "label": "static mcp server",
+                    "detail": {
+                        "response": "Cannot delete statically configured MCP server",
+                        "cause": (
+                            "MCP server 'static-mcp' was configured in "
+                            "lightspeed-stack.yaml and cannot be removed via the API."
+                        ),
+                    },
+                },
             ]
         }
     }
@@ -2107,6 +2244,29 @@ class ForbiddenResponse(AbstractErrorResponse):
             cause=(
                 f"User lacks {Action.MODEL_OVERRIDE.value} permission required "
                 "to override model/provider."
+            ),
+        )
+
+    @classmethod
+    def static_mcp_server_delete(cls, name: str) -> "ForbiddenResponse":
+        """
+        Create a ForbiddenResponse when deleting a static MCP server via the API.
+
+        The server is defined only in configuration, not via dynamic registration.
+
+        Parameters:
+        ----------
+            name (str): MCP server name from the request path.
+
+        Returns:
+        -------
+            ForbiddenResponse: HTTP 403 with a fixed summary and cause naming the server.
+        """
+        return cls(
+            response="Cannot delete statically configured MCP server",
+            cause=(
+                f"MCP server '{name}' was configured in lightspeed-stack.yaml "
+                "and cannot be removed via the API."
             ),
         )
 
@@ -3044,7 +3204,7 @@ class PromptsListResponse(AbstractSuccessfulResponse):
     }
 
 
-class PromptDeleteResponse(AbstractSuccessfulResponse):
+class PromptDeleteResponse(AbstractDeleteResponse):
     """Result of deleting a stored prompt (always HTTP 200, like conversations v2)."""
 
     prompt_id: str = Field(
@@ -3104,33 +3264,6 @@ class PromptDeleteResponse(AbstractSuccessfulResponse):
             ]
         }
     }
-
-    @classmethod
-    def openapi_response(cls) -> dict[str, Any]:
-        """Build the response spec for HTTP 200 with labeled JSON examples."""
-        schema = cls.model_json_schema()
-        model_examples = schema.get("examples", [])
-
-        named_examples: dict[str, Any] = {}
-
-        for ex in model_examples:
-            label = ex.get("label")
-            if label is None:
-                raise SchemaError(f"Example {ex} in {cls.__name__} has no label")
-
-            value = ex.get("value")
-            if value is None:
-                raise SchemaError(f"Example '{label}' in {cls.__name__} has no value")
-
-            named_examples[label] = {"value": value}
-
-        content = {"application/json": {"examples": named_examples or None}}
-
-        return {
-            "description": SUCCESSFUL_RESPONSE_DESCRIPTION,
-            "model": cls,
-            "content": content,
-        }
 
 
 class FileResponse(AbstractSuccessfulResponse):

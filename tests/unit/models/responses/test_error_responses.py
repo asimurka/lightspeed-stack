@@ -15,10 +15,13 @@ from models.responses import (
     QUOTA_EXCEEDED_DESCRIPTION,
     SERVICE_UNAVAILABLE_DESCRIPTION,
     UNAUTHORIZED_DESCRIPTION,
+    UNAUTHORIZED_OPENAPI_EXAMPLES,
+    UNAUTHORIZED_OPENAPI_EXAMPLES_WITH_MCP_OAUTH,
     UNPROCESSABLE_CONTENT_DESCRIPTION,
     AbstractErrorResponse,
     BadRequestResponse,
     DetailModel,
+    FileTooLargeResponse,
     ForbiddenResponse,
     InternalServerErrorResponse,
     NotFoundResponse,
@@ -160,10 +163,10 @@ class TestUnauthorizedResponse:
         OpenAPI metadata and examples.
 
         Checks that the returned mapping uses the expected description and model, exposes an
-        `application/json` examples object whose count matches the model's schema examples (8),
+        `application/json` examples object whose count matches the model's schema examples (9),
         contains the labeled examples: "missing header", "missing token", "expired token",
         "invalid signature", "invalid key", "missing claim", "invalid k8s
-        token", and "invalid jwk token", and that the "missing header"
+        token", "invalid jwk token", and "mcp oauth", and that the "missing header"
         example's `value.detail` contains the expected `response` and `cause`
         strings.
         """
@@ -212,7 +215,34 @@ class TestUnauthorizedResponse:
         # Verify only 1 example is returned when explicitly specified
         assert len(examples) == 1
         assert "expired token" in examples
-        assert "missing credentials" not in examples
+        assert "missing header" not in examples
+
+    def test_unauthorized_openapi_example_constants(self) -> None:
+        """Standard OpenAPI label list excludes MCP OAuth; extended list includes it."""
+        assert len(UNAUTHORIZED_OPENAPI_EXAMPLES) == 8
+        assert "mcp oauth" not in UNAUTHORIZED_OPENAPI_EXAMPLES
+        assert UNAUTHORIZED_OPENAPI_EXAMPLES_WITH_MCP_OAUTH == [
+            *UNAUTHORIZED_OPENAPI_EXAMPLES,
+            "mcp oauth",
+        ]
+
+    def test_openapi_response_with_standard_endpoint_examples(self) -> None:
+        """Most routes pass UNAUTHORIZED_OPENAPI_EXAMPLES (no MCP OAuth probe)."""
+        result = UnauthorizedResponse.openapi_response(
+            examples=UNAUTHORIZED_OPENAPI_EXAMPLES
+        )
+        examples = result["content"]["application/json"]["examples"]
+        assert len(examples) == 8
+        assert "mcp oauth" not in examples
+
+    def test_openapi_response_with_mcp_oauth_examples(self) -> None:
+        """Routes that run MCP OAuth probe include the mcp oauth labeled example."""
+        result = UnauthorizedResponse.openapi_response(
+            examples=UNAUTHORIZED_OPENAPI_EXAMPLES_WITH_MCP_OAUTH
+        )
+        examples = result["content"]["application/json"]["examples"]
+        assert len(examples) == 9
+        assert "mcp oauth" in examples
 
 
 class TestForbiddenResponse:
@@ -261,6 +291,20 @@ class TestForbiddenResponse:
         assert response.detail.response == "Storing feedback is disabled"
         assert response.detail.cause == "Storing feedback is disabled."
 
+    def test_factory_static_mcp_server_delete(self) -> None:
+        """Test ForbiddenResponse.static_mcp_server_delete() factory method."""
+        response = ForbiddenResponse.static_mcp_server_delete("my-static-mcp")
+        assert isinstance(response, AbstractErrorResponse)
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert isinstance(response.detail, DetailModel)
+        assert (
+            response.detail.response == "Cannot delete statically configured MCP server"
+        )
+        assert response.detail.cause == (
+            "MCP server 'my-static-mcp' was configured in lightspeed-stack.yaml "
+            "and cannot be removed via the API."
+        )
+
     def test_openapi_response(self) -> None:
         """Test ForbiddenResponse.openapi_response() method."""
         schema = ForbiddenResponse.model_json_schema()
@@ -275,7 +319,7 @@ class TestForbiddenResponse:
 
         # Verify example count matches schema examples count
         assert len(examples) == expected_count
-        assert expected_count == 7
+        assert expected_count == 8
 
         # Verify all labeled examples are present
         assert "conversation read" in examples
@@ -285,6 +329,7 @@ class TestForbiddenResponse:
         assert "prompt manage" in examples
         assert "feedback" in examples
         assert "model override" in examples
+        assert "static mcp server" in examples
 
         # Verify example structure for one example
         feedback_example = examples["feedback"]
@@ -757,6 +802,7 @@ class TestPromptTooLongResponse:
         assert expected_count == 2
 
         # Verify example structure
+        assert "context window exceeded" in examples
         assert "prompt too long" in examples
         prompt_example = examples["prompt too long"]
         assert "value" in prompt_example
@@ -775,6 +821,60 @@ class TestPromptTooLongResponse:
         # Verify only 1 example is returned when explicitly specified
         assert len(examples) == 1
         assert "prompt too long" in examples
+
+
+class TestFileTooLargeResponse:
+    """Test cases for FileTooLargeResponse."""
+
+    def test_exceeds_local_limit(self) -> None:
+        """Local measured size over configured max produces a detailed cause."""
+        response = FileTooLargeResponse.exceeds_local_limit(
+            file_size=150_000_000,
+            max_size=104_857_600,
+        )
+        assert isinstance(response, AbstractErrorResponse)
+        assert response.status_code == status.HTTP_413_CONTENT_TOO_LARGE
+        assert response.detail.response == "File too large"
+        assert (
+            response.detail.cause
+            == "File size 150000000 bytes exceeds maximum allowed size of 104857600 "
+            "bytes (100 MB)"
+        )
+
+    def test_from_backend_rejection(self) -> None:
+        """Llama Stack rejection wraps the backend message."""
+        response = FileTooLargeResponse.from_backend_rejection(
+            "File size exceeds limit"
+        )
+        assert response.detail.response == "Invalid file upload"
+        assert (
+            response.detail.cause
+            == "File upload rejected by Llama Stack: File size exceeds limit"
+        )
+
+    def test_direct_constructor(self) -> None:
+        """Explicit response and cause still supported."""
+        response = FileTooLargeResponse(
+            response="Custom summary",
+            cause="Custom cause",
+        )
+        assert response.detail.response == "Custom summary"
+        assert response.detail.cause == "Custom cause"
+
+    def test_openapi_response(self) -> None:
+        """Test FileTooLargeResponse.openapi_response() method."""
+        schema = FileTooLargeResponse.model_json_schema()
+        model_examples = schema.get("examples", [])
+        expected_count = len(model_examples)
+
+        result = FileTooLargeResponse.openapi_response()
+        assert result["description"] == "File upload exceeds size limit"
+        assert result["model"] == FileTooLargeResponse
+        examples = result["content"]["application/json"]["examples"]
+        assert len(examples) == expected_count
+        assert expected_count == 2
+        assert "file upload" in examples
+        assert "backend rejection" in examples
 
 
 class TestAbstractErrorResponse:  # pylint: disable=too-few-public-methods

@@ -25,6 +25,7 @@ from models.responses import (
     ConversationUpdateResponse,
     FeedbackResponse,
     FeedbackStatusUpdateResponse,
+    FileDeleteResponse,
     InfoResponse,
     LivenessResponse,
     MCPClientAuthOptionsResponse,
@@ -835,6 +836,70 @@ class TestConversationDeleteResponse:
 
         with pytest.raises(SchemaError, match="has no value"):
             InvalidResponse.openapi_response()
+
+
+class TestFileDeleteResponse:
+    """Test cases for FileDeleteResponse."""
+
+    def test_constructor_deleted(self) -> None:
+        """Test FileDeleteResponse when the file is deleted."""
+        response = FileDeleteResponse(
+            deleted=True,
+            file_id="file-abc123",
+            vector_store_id="vs_xyz789",
+        )
+        assert isinstance(response, AbstractSuccessfulResponse)
+        assert response.file_id == "file-abc123"
+        assert response.vector_store_id == "vs_xyz789"
+        assert response.success is True
+        assert response.response == "File deleted successfully"
+
+    def test_constructor_not_deleted(self) -> None:
+        """Test FileDeleteResponse when the file cannot be deleted."""
+        response = FileDeleteResponse(
+            deleted=False,
+            file_id="file-abc123",
+            vector_store_id="vs_xyz789",
+        )
+        assert response.success is False
+        assert response.response == "File cannot be deleted"
+
+    def test_missing_required_parameters(self) -> None:
+        """Test FileDeleteResponse raises TypeError when required fields missing."""
+        with pytest.raises(TypeError):
+            FileDeleteResponse()  # pylint: disable=missing-kwoa # pyright: ignore
+        with pytest.raises(TypeError):
+            FileDeleteResponse(  # pylint: disable=missing-kwoa # pyright: ignore[reportCallIssue]
+                deleted=True
+            )
+        with pytest.raises(TypeError):
+            FileDeleteResponse(  # pylint: disable=missing-kwoa # pyright: ignore[reportCallIssue]
+                deleted=True,
+                file_id="f1",
+            )
+
+    def test_openapi_response(self) -> None:
+        """Test FileDeleteResponse.openapi_response() method."""
+        schema = FileDeleteResponse.model_json_schema()
+        model_examples = schema.get("examples", [])
+        expected_count = len(model_examples)
+
+        result = FileDeleteResponse.openapi_response()
+        assert result["description"] == "Successful response"
+        assert result["model"] == FileDeleteResponse
+        assert "examples" in result["content"]["application/json"]
+        examples = result["content"]["application/json"]["examples"]
+
+        assert len(examples) == expected_count
+        assert expected_count == 2
+        assert "deleted" in examples
+        assert "cannot delete" in examples
+
+        deleted_example = examples["deleted"]["value"]
+        assert deleted_example["file_id"] == "file-abc123"
+        assert deleted_example["vector_store_id"] == "vs_xyz789"
+        assert deleted_example["success"] is True
+        assert deleted_example["response"] == "File deleted successfully"
 
 
 class TestConversationsListResponse:
