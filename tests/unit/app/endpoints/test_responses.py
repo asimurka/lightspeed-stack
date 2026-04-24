@@ -30,7 +30,15 @@ from models.config import Action, ModelContextProtocolServer
 from models.database.conversations import UserConversation
 from models.requests import ResponsesRequest
 from models.responses import ResponsesResponse
-from utils.types import RAGContext, ResponsesConversationContext, TurnSummary
+from utils.types import (
+    RAGContext,
+    ResponsesApiParams,
+    ResponsesContext,
+    ResponsesConversationContext,
+    ShieldModerationBlocked,
+    ShieldModerationPassed,
+    TurnSummary,
+)
 
 MOCK_AUTH = (
     "00000001-0001-0001-0001-000000000001",
@@ -43,6 +51,38 @@ VALID_CONV_ID_NORMALIZED = "e6afd7aaa97b49ce8f4f96a801b07893d9cb784d72e53e3c"
 MODULE = "app.endpoints.responses"
 ENDPOINTS_MODULE = "utils.endpoints"
 UTILS_RESPONSES_MODULE = "utils.responses"
+
+
+def _api_params_from_request(request: ResponsesRequest) -> ResponsesApiParams:
+    """Build ``ResponsesApiParams`` the same way the endpoint does."""
+    return ResponsesApiParams.model_validate(request.model_dump())
+
+
+def _responses_handler_context(
+    mock_client: Any,
+    *,
+    input_text: str,
+    started_at: Optional[datetime] = None,
+    moderation_result: ShieldModerationPassed | ShieldModerationBlocked,
+    inline_rag_context: Optional[RAGContext] = None,
+    filter_server_tools: bool = False,
+    background_tasks: Any = None,
+    rh_identity_context: tuple[str, str] = ("", ""),
+    generate_topic_summary: bool = False,
+) -> ResponsesContext:
+    """Build a ``ResponsesContext`` matching production handler wiring."""
+    return ResponsesContext(
+        client=mock_client,
+        auth=MOCK_AUTH,
+        input_text=input_text,
+        started_at=started_at or datetime.now(UTC),
+        moderation_result=moderation_result,
+        inline_rag_context=inline_rag_context or RAGContext(),
+        filter_server_tools=filter_server_tools,
+        background_tasks=background_tasks,
+        rh_identity_context=rh_identity_context,
+        generate_topic_summary=generate_topic_summary,
+    )
 
 
 def _patch_base(mocker: MockerFixture, config: AppConfig) -> None:
@@ -112,15 +152,33 @@ def _patch_rag(
     )
 
 
-def _patch_moderation(mocker: MockerFixture, decision: str = "passed") -> Any:
-    """Patch run_shield_moderation; return mock moderation result."""
-    mock_moderation = mocker.Mock()
-    mock_moderation.decision = decision
+def _patch_moderation(
+    mocker: MockerFixture,
+    decision: str = "passed",
+    *,
+    blocked_message: str = "Blocked",
+    moderation_id: str = "mod_default",
+    refusal_response: Optional[OpenAIResponseMessage] = None,
+) -> ShieldModerationPassed | ShieldModerationBlocked:
+    """Patch ``run_shield_moderation`` with a valid discriminated result model."""
+    if decision == "passed":
+        result: ShieldModerationPassed | ShieldModerationBlocked = (
+            ShieldModerationPassed()
+        )
+    else:
+        refusal = refusal_response or OpenAIResponseMessage(
+            role="assistant", content=blocked_message, type="message"
+        )
+        result = ShieldModerationBlocked(
+            message=blocked_message,
+            moderation_id=moderation_id,
+            refusal_response=refusal,
+        )
     mocker.patch(
         f"{MODULE}.run_shield_moderation",
-        new=mocker.AsyncMock(return_value=mock_moderation),
+        new=mocker.AsyncMock(return_value=result),
     )
-    return mock_moderation
+    return result
 
 
 def _make_responses_response(
@@ -547,11 +605,20 @@ class TestResponsesEndpointHandler:
             new=mocker.AsyncMock(return_value=True),
         )
         _patch_rag(mocker)
-        mock_moderation = _patch_moderation(mocker, decision="blocked")
-        mock_moderation.message = "Blocked"
-        mock_moderation.moderation_id = "resp_blocked_123"
-        mock_moderation.refusal_response = OpenAIResponseMessage(
+        refusal = OpenAIResponseMessage(
             type="message", role="assistant", content="Blocked"
+        )
+        _patch_moderation(
+            mocker,
+            decision="blocked",
+            blocked_message="Blocked",
+            moderation_id="resp_blocked_123",
+            refusal_response=refusal,
+        )
+        mock_moderation = ShieldModerationBlocked(
+            message="Blocked",
+            moderation_id="resp_blocked_123",
+            refusal_response=refusal,
         )
         mock_append = mocker.patch(
             f"{MODULE}.append_turn_items_to_conversation",
@@ -630,11 +697,10 @@ class TestResponsesEndpointHandler:
         # prepare_tools must NOT be called when tool_choice is "none"
         mock_prepare.assert_not_awaited()
 
-        # The handler passes tools=None and tool_choice=None to the response handler
-        # (the endpoint deep-copies the request, so we inspect the handler call args)
+        # The handler passes tools=None and tool_choice=None on resolved api_params
         call_kwargs = mock_handle.call_args[1]
-        assert call_kwargs["request"].tools is None
-        assert call_kwargs["request"].tool_choice is None
+        assert call_kwargs["api_params"].tools is None
+        assert call_kwargs["api_params"].tool_choice is None
 
 
 class TestHandleNonStreamingResponse:
@@ -649,14 +715,14 @@ class TestHandleNonStreamingResponse:
         """Test that blocked moderation returns response with refusal message."""
         request = _request_with_model_and_conv("Bad input")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "blocked"
-        mock_moderation.message = "Content blocked"
-        mock_refusal = mocker.Mock(spec=OpenAIResponseMessage)
-        mock_refusal.type = "message"
-        mock_refusal.role = "assistant"
-        mock_refusal.content = "Content blocked"
-        mock_moderation.refusal_response = mock_refusal
+        mock_refusal = OpenAIResponseMessage(
+            type="message", role="assistant", content="Content blocked"
+        )
+        moderation = ShieldModerationBlocked(
+            message="Content blocked",
+            moderation_id="resp_blocked",
+            refusal_response=mock_refusal,
+        )
 
         _patch_handle_non_streaming_common(mocker, minimal_config)
         mock_client.conversations.items.create = mocker.AsyncMock()
@@ -684,14 +750,18 @@ class TestHandleNonStreamingResponse:
             return_value=mock_api_response,
         )
 
-        response = await handle_non_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
             input_text="Bad input",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
+        )
+        response = await handle_non_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
         assert isinstance(response, ResponsesResponse)
         assert response.output_text == "Content blocked"
@@ -706,8 +776,7 @@ class TestHandleNonStreamingResponse:
         """Test successful handle_non_streaming_response returns ResponsesResponse."""
         request = _request_with_model_and_conv("Hello")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mock_api_response = mocker.Mock(spec=OpenAIResponseObject)
         mock_api_response.output = []
@@ -754,14 +823,18 @@ class TestHandleNonStreamingResponse:
             return_value=VALID_CONV_ID_NORMALIZED,
         )
 
-        response = await handle_non_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
             input_text="Hello",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
+        )
+        response = await handle_non_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         assert isinstance(response, ResponsesResponse)
@@ -777,8 +850,7 @@ class TestHandleNonStreamingResponse:
         """Test append_turn_items_to_conversation triggers with store and previous_response_id."""
         request = _request_with_previous_response_id("Hi", previous_response_id="r1")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mock_api_response = mocker.Mock(spec=OpenAIResponseObject)
         mock_api_response.output = []
@@ -830,14 +902,18 @@ class TestHandleNonStreamingResponse:
             new=mocker.AsyncMock(),
         )
 
-        await handle_non_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
             input_text="Hi",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
+        )
+        await handle_non_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         mock_append.assert_awaited_once()
@@ -857,8 +933,7 @@ class TestHandleNonStreamingResponse:
         mock_client.responses.create = mocker.AsyncMock(
             side_effect=RuntimeError("context_length exceeded")
         )
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         _patch_handle_non_streaming_common(mocker, minimal_config)
         mocker.patch(
@@ -866,15 +941,19 @@ class TestHandleNonStreamingResponse:
             return_value=VALID_CONV_ID_NORMALIZED,
         )
 
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
+            input_text="Long input",
+            started_at=datetime.now(UTC),
+            moderation_result=moderation,
+            inline_rag_context=RAGContext(),
+        )
         with pytest.raises(HTTPException) as exc_info:
             await handle_non_streaming_response(
-                client=mock_client,
-                request=request,
-                auth=MOCK_AUTH,
-                input_text="Long input",
-                started_at=datetime.now(UTC),
-                moderation_result=mock_moderation,
-                inline_rag_context=RAGContext(),
+                original_request=request,
+                api_params=api_params,
+                context=context,
             )
 
         assert exc_info.value.status_code == 413
@@ -894,8 +973,7 @@ class TestHandleNonStreamingResponse:
                 request=mocker.Mock(),
             )
         )
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         _patch_handle_non_streaming_common(mocker, minimal_config)
         mocker.patch(
@@ -903,15 +981,19 @@ class TestHandleNonStreamingResponse:
             return_value=VALID_CONV_ID_NORMALIZED,
         )
 
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
+            input_text="Hi",
+            started_at=datetime.now(UTC),
+            moderation_result=moderation,
+            inline_rag_context=RAGContext(),
+        )
         with pytest.raises(HTTPException) as exc_info:
             await handle_non_streaming_response(
-                client=mock_client,
-                request=request,
-                auth=MOCK_AUTH,
-                input_text="Hi",
-                started_at=datetime.now(UTC),
-                moderation_result=mock_moderation,
-                inline_rag_context=RAGContext(),
+                original_request=request,
+                api_params=api_params,
+                context=context,
             )
 
         assert exc_info.value.status_code == 503
@@ -932,8 +1014,7 @@ class TestHandleNonStreamingResponse:
                 body=None,
             )
         )
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         _patch_handle_non_streaming_common(mocker, minimal_config)
         mocker.patch(
@@ -950,15 +1031,19 @@ class TestHandleNonStreamingResponse:
             ),
         )
 
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
+            input_text="Hi",
+            started_at=datetime.now(UTC),
+            moderation_result=moderation,
+            inline_rag_context=RAGContext(),
+        )
         with pytest.raises(HTTPException) as exc_info:
             await handle_non_streaming_response(
-                client=mock_client,
-                request=request,
-                auth=MOCK_AUTH,
-                input_text="Hi",
-                started_at=datetime.now(UTC),
-                moderation_result=mock_moderation,
-                inline_rag_context=RAGContext(),
+                original_request=request,
+                api_params=api_params,
+                context=context,
             )
 
         assert exc_info.value.status_code == 500
@@ -975,8 +1060,7 @@ class TestHandleNonStreamingResponse:
         mock_client.responses.create = mocker.AsyncMock(
             side_effect=RuntimeError("Some other error")
         )
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         _patch_handle_non_streaming_common(mocker, minimal_config)
         mocker.patch(
@@ -984,15 +1068,19 @@ class TestHandleNonStreamingResponse:
             return_value=VALID_CONV_ID_NORMALIZED,
         )
 
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
+            input_text="Hi",
+            started_at=datetime.now(UTC),
+            moderation_result=moderation,
+            inline_rag_context=RAGContext(),
+        )
         with pytest.raises(RuntimeError, match="Some other error"):
             await handle_non_streaming_response(
-                client=mock_client,
-                request=request,
-                auth=MOCK_AUTH,
-                input_text="Hi",
-                started_at=datetime.now(UTC),
-                moderation_result=mock_moderation,
-                inline_rag_context=RAGContext(),
+                original_request=request,
+                api_params=api_params,
+                context=context,
             )
 
 
@@ -1008,14 +1096,14 @@ class TestHandleStreamingResponse:
         """Test streaming with blocked moderation yields SSE from shield_violation_generator."""
         request = _request_with_model_and_conv("Bad", model="provider/model1")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "blocked"
-        mock_moderation.message = "Blocked"
-        mock_moderation.moderation_id = "mod_123"
         mock_refusal = OpenAIResponseMessage(
             role="assistant", content="Blocked", type="message"
         )
-        mock_moderation.refusal_response = mock_refusal
+        moderation = ShieldModerationBlocked(
+            message="Blocked",
+            moderation_id="mod_123",
+            refusal_response=mock_refusal,
+        )
 
         mocker.patch(f"{MODULE}.configuration", minimal_config)
         mocker.patch(f"{MODULE}.get_available_quotas", return_value={})
@@ -1030,14 +1118,18 @@ class TestHandleStreamingResponse:
         mocker.patch(f"{MODULE}.store_query_results")
 
         mock_client.conversations.items.create = mocker.AsyncMock()
-        response = await handle_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
             input_text="Bad",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         assert isinstance(response, StreamingResponse)
@@ -1067,8 +1159,7 @@ class TestHandleStreamingResponse:
         """Test streaming with passed moderation yields SSE from response_generator."""
         request = _request_with_model_and_conv("Hi", model="provider/model1")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mock_chunk = mocker.Mock()
         mock_chunk.type = "response.completed"
@@ -1109,14 +1200,18 @@ class TestHandleStreamingResponse:
         mock_holder = mocker.Mock()
         mock_holder.get_client.return_value = mock_client
         mocker.patch(f"{MODULE}.AsyncLlamaStackClientHolder", return_value=mock_holder)
-        response = await handle_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
             input_text="Hi",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
         assert isinstance(response, StreamingResponse)
         collected: list[str] = []
@@ -1141,8 +1236,7 @@ class TestHandleStreamingResponse:
         """Test in_progress chunk includes available_quotas and output_text."""
         request = _request_with_model_and_conv("Hi", model="provider/model1")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         in_progress_chunk = mocker.Mock()
         in_progress_chunk.type = "response.in_progress"
@@ -1192,14 +1286,18 @@ class TestHandleStreamingResponse:
         mock_holder.get_client.return_value = mock_client
         mocker.patch(f"{MODULE}.AsyncLlamaStackClientHolder", return_value=mock_holder)
 
-        response = await handle_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
             input_text="Hi",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
         collected: list[str] = []
         async for part in response.body_iterator:
@@ -1223,8 +1321,7 @@ class TestHandleStreamingResponse:
         """Test that response output items are passed to build_tool_call_summary."""
         request = _request_with_model_and_conv("Hi", model="provider/model1")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mock_output_item = mocker.Mock()
         completed_chunk = mocker.Mock()
@@ -1275,14 +1372,18 @@ class TestHandleStreamingResponse:
         mock_holder.get_client.return_value = mock_client
         mocker.patch(f"{MODULE}.AsyncLlamaStackClientHolder", return_value=mock_holder)
 
-        response = await handle_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
             input_text="Hi",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
         collected: list[str] = []
         async for part in response.body_iterator:
@@ -1305,8 +1406,7 @@ class TestHandleStreamingResponse:
             "Hi", previous_response_id="r_prev"
         )
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         completed_chunk = mocker.Mock()
         completed_chunk.type = "response.completed"
@@ -1352,14 +1452,18 @@ class TestHandleStreamingResponse:
         mock_holder.get_client.return_value = mock_client
         mocker.patch(f"{MODULE}.AsyncLlamaStackClientHolder", return_value=mock_holder)
 
-        response = await handle_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
             input_text="Hi",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
         collected: list[str] = []
         async for part in response.body_iterator:
@@ -1386,23 +1490,26 @@ class TestHandleStreamingResponse:
         mock_client.responses.create = mocker.AsyncMock(
             side_effect=RuntimeError("context_length exceeded")
         )
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mocker.patch(f"{MODULE}.configuration", minimal_config)
         mocker.patch(
             f"{MODULE}.normalize_conversation_id",
             return_value=VALID_CONV_ID_NORMALIZED,
         )
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
+            input_text="Long",
+            started_at=datetime.now(UTC),
+            moderation_result=moderation,
+            inline_rag_context=RAGContext(),
+        )
         with pytest.raises(HTTPException) as exc_info:
             await handle_streaming_response(
-                client=mock_client,
-                request=request,
-                auth=MOCK_AUTH,
-                input_text="Long",
-                started_at=datetime.now(UTC),
-                moderation_result=mock_moderation,
-                inline_rag_context=RAGContext(),
+                original_request=request,
+                api_params=api_params,
+                context=context,
             )
         assert exc_info.value.status_code == 413
 
@@ -1421,23 +1528,26 @@ class TestHandleStreamingResponse:
                 request=mocker.Mock(),
             )
         )
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mocker.patch(f"{MODULE}.configuration", minimal_config)
         mocker.patch(
             f"{MODULE}.normalize_conversation_id",
             return_value=VALID_CONV_ID_NORMALIZED,
         )
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
+            input_text="Hi",
+            started_at=datetime.now(UTC),
+            moderation_result=moderation,
+            inline_rag_context=RAGContext(),
+        )
         with pytest.raises(HTTPException) as exc_info:
             await handle_streaming_response(
-                client=mock_client,
-                request=request,
-                auth=MOCK_AUTH,
-                input_text="Hi",
-                started_at=datetime.now(UTC),
-                moderation_result=mock_moderation,
-                inline_rag_context=RAGContext(),
+                original_request=request,
+                api_params=api_params,
+                context=context,
             )
 
         assert exc_info.value.status_code == 503
@@ -1486,10 +1596,10 @@ class TestResponsesInstructionResolution:
             mcp_headers={},
         )
 
-        # The request passed to handle_non_streaming_response should have
-        # instructions resolved to the default system prompt.
+        # Resolved api_params passed to handle_non_streaming_response include
+        # instructions set to the default system prompt.
         call_kwargs = mock_handler.call_args[1]
-        assert call_kwargs["request"].instructions == DEFAULT_SYSTEM_PROMPT
+        assert call_kwargs["api_params"].instructions == DEFAULT_SYSTEM_PROMPT
 
     @pytest.mark.asyncio
     async def test_client_provided_instructions_pass_through(
@@ -1534,7 +1644,7 @@ class TestResponsesInstructionResolution:
         )
 
         call_kwargs = mock_handler.call_args[1]
-        assert call_kwargs["request"].instructions == custom_instructions
+        assert call_kwargs["api_params"].instructions == custom_instructions
 
     @pytest.mark.asyncio
     async def test_configured_system_prompt_used_when_no_client_instructions(
@@ -1595,7 +1705,9 @@ class TestResponsesInstructionResolution:
         )
 
         call_kwargs = mock_handler.call_args[1]
-        assert call_kwargs["request"].instructions == "You are a deployment assistant."
+        assert (
+            call_kwargs["api_params"].instructions == "You are a deployment assistant."
+        )
 
     @pytest.mark.asyncio
     async def test_client_instructions_rejected_when_disabled(
@@ -1681,7 +1793,7 @@ class TestResponsesInstructionResolution:
         )
 
         call_kwargs = mock_handler.call_args[1]
-        assert call_kwargs["request"].instructions == DEFAULT_SYSTEM_PROMPT
+        assert call_kwargs["api_params"].instructions == DEFAULT_SYSTEM_PROMPT
 
 
 class TestIsServerMcpOutputItem:
@@ -1742,15 +1854,11 @@ class TestShouldFilterMcpChunk:
     def test_filters_mcp_call_substream_events(self, mocker: MockerFixture) -> None:
         """Test that response.mcp_call.* events are filtered for tracked indices."""
         chunk = mocker.Mock()
+        chunk.type = "response.mcp_call.in_progress"
         chunk.output_index = 5
         server_mcp_output_indices: set[int] = {5}
         assert (
-            _should_filter_mcp_chunk(
-                chunk,
-                "response.mcp_call.in_progress",
-                {"server-a"},
-                server_mcp_output_indices,
-            )
+            _should_filter_mcp_chunk(chunk, {"server-a"}, server_mcp_output_indices)
             is True
         )
 
@@ -1759,15 +1867,11 @@ class TestShouldFilterMcpChunk:
     ) -> None:
         """Test that response.mcp_list_tools.* events are filtered for tracked indices."""
         chunk = mocker.Mock()
+        chunk.type = "response.mcp_list_tools.in_progress"
         chunk.output_index = 3
         server_mcp_output_indices: set[int] = {3}
         assert (
-            _should_filter_mcp_chunk(
-                chunk,
-                "response.mcp_list_tools.in_progress",
-                {"server-a"},
-                server_mcp_output_indices,
-            )
+            _should_filter_mcp_chunk(chunk, {"server-a"}, server_mcp_output_indices)
             is True
         )
 
@@ -1776,15 +1880,11 @@ class TestShouldFilterMcpChunk:
     ) -> None:
         """Test that response.mcp_approval_request.* events are filtered for tracked indices."""
         chunk = mocker.Mock()
+        chunk.type = "response.mcp_approval_request.in_progress"
         chunk.output_index = 7
         server_mcp_output_indices: set[int] = {7}
         assert (
-            _should_filter_mcp_chunk(
-                chunk,
-                "response.mcp_approval_request.in_progress",
-                {"server-a"},
-                server_mcp_output_indices,
-            )
+            _should_filter_mcp_chunk(chunk, {"server-a"}, server_mcp_output_indices)
             is True
         )
 
@@ -1793,30 +1893,22 @@ class TestShouldFilterMcpChunk:
     ) -> None:
         """Test that mcp_approval_request events for untracked indices pass through."""
         chunk = mocker.Mock()
+        chunk.type = "response.mcp_approval_request.in_progress"
         chunk.output_index = 7
         server_mcp_output_indices: set[int] = {99}
         assert (
-            _should_filter_mcp_chunk(
-                chunk,
-                "response.mcp_approval_request.in_progress",
-                {"server-a"},
-                server_mcp_output_indices,
-            )
+            _should_filter_mcp_chunk(chunk, {"server-a"}, server_mcp_output_indices)
             is False
         )
 
     def test_does_not_filter_untracked_mcp_call(self, mocker: MockerFixture) -> None:
         """Test that mcp_call events for untracked indices pass through."""
         chunk = mocker.Mock()
+        chunk.type = "response.mcp_call.completed"
         chunk.output_index = 10
         server_mcp_output_indices: set[int] = {5}
         assert (
-            _should_filter_mcp_chunk(
-                chunk,
-                "response.mcp_call.completed",
-                {"server-a"},
-                server_mcp_output_indices,
-            )
+            _should_filter_mcp_chunk(chunk, {"server-a"}, server_mcp_output_indices)
             is False
         )
 
@@ -1828,16 +1920,12 @@ class TestShouldFilterMcpChunk:
         item.type = "mcp_approval_request"
         item.server_label = "server-a"
         chunk = mocker.Mock()
+        chunk.type = "response.output_item.added"
         chunk.item = item
         chunk.output_index = 2
         server_mcp_output_indices: set[int] = set()
         assert (
-            _should_filter_mcp_chunk(
-                chunk,
-                "response.output_item.added",
-                {"server-a"},
-                server_mcp_output_indices,
-            )
+            _should_filter_mcp_chunk(chunk, {"server-a"}, server_mcp_output_indices)
             is True
         )
         assert 2 in server_mcp_output_indices
@@ -1849,16 +1937,12 @@ class TestShouldFilterMcpChunk:
         item = mocker.Mock()
         item.type = "mcp_approval_request"
         chunk = mocker.Mock()
+        chunk.type = "response.output_item.done"
         chunk.item = item
         chunk.output_index = 2
         server_mcp_output_indices: set[int] = {2}
         assert (
-            _should_filter_mcp_chunk(
-                chunk,
-                "response.output_item.done",
-                {"server-a"},
-                server_mcp_output_indices,
-            )
+            _should_filter_mcp_chunk(chunk, {"server-a"}, server_mcp_output_indices)
             is True
         )
         assert 2 not in server_mcp_output_indices
@@ -1866,12 +1950,8 @@ class TestShouldFilterMcpChunk:
     def test_does_not_filter_non_mcp_event(self, mocker: MockerFixture) -> None:
         """Test that non-MCP events pass through."""
         chunk = mocker.Mock()
-        assert (
-            _should_filter_mcp_chunk(
-                chunk, "response.output_text.delta", {"server-a"}, set()
-            )
-            is False
-        )
+        chunk.type = "response.output_text.delta"
+        assert _should_filter_mcp_chunk(chunk, {"server-a"}, set()) is False
 
 
 class TestSanitizeResponseDict:
@@ -1880,25 +1960,33 @@ class TestSanitizeResponseDict:
     def test_substituted_instructions_replaced_with_placeholder(self) -> None:
         """Test that substituted instructions are replaced with the slug constant."""
         d: dict[str, Any] = {"instructions": "secret server prompt", "model": "m"}
-        _sanitize_response_dict(d, set(), instructions_substituted=True)
+        original = ResponsesRequest(input="x", instructions=None, model="m")
+        _sanitize_response_dict(d, set(), original)
         assert d["instructions"] == SUBSTITUTED_INSTRUCTIONS_PLACEHOLDER
 
     def test_client_instructions_preserved_when_not_substituted(self) -> None:
         """Test that client-provided instructions are echoed back unchanged."""
         d: dict[str, Any] = {"instructions": "my custom prompt", "model": "m"}
-        _sanitize_response_dict(d, set(), instructions_substituted=False)
+        original = ResponsesRequest(
+            input="x", instructions="my custom prompt", model="m"
+        )
+        _sanitize_response_dict(d, set(), original)
         assert d["instructions"] == "my custom prompt"
 
     def test_substituted_instructions_set_even_when_absent(self) -> None:
         """Test that placeholder is set even when instructions field is missing."""
         d: dict[str, Any] = {"model": "m"}
-        _sanitize_response_dict(d, set(), instructions_substituted=True)
+        original = ResponsesRequest(input="x", instructions=None, model="m")
+        _sanitize_response_dict(d, set(), original)
         assert d["instructions"] == SUBSTITUTED_INSTRUCTIONS_PLACEHOLDER
 
     def test_no_error_when_instructions_absent_and_not_substituted(self) -> None:
         """Test that missing instructions field with no substitution does not raise."""
         d: dict[str, Any] = {"model": "m"}
-        _sanitize_response_dict(d, set(), instructions_substituted=False)
+        original = ResponsesRequest(
+            input="x", instructions="client held instructions", model="m"
+        )
+        _sanitize_response_dict(d, set(), original)
         assert "instructions" not in d
 
     def test_strips_server_mcp_tools(self) -> None:
@@ -1910,9 +1998,8 @@ class TestSanitizeResponseDict:
                 {"name": "client-tool"},
             ]
         }
-        _sanitize_response_dict(
-            d, {"server-a", "server-b"}, instructions_substituted=False
-        )
+        original = ResponsesRequest(input="x", model="m")
+        _sanitize_response_dict(d, {"server-a", "server-b"}, original)
         assert d["tools"] == [{"name": "client-tool"}]
 
     def test_preserves_client_tools(self) -> None:
@@ -1923,13 +2010,15 @@ class TestSanitizeResponseDict:
                 {"name": "client-tool"},
             ]
         }
-        _sanitize_response_dict(d, {"server-a"}, instructions_substituted=False)
+        original = ResponsesRequest(input="x", model="m")
+        _sanitize_response_dict(d, {"server-a"}, original)
         assert d["tools"] == [{"name": "client-tool"}]
 
     def test_no_error_when_tools_absent(self) -> None:
         """Test that missing tools field does not raise."""
         d: dict[str, Any] = {"model": "m"}
-        _sanitize_response_dict(d, {"server-a"}, instructions_substituted=False)
+        original = ResponsesRequest(input="x", model="m")
+        _sanitize_response_dict(d, {"server-a"}, original)
         assert "tools" not in d
 
     def test_empty_configured_mcp_labels_preserves_all_tools(self) -> None:
@@ -1940,7 +2029,8 @@ class TestSanitizeResponseDict:
                 {"name": "client-tool"},
             ]
         }
-        _sanitize_response_dict(d, set(), instructions_substituted=False)
+        original = ResponsesRequest(input="x", model="m")
+        _sanitize_response_dict(d, set(), original)
         assert len(d["tools"]) == 2
 
     def test_strips_server_mcp_items_from_output(self) -> None:
@@ -1961,7 +2051,8 @@ class TestSanitizeResponseDict:
                 {"type": "mcp_call", "server_label": "okp", "id": "call-1"},
             ],
         }
-        _sanitize_response_dict(d, {"okp"}, instructions_substituted=False)
+        original = ResponsesRequest(input="x", model="m")
+        _sanitize_response_dict(d, {"okp"}, original)
         assert len(d["output"]) == 1
         assert d["output"][0]["type"] == "message"
 
@@ -1974,13 +2065,15 @@ class TestSanitizeResponseDict:
                 {"type": "function_call", "name": "my_func"},
             ],
         }
-        _sanitize_response_dict(d, {"okp"}, instructions_substituted=False)
+        original = ResponsesRequest(input="x", model="m")
+        _sanitize_response_dict(d, {"okp"}, original)
         assert len(d["output"]) == 3
 
     def test_no_error_when_output_absent(self) -> None:
         """Test that missing output field does not raise."""
         d: dict[str, Any] = {"model": "m"}
-        _sanitize_response_dict(d, {"okp"}, instructions_substituted=False)
+        original = ResponsesRequest(input="x", model="m")
+        _sanitize_response_dict(d, {"okp"}, original)
         assert "output" not in d
 
     def test_strips_provider_prefix_from_model_when_substituted(self) -> None:
@@ -1988,9 +2081,11 @@ class TestSanitizeResponseDict:
         d: dict[str, Any] = {
             "model": "google-vertex/publishers/google/models/gemini-2.5-flash"
         }
-        _sanitize_response_dict(
-            d, set(), instructions_substituted=False, model_substituted=True
+        original = ResponsesRequest(
+            input="x",
+            model=None,
         )
+        _sanitize_response_dict(d, set(), original)
         assert d["model"] == "gemini-2.5-flash"
 
     def test_preserves_client_model_when_not_substituted(self) -> None:
@@ -1998,17 +2093,18 @@ class TestSanitizeResponseDict:
         d: dict[str, Any] = {
             "model": "google-vertex/publishers/google/models/gemini-2.5-flash"
         }
-        _sanitize_response_dict(
-            d, set(), instructions_substituted=False, model_substituted=False
+        original = ResponsesRequest(
+            input="x",
+            model="google-vertex/publishers/google/models/gemini-2.5-flash",
         )
+        _sanitize_response_dict(d, set(), original)
         assert d["model"] == "google-vertex/publishers/google/models/gemini-2.5-flash"
 
     def test_model_without_slash_preserved(self) -> None:
         """Test that model names without provider prefix are left unchanged."""
         d: dict[str, Any] = {"model": "gemini-2.5-flash"}
-        _sanitize_response_dict(
-            d, set(), instructions_substituted=False, model_substituted=True
-        )
+        original = ResponsesRequest(input="x", model=None)
+        _sanitize_response_dict(d, set(), original)
         assert d["model"] == "gemini-2.5-flash"
 
     def test_all_fields_sanitized_together_with_substitution(self) -> None:
@@ -2025,12 +2121,8 @@ class TestSanitizeResponseDict:
                 {"type": "message", "role": "assistant", "content": []},
             ],
         }
-        _sanitize_response_dict(
-            d,
-            {"mcp-server"},
-            instructions_substituted=True,
-            model_substituted=True,
-        )
+        original = ResponsesRequest(input="x", instructions=None, model=None)
+        _sanitize_response_dict(d, {"mcp-server"}, original)
         assert d["instructions"] == SUBSTITUTED_INSTRUCTIONS_PLACEHOLDER
         assert d["model"] == "gemini"
         assert d["tools"] == [{"name": "client-tool"}]
@@ -2051,12 +2143,12 @@ class TestSanitizeResponseDict:
                 {"type": "message", "role": "assistant", "content": []},
             ],
         }
-        _sanitize_response_dict(
-            d,
-            {"mcp-server"},
-            instructions_substituted=False,
-            model_substituted=False,
+        original = ResponsesRequest(
+            input="x",
+            instructions="client prompt",
+            model="google-vertex/publishers/google/models/gemini",
         )
+        _sanitize_response_dict(d, {"mcp-server"}, original)
         assert d["instructions"] == "client prompt"
         assert d["model"] == "google-vertex/publishers/google/models/gemini"
         assert d["tools"] == [{"name": "client-tool"}]
@@ -2087,10 +2179,20 @@ class TestSanitizesOutputAndModel:
         mock_config.quota_limiters = minimal_config.quota_limiters
         mock_config.rag_id_mapping = {}
 
-        request = _request_with_model_and_conv("Hi", model="provider/model1")
+        original_request = ResponsesRequest(
+            input="Hi",
+            conversation=VALID_CONV_ID,
+            model=None,
+            instructions=None,
+        )
+        api_params = ResponsesApiParams.model_validate(
+            {
+                **original_request.model_dump(),
+                "model": "provider/model1",
+            }
+        )
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mock_api_response = mocker.Mock(spec=OpenAIResponseObject)
         mock_api_response.output = []
@@ -2159,16 +2261,17 @@ class TestSanitizesOutputAndModel:
             return_value=VALID_CONV_ID_NORMALIZED,
         )
 
-        response = await handle_non_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        context = _responses_handler_context(
+            mock_client,
             input_text="Hi",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
-            instructions_substituted=True,
-            model_substituted=True,
+        )
+        response = await handle_non_streaming_response(
+            original_request=original_request,
+            api_params=api_params,
+            context=context,
         )
 
         assert isinstance(response, ResponsesResponse)
@@ -2234,10 +2337,20 @@ class TestSanitizesOutputAndModel:
         mock_config.quota_limiters = minimal_config.quota_limiters
         mock_config.rag_id_mapping = {}
 
-        request = _request_with_model_and_conv("Hi", model="provider/model1")
+        original_request = ResponsesRequest(
+            input="Hi",
+            conversation=VALID_CONV_ID,
+            model=None,
+            instructions=None,
+        )
+        api_params = ResponsesApiParams.model_validate(
+            {
+                **original_request.model_dump(),
+                "model": "provider/model1",
+            }
+        )
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         completed_chunk = self._make_streaming_completed_chunk(mocker)
 
@@ -2272,17 +2385,18 @@ class TestSanitizesOutputAndModel:
         mock_holder.get_client.return_value = mock_client
         mocker.patch(f"{MODULE}.AsyncLlamaStackClientHolder", return_value=mock_holder)
 
-        response = await handle_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        context = _responses_handler_context(
+            mock_client,
             input_text="Hi",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
             filter_server_tools=False,
-            instructions_substituted=True,
-            model_substituted=True,
+        )
+        response = await handle_streaming_response(
+            original_request=original_request,
+            api_params=api_params,
+            context=context,
         )
         collected: list[str] = []
         async for part in response.body_iterator:
@@ -2334,8 +2448,7 @@ class TestMcpEventsFilteredUnconditionally:
 
         request = _request_with_model_and_conv("Hi", model="provider/model1")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mcp_item = mocker.Mock()
         mcp_item.type = "mcp_call"
@@ -2391,15 +2504,19 @@ class TestMcpEventsFilteredUnconditionally:
         mock_holder.get_client.return_value = mock_client
         mocker.patch(f"{MODULE}.AsyncLlamaStackClientHolder", return_value=mock_holder)
 
-        response = await handle_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
             input_text="Hi",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
             filter_server_tools=False,
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
         collected: list[str] = []
         async for part in response.body_iterator:
@@ -2426,8 +2543,7 @@ class TestMcpEventsFilteredUnconditionally:
         """
         request = _request_with_model_and_conv("Hi", model="provider/model1")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         text_item = mocker.Mock()
         text_item.type = "message"
@@ -2482,15 +2598,19 @@ class TestMcpEventsFilteredUnconditionally:
         mock_holder.get_client.return_value = mock_client
         mocker.patch(f"{MODULE}.AsyncLlamaStackClientHolder", return_value=mock_holder)
 
-        response = await handle_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        api_params = _api_params_from_request(request)
+        context = _responses_handler_context(
+            mock_client,
             input_text="Hi",
             started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
+            moderation_result=moderation,
             inline_rag_context=RAGContext(),
             filter_server_tools=False,
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
         collected: list[str] = []
         async for part in response.body_iterator:

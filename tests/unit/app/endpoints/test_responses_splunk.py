@@ -1,11 +1,11 @@
 # pylint: disable=redefined-outer-name, too-many-locals, too-few-public-methods
 """Unit tests for Splunk telemetry in the /responses endpoint."""
 
-from datetime import UTC, datetime
-from typing import Any
+from datetime import UTC, datetime, timedelta
+from typing import Any, Optional
 
 import pytest
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 from fastapi.responses import StreamingResponse
 from llama_stack_api import OpenAIResponseObject
 from llama_stack_api.openai_responses import OpenAIResponseMessage
@@ -23,7 +23,14 @@ from app.endpoints.responses import (
 from configuration import AppConfig
 from models.requests import ResponsesRequest
 from observability.formats.responses import ResponsesEventData
-from utils.types import RAGContext, TurnSummary
+from utils.types import (
+    RAGContext,
+    ResponsesApiParams,
+    ResponsesContext,
+    ShieldModerationBlocked,
+    ShieldModerationPassed,
+    TurnSummary,
+)
 
 MODULE = "app.endpoints.responses"
 MOCK_AUTH = (
@@ -34,6 +41,34 @@ MOCK_AUTH = (
 )
 VALID_CONV_ID = "conv_e6afd7aaa97b49ce8f4f96a801b07893d9cb784d72e53e3c"
 VALID_CONV_ID_NORMALIZED = "e6afd7aaa97b49ce8f4f96a801b07893d9cb784d72e53e3c"
+
+
+def _api_params_from_request(request: ResponsesRequest) -> ResponsesApiParams:
+    """Build ``ResponsesApiParams`` the same way the endpoint does."""
+    return ResponsesApiParams.model_validate(request.model_dump())
+
+
+def _telemetry_context(
+    mock_client: Any,
+    *,
+    input_text: str,
+    started_at: datetime,
+    moderation_result: ShieldModerationPassed | ShieldModerationBlocked,
+    inline_rag_context: RAGContext | None = None,
+    background_tasks: Optional[BackgroundTasks] = None,
+    rh_identity_context: tuple[str, str] = ("", ""),
+) -> ResponsesContext:
+    """Build ``ResponsesContext`` for handler / Splunk tests."""
+    return ResponsesContext(
+        client=mock_client,
+        auth=MOCK_AUTH,
+        input_text=input_text,
+        started_at=started_at,
+        moderation_result=moderation_result,
+        inline_rag_context=inline_rag_context or RAGContext(),
+        background_tasks=background_tasks,
+        rh_identity_context=rh_identity_context,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -68,6 +103,12 @@ def _patch_handle_non_streaming_common(
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(name="splunk_background_tasks")
+def splunk_background_tasks_fixture() -> BackgroundTasks:
+    """Real ``BackgroundTasks`` so ``ResponsesContext`` validates like production."""
+    return BackgroundTasks()
 
 
 @pytest.fixture(name="minimal_config")
@@ -105,23 +146,33 @@ class TestQueueResponsesSplunkEvent:
     ) -> None:
         """Verify no-op when background_tasks is None (Splunk disabled)."""
         mock_build = mocker.patch(f"{MODULE}.build_responses_event")
+        mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
+        request = ResponsesRequest(
+            input="user question",
+            model="provider/model1",
+            conversation=VALID_CONV_ID,
+        )
+        api_params = _api_params_from_request(request)
+        context = _telemetry_context(
+            mock_client,
+            input_text="user question",
+            started_at=datetime.now(UTC),
+            moderation_result=ShieldModerationPassed(),
+            background_tasks=None,
+            rh_identity_context=("org1", "sys1"),
+        )
 
         _queue_responses_splunk_event(
-            background_tasks=None,
-            input_text="user question",
             response_text="llm answer",
-            conversation_id="conv_abc",
-            model="provider/model1",
-            rh_identity_context=("org1", "sys1"),
-            inference_time=1.23,
             sourcetype="responses_completed",
+            api_params=api_params,
+            context=context,
         )
 
         mock_build.assert_not_called()
 
     def test_builds_event_and_queues_background_task(
         self,
-        mock_background_tasks: Any,
         mocker: MockerFixture,
     ) -> None:
         """Verify event is built from ResponsesEventData and queued via add_task."""
@@ -129,16 +180,34 @@ class TestQueueResponsesSplunkEvent:
             f"{MODULE}.build_responses_event", return_value={"built": True}
         )
         mock_send = mocker.patch(f"{MODULE}.send_splunk_event")
+        mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
+        background_tasks = BackgroundTasks()
+        add_task_spy = mocker.spy(background_tasks, "add_task")
+        started_at = datetime(2024, 6, 1, 12, 0, 0, tzinfo=UTC)
+        fake_datetime = mocker.MagicMock()
+        fake_datetime.UTC = UTC
+        fake_datetime.now.return_value = started_at + timedelta(seconds=1.23)
+        mocker.patch(f"{MODULE}.datetime", fake_datetime)
+        request = ResponsesRequest(
+            input="user question",
+            model="provider/model1",
+            conversation=VALID_CONV_ID,
+        )
+        api_params = _api_params_from_request(request)
+        context = _telemetry_context(
+            mock_client,
+            input_text="user question",
+            started_at=started_at,
+            moderation_result=ShieldModerationPassed(),
+            background_tasks=background_tasks,
+            rh_identity_context=("org1", "sys1"),
+        )
 
         _queue_responses_splunk_event(
-            background_tasks=mock_background_tasks,
-            input_text="user question",
             response_text="llm answer",
-            conversation_id="conv_abc",
-            model="provider/model1",
-            rh_identity_context=("org1", "sys1"),
-            inference_time=1.23,
             sourcetype="responses_completed",
+            api_params=api_params,
+            context=context,
             input_tokens=100,
             output_tokens=50,
         )
@@ -148,7 +217,7 @@ class TestQueueResponsesSplunkEvent:
         assert isinstance(event_data, ResponsesEventData)
         assert event_data.input_text == "user question"
         assert event_data.response_text == "llm answer"
-        assert event_data.conversation_id == "conv_abc"
+        assert event_data.conversation_id == VALID_CONV_ID_NORMALIZED
         assert event_data.model == "provider/model1"
         assert event_data.org_id == "org1"
         assert event_data.system_id == "sys1"
@@ -156,7 +225,7 @@ class TestQueueResponsesSplunkEvent:
         assert event_data.input_tokens == 100
         assert event_data.output_tokens == 50
 
-        mock_background_tasks.add_task.assert_called_once_with(
+        add_task_spy.assert_called_once_with(
             mock_send, {"built": True}, "responses_completed"
         )
 
@@ -175,15 +244,27 @@ class TestQueueResponsesSplunkEvent:
         # Clear any leftover tasks from other tests
         _background_splunk_tasks.clear()
 
-        _queue_responses_splunk_event(
-            background_tasks=None,
-            input_text="user question",
-            response_text="error message",
-            conversation_id="conv_abc",
+        mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
+        request = ResponsesRequest(
+            input="user question",
             model="provider/model1",
+            conversation=VALID_CONV_ID,
+        )
+        api_params = _api_params_from_request(request)
+        context = _telemetry_context(
+            mock_client,
+            input_text="user question",
+            started_at=datetime.now(UTC),
+            moderation_result=ShieldModerationPassed(),
+            background_tasks=None,
             rh_identity_context=("org1", "sys1"),
-            inference_time=1.23,
+        )
+
+        _queue_responses_splunk_event(
+            response_text="error message",
             sourcetype="responses_error",
+            api_params=api_params,
+            context=context,
             fire_and_forget=True,
         )
 
@@ -215,21 +296,21 @@ class TestSplunkTelemetryHooks:
     async def test_non_streaming_shield_blocked(
         self,
         minimal_config: AppConfig,
-        mock_background_tasks: Any,
+        splunk_background_tasks: BackgroundTasks,
         mocker: MockerFixture,
     ) -> None:
         """Blocked moderation fires responses_shield_blocked telemetry."""
         request = _request_with_model_and_conv("Bad input")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
 
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "blocked"
-        mock_moderation.message = "Content blocked"
-        mock_moderation.moderation_id = "mod_blocked_1"
         mock_refusal = OpenAIResponseMessage(
             role="assistant", content="Content blocked", type="message"
         )
-        mock_moderation.refusal_response = mock_refusal
+        moderation = ShieldModerationBlocked(
+            message="Content blocked",
+            moderation_id="mod_blocked_1",
+            refusal_response=mock_refusal,
+        )
 
         _patch_handle_non_streaming_common(mocker, minimal_config)
         mock_client.conversations.items.create = mocker.AsyncMock()
@@ -256,23 +337,27 @@ class TestSplunkTelemetryHooks:
         )
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
-        await handle_non_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        started_at = datetime.now(UTC)
+        api_params = _api_params_from_request(request)
+        context = _telemetry_context(
+            mock_client,
             input_text="Bad input",
-            started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
-            inline_rag_context=RAGContext(),
-            background_tasks=mock_background_tasks,
+            started_at=started_at,
+            moderation_result=moderation,
+            background_tasks=splunk_background_tasks,
             rh_identity_context=("org1", "sys1"),
+        )
+        await handle_non_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         mock_queue.assert_called_once()
         call_kwargs = mock_queue.call_args[1]
         assert call_kwargs["sourcetype"] == "responses_shield_blocked"
-        assert call_kwargs["background_tasks"] is mock_background_tasks
-        assert call_kwargs["rh_identity_context"] == ("org1", "sys1")
+        assert call_kwargs["context"].background_tasks is splunk_background_tasks
+        assert call_kwargs["context"].rh_identity_context == ("org1", "sys1")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -304,14 +389,13 @@ class TestSplunkTelemetryHooks:
         self,
         exc_factory: Any,
         minimal_config: AppConfig,
-        mock_background_tasks: Any,
+        splunk_background_tasks: BackgroundTasks,
         mocker: MockerFixture,
     ) -> None:
         """Each error branch fires responses_error telemetry with fire_and_forget."""
         request = _request_with_model_and_conv("Hello")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mock_client.responses.create = mocker.AsyncMock(side_effect=exc_factory(mocker))
 
@@ -331,17 +415,21 @@ class TestSplunkTelemetryHooks:
         )
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
+        started_at = datetime.now(UTC)
+        api_params = _api_params_from_request(request)
+        context = _telemetry_context(
+            mock_client,
+            input_text="Hello",
+            started_at=started_at,
+            moderation_result=moderation,
+            background_tasks=splunk_background_tasks,
+            rh_identity_context=("org1", "sys1"),
+        )
         with pytest.raises(HTTPException):
             await handle_non_streaming_response(
-                client=mock_client,
-                request=request,
-                auth=MOCK_AUTH,
-                input_text="Hello",
-                started_at=datetime.now(UTC),
-                moderation_result=mock_moderation,
-                inline_rag_context=RAGContext(),
-                background_tasks=mock_background_tasks,
-                rh_identity_context=("org1", "sys1"),
+                original_request=request,
+                api_params=api_params,
+                context=context,
             )
 
         mock_queue.assert_called_once()
@@ -352,14 +440,13 @@ class TestSplunkTelemetryHooks:
     async def test_non_streaming_success(
         self,
         minimal_config: AppConfig,
-        mock_background_tasks: Any,
+        splunk_background_tasks: BackgroundTasks,
         mocker: MockerFixture,
     ) -> None:
         """Successful non-streaming response fires responses_completed with token counts."""
         request = _request_with_model_and_conv("Hello")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mock_api_response = mocker.Mock(spec=OpenAIResponseObject)
         mock_api_response.output = []
@@ -410,16 +497,20 @@ class TestSplunkTelemetryHooks:
 
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
-        await handle_non_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        started_at = datetime.now(UTC)
+        api_params = _api_params_from_request(request)
+        context = _telemetry_context(
+            mock_client,
             input_text="Hello",
-            started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
-            inline_rag_context=RAGContext(),
-            background_tasks=mock_background_tasks,
+            started_at=started_at,
+            moderation_result=moderation,
+            background_tasks=splunk_background_tasks,
             rh_identity_context=("org1", "sys1"),
+        )
+        await handle_non_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         # The success hook fires once (blocked hook is skipped because decision != "blocked")
@@ -435,21 +526,21 @@ class TestSplunkTelemetryHooks:
     async def test_streaming_shield_blocked(
         self,
         minimal_config: AppConfig,
-        mock_background_tasks: Any,
+        splunk_background_tasks: BackgroundTasks,
         mocker: MockerFixture,
     ) -> None:
         """Blocked moderation in streaming fires responses_shield_blocked telemetry."""
         request = _request_with_model_and_conv("Bad", model="provider/model1")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
 
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "blocked"
-        mock_moderation.message = "Blocked"
-        mock_moderation.moderation_id = "mod_123"
         mock_refusal = OpenAIResponseMessage(
             role="assistant", content="Blocked", type="message"
         )
-        mock_moderation.refusal_response = mock_refusal
+        moderation = ShieldModerationBlocked(
+            message="Blocked",
+            moderation_id="mod_123",
+            refusal_response=mock_refusal,
+        )
 
         mocker.patch(f"{MODULE}.configuration", minimal_config)
         mocker.patch(f"{MODULE}.get_available_quotas", return_value={})
@@ -466,16 +557,20 @@ class TestSplunkTelemetryHooks:
 
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
-        response = await handle_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        started_at = datetime.now(UTC)
+        api_params = _api_params_from_request(request)
+        context = _telemetry_context(
+            mock_client,
             input_text="Bad",
-            started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
-            inline_rag_context=RAGContext(),
-            background_tasks=mock_background_tasks,
+            started_at=started_at,
+            moderation_result=moderation,
+            background_tasks=splunk_background_tasks,
             rh_identity_context=("org1", "sys1"),
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         assert isinstance(response, StreamingResponse)
@@ -515,14 +610,13 @@ class TestSplunkTelemetryHooks:
         self,
         exc_factory: Any,
         minimal_config: AppConfig,
-        mock_background_tasks: Any,
+        splunk_background_tasks: BackgroundTasks,
         mocker: MockerFixture,
     ) -> None:
         """Each streaming error branch fires responses_error telemetry with fire_and_forget."""
         request = _request_with_model_and_conv("Hello")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mock_client.responses.create = mocker.AsyncMock(side_effect=exc_factory(mocker))
 
@@ -542,17 +636,21 @@ class TestSplunkTelemetryHooks:
         )
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
+        started_at = datetime.now(UTC)
+        api_params = _api_params_from_request(request)
+        context = _telemetry_context(
+            mock_client,
+            input_text="Hello",
+            started_at=started_at,
+            moderation_result=moderation,
+            background_tasks=splunk_background_tasks,
+            rh_identity_context=("org1", "sys1"),
+        )
         with pytest.raises(HTTPException):
             await handle_streaming_response(
-                client=mock_client,
-                request=request,
-                auth=MOCK_AUTH,
-                input_text="Hello",
-                started_at=datetime.now(UTC),
-                moderation_result=mock_moderation,
-                inline_rag_context=RAGContext(),
-                background_tasks=mock_background_tasks,
-                rh_identity_context=("org1", "sys1"),
+                original_request=request,
+                api_params=api_params,
+                context=context,
             )
 
         mock_queue.assert_called_once()
@@ -563,14 +661,13 @@ class TestSplunkTelemetryHooks:
     async def test_streaming_success(
         self,
         minimal_config: AppConfig,
-        mock_background_tasks: Any,
+        splunk_background_tasks: BackgroundTasks,
         mocker: MockerFixture,
     ) -> None:
         """Successful streaming fires responses_completed after consuming the stream."""
         request = _request_with_model_and_conv("Hi", model="provider/model1")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "passed"
+        moderation = ShieldModerationPassed()
 
         mock_chunk = mocker.Mock()
         mock_chunk.type = "response.completed"
@@ -623,16 +720,20 @@ class TestSplunkTelemetryHooks:
 
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
-        response = await handle_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        started_at = datetime.now(UTC)
+        api_params = _api_params_from_request(request)
+        context = _telemetry_context(
+            mock_client,
             input_text="Hi",
-            started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
-            inline_rag_context=RAGContext(),
-            background_tasks=mock_background_tasks,
+            started_at=started_at,
+            moderation_result=moderation,
+            background_tasks=splunk_background_tasks,
             rh_identity_context=("org1", "sys1"),
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         assert isinstance(response, StreamingResponse)
@@ -659,14 +760,14 @@ class TestSplunkTelemetryHooks:
         request = _request_with_model_and_conv("Bad input")
         mock_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
 
-        mock_moderation = mocker.Mock()
-        mock_moderation.decision = "blocked"
-        mock_moderation.message = "Content blocked"
-        mock_moderation.moderation_id = "mod_disabled"
         mock_refusal = OpenAIResponseMessage(
             role="assistant", content="Content blocked", type="message"
         )
-        mock_moderation.refusal_response = mock_refusal
+        moderation = ShieldModerationBlocked(
+            message="Content blocked",
+            moderation_id="mod_disabled",
+            refusal_response=mock_refusal,
+        )
 
         _patch_handle_non_streaming_common(mocker, minimal_config)
         mock_client.conversations.items.create = mocker.AsyncMock()
@@ -694,17 +795,21 @@ class TestSplunkTelemetryHooks:
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
         # background_tasks=None (the default) means Splunk is disabled
-        await handle_non_streaming_response(
-            client=mock_client,
-            request=request,
-            auth=MOCK_AUTH,
+        started_at = datetime.now(UTC)
+        api_params = _api_params_from_request(request)
+        context = _telemetry_context(
+            mock_client,
             input_text="Bad input",
-            started_at=datetime.now(UTC),
-            moderation_result=mock_moderation,
-            inline_rag_context=RAGContext(),
+            started_at=started_at,
+            moderation_result=moderation,
             background_tasks=None,
             rh_identity_context=("org1", "sys1"),
         )
+        await handle_non_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
+        )
 
         mock_queue.assert_called_once()
-        assert mock_queue.call_args[1]["background_tasks"] is None
+        assert mock_queue.call_args[1]["context"].background_tasks is None

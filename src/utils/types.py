@@ -1,7 +1,10 @@
 """Common types for the project."""
 
+from collections.abc import Mapping
+from datetime import datetime
 from typing import Annotated, Any, Literal, Optional
 
+from fastapi import BackgroundTasks
 from llama_stack_api import ImageContentItem, TextContentItem
 from llama_stack_api.openai_responses import (
     OpenAIResponseInputFunctionToolCallOutput as FunctionToolCallOutput,
@@ -45,12 +48,40 @@ from llama_stack_api.openai_responses import (
 from llama_stack_api.openai_responses import (
     OpenAIResponseText as Text,
 )
+from llama_stack_api.openai_responses import (
+    OpenAIResponseToolMCP as OutputToolMCP,
+)
+from llama_stack_client import AsyncLlamaStackClient
 from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
 from models.database.conversations import UserConversation
 from utils.token_counter import TokenCounter
+from utils.tool_formatter import translate_vector_store_ids_to_user_facing
 
 type SingletonInstances = dict[type, Any]
+
+
+# Attribute names that are echoed back in the response.
+_ECHOED_FIELDS = set(
+    {
+        "instructions",
+        "max_tool_calls",
+        "max_output_tokens",
+        "metadata",
+        "model",
+        "parallel_tool_calls",
+        "previous_response_id",
+        "prompt",
+        "reasoning",
+        "safety_identifier",
+        "temperature",
+        "top_p",
+        "truncation",
+        "text",
+        "tool_choice",
+        "store",
+    }
+)
 
 
 def content_to_str(content: Any) -> str:
@@ -266,6 +297,31 @@ class ResponsesApiParams(BaseModel):
                 dumped_tool["authorization"] = authorization
         return result
 
+    def echoed_params(self, rag_id_mapping: Mapping[str, str]) -> dict[str, Any]:
+        """Build kwargs echoed into synthetic OpenAI-style responses (e.g. moderation blocks).
+
+        Parameters:
+            rag_id_mapping: Llama Stack vector_db_id to user-facing RAG id (from app config).
+
+        Returns:
+            dict[str, Any]: Field names and values to merge into the response object.
+        """
+        data = self.model_dump(include=_ECHOED_FIELDS)
+        if self.tools is not None:
+            tool_dicts: list[dict[str, Any]] = [
+                (
+                    OutputToolMCP.model_validate(t.model_dump()).model_dump()
+                    if t.type == "mcp"
+                    else t.model_dump()
+                )
+                for t in self.tools
+            ]
+            data["tools"] = translate_vector_store_ids_to_user_facing(
+                tool_dicts, rag_id_mapping
+            )
+
+        return data
+
 
 class ToolCallSummary(BaseModel):
     """Model representing a tool call made during response generation (for tool_calls list)."""
@@ -385,3 +441,38 @@ class Transcript(BaseModel):
     attachments: list[dict[str, Any]] = Field(default_factory=list)
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     tool_results: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class ResponsesContext(BaseModel):
+    """Shared request-scoped context for the /responses endpoint pipeline."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    client: AsyncLlamaStackClient = Field(description="The Llama Stack client")
+    auth: tuple[str, str, bool, str] = Field(
+        description="Authentication tuple (user_id, username, skip_userid_check, token)",
+    )
+    input_text: str = Field(description="Extracted user input text for the turn")
+    started_at: datetime = Field(description="UTC timestamp when the request started")
+    moderation_result: ShieldModerationResult = Field(
+        description="Shield moderation outcome",
+    )
+    inline_rag_context: RAGContext = Field(
+        description="Inline RAG context for the turn"
+    )
+    filter_server_tools: bool = Field(
+        default=False,
+        description="Whether to filter server-deployed MCP tool events from output",
+    )
+    background_tasks: Optional[BackgroundTasks] = Field(
+        default=None,
+        description="Background tasks for telemetry, if enabled",
+    )
+    rh_identity_context: tuple[str, str] = Field(
+        default_factory=lambda: ("", ""),
+        description="RH identity (org_id, system_id) for Splunk events",
+    )
+    generate_topic_summary: bool = Field(
+        default=False,
+        description="Whether to generate a topic summary for new conversations",
+    )
