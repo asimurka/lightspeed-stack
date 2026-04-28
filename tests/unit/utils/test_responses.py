@@ -59,8 +59,8 @@ from pydantic import AnyUrl
 from pytest_mock import MockerFixture
 
 import constants
+from models.api.requests import QueryRequest
 from models.config import ByokRag, ModelContextProtocolServer
-from models.requests import QueryRequest
 from utils.responses import (
     _build_chunk_attributes,
     _increment_llm_call_metric,

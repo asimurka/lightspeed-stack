@@ -22,13 +22,12 @@ from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from constants import DEFAULT_MAX_FILE_UPLOAD_SIZE
 from log import get_logger
-from models.config import Action
-from models.requests import (
+from models.api.requests import (
     VectorStoreCreateRequest,
     VectorStoreFileCreateRequest,
     VectorStoreUpdateRequest,
 )
-from models.responses import (
+from models.api.responses import (
     UNAUTHORIZED_OPENAPI_EXAMPLES,
     FileResponse,
     FileTooLargeResponse,
@@ -42,6 +41,7 @@ from models.responses import (
     VectorStoreResponse,
     VectorStoresListResponse,
 )
+from models.config import Action
 from utils.endpoints import check_configuration_loaded
 from utils.query import handle_known_apistatus_errors
 

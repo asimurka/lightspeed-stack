@@ -10,8 +10,7 @@ from authentication.interface import AuthTuple
 from authorization.middleware import authorize
 from configuration import configuration
 from log import get_logger
-from models.config import Action
-from models.responses import (
+from models.api.responses import (
     UNAUTHORIZED_OPENAPI_EXAMPLES,
     ForbiddenResponse,
     InternalServerErrorResponse,
@@ -20,6 +19,7 @@ from models.responses import (
     ServiceUnavailableResponse,
     UnauthorizedResponse,
 )
+from models.config import Action
 from utils.endpoints import check_configuration_loaded
 
 logger = get_logger(__name__)

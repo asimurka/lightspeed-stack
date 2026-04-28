@@ -10,7 +10,7 @@ from pytest_mock import MockerFixture
 from app.endpoints.shields import shields_endpoint_handler
 from authentication.interface import AuthTuple
 from configuration import AppConfig
-from models.responses import ShieldsResponse
+from models.api.responses import ShieldsResponse
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
 
 

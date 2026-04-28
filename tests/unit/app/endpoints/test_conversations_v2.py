@@ -20,12 +20,12 @@ from app.endpoints.conversations_v2 import (
     update_conversation_endpoint_handler,
 )
 from configuration import AppConfig
-from models.cache_entry import CacheEntry
-from models.requests import ConversationUpdateRequest
-from models.responses import (
+from models.api.requests import ConversationUpdateRequest
+from models.api.responses import (
     ConversationData,
     ConversationUpdateResponse,
 )
+from models.cache_entry import CacheEntry
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
 from utils.types import ReferencedDocument, ToolCallSummary, ToolResultSummary
 

@@ -13,9 +13,8 @@ from authentication.interface import AuthTuple
 from authorization.middleware import authorize
 from configuration import configuration
 from log import get_logger
-from models.config import Action
-from models.requests import FeedbackRequest, FeedbackStatusUpdateRequest
-from models.responses import (
+from models.api.requests import FeedbackRequest, FeedbackStatusUpdateRequest
+from models.api.responses import (
     UNAUTHORIZED_OPENAPI_EXAMPLES,
     FeedbackResponse,
     FeedbackStatusUpdateResponse,
@@ -26,6 +25,7 @@ from models.responses import (
     StatusResponse,
     UnauthorizedResponse,
 )
+from models.config import Action
 from utils.endpoints import check_configuration_loaded, retrieve_conversation
 from utils.suid import get_suid
 

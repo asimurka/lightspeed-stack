@@ -26,10 +26,10 @@ from app.endpoints.responses import (
 )
 from configuration import AppConfig
 from constants import DEFAULT_SYSTEM_PROMPT, SUBSTITUTED_INSTRUCTIONS_PLACEHOLDER
+from models.api.requests import ResponsesRequest
+from models.api.responses import ResponsesResponse
 from models.config import Action, ModelContextProtocolServer
 from models.database.conversations import UserConversation
-from models.requests import ResponsesRequest
-from models.responses import ResponsesResponse
 from utils.types import RAGContext, ResponsesConversationContext, TurnSummary
 
 MOCK_AUTH = (

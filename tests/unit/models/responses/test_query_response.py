@@ -2,7 +2,7 @@
 
 from pydantic import AnyUrl
 
-from models.responses import QueryResponse
+from models.api.responses import QueryResponse
 from utils.types import ReferencedDocument, ToolCallSummary, ToolResultSummary
 
 

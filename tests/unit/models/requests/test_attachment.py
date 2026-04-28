@@ -1,6 +1,6 @@
 """Unit tests for Attachment model."""
 
-from models.requests import Attachment
+from models.api.requests import Attachment
 
 
 class TestAttachment:

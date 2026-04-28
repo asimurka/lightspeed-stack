@@ -6,13 +6,7 @@ import pytest
 from pydantic import AnyHttpUrl, AnyUrl, ConfigDict, ValidationError
 from pydantic_core import SchemaError
 
-from models.config import (
-    Configuration,
-    LlamaStackConfiguration,
-    ServiceConfiguration,
-    UserDataCollection,
-)
-from models.responses import (
+from models.api.responses import (
     AbstractSuccessfulResponse,
     AuthorizedResponse,
     ConfigurationResponse,
@@ -41,6 +35,12 @@ from models.responses import (
     StatusResponse,
     StreamingQueryResponse,
     ToolsResponse,
+)
+from models.config import (
+    Configuration,
+    LlamaStackConfiguration,
+    ServiceConfiguration,
+    UserDataCollection,
 )
 from utils.types import ReferencedDocument, ToolCallSummary, ToolResultSummary
 

@@ -18,8 +18,8 @@ import metrics
 from configuration import AppConfig
 from constants import DEFAULT_VIOLATION_MESSAGE
 from log import get_logger
-from models.requests import QueryRequest
-from models.responses import (
+from models.api.requests import QueryRequest
+from models.api.responses import (
     InternalServerErrorResponse,
     NotFoundResponse,
     ServiceUnavailableResponse,

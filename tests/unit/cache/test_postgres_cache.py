@@ -10,9 +10,9 @@ from pytest_mock import MockerFixture
 
 from cache.cache_error import CacheError
 from cache.postgres_cache import PostgresCache
+from models.api.responses import ConversationData
 from models.cache_entry import CacheEntry
 from models.config import PostgreSQLDatabaseConfiguration
-from models.responses import ConversationData
 from utils import suid
 from utils.types import ReferencedDocument, ToolCallSummary, ToolResultSummary
 

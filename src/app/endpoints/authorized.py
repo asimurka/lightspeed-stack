@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from authentication import get_auth_dependency
 from authentication.interface import AuthTuple
 from log import get_logger
-from models.responses import (
+from models.api.responses import (
     UNAUTHORIZED_OPENAPI_EXAMPLES,
     AuthorizedResponse,
     ForbiddenResponse,

@@ -9,9 +9,9 @@ from pydantic import AnyUrl
 
 from cache.cache_error import CacheError
 from cache.sqlite_cache import SQLiteCache
+from models.api.responses import ConversationData
 from models.cache_entry import CacheEntry
 from models.config import SQLiteDatabaseConfiguration
-from models.responses import ConversationData
 from utils import suid
 from utils.types import ReferencedDocument, ToolCallSummary, ToolResultSummary
 

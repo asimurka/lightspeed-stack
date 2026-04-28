@@ -2,7 +2,7 @@
 
 from pydantic import HttpUrl
 
-from models.responses import ReferencedDocument
+from models.shared.rag import ReferencedDocument
 from utils.types import RAGChunk, RAGContext
 
 

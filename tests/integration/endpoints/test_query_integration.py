@@ -18,9 +18,9 @@ import utils.query
 from app.endpoints.query import query_endpoint_handler
 from authentication.interface import AuthTuple
 from configuration import AppConfig
+from models.api.requests import Attachment, QueryRequest
 from models.cache_entry import CacheEntry
 from models.database.conversations import UserConversation
-from models.requests import Attachment, QueryRequest
 from tests.integration.conftest import (
     TEST_CONVERSATION_ID,
     TEST_NON_EXISTENT_ID,

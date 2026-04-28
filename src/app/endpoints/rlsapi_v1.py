@@ -24,8 +24,8 @@ from authorization.middleware import authorize
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
-from models.config import Action
-from models.responses import (
+from models.api.requests.rlsapi import RlsapiV1InferRequest, RlsapiV1SystemInfo
+from models.api.responses import (
     UNAUTHORIZED_OPENAPI_EXAMPLES,
     ForbiddenResponse,
     InternalServerErrorResponse,
@@ -36,8 +36,11 @@ from models.responses import (
     UnauthorizedResponse,
     UnprocessableEntityResponse,
 )
-from models.rlsapi.requests import RlsapiV1InferRequest, RlsapiV1SystemInfo
-from models.rlsapi.responses import RlsapiV1InferData, RlsapiV1InferResponse
+from models.api.responses.successful.rlsapi import (
+    RlsapiV1InferData,
+    RlsapiV1InferResponse,
+)
+from models.config import Action
 from observability import InferenceEventData, build_inference_event, send_splunk_event
 from utils.endpoints import check_configuration_loaded
 from utils.query import (

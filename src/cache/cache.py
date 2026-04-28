@@ -2,8 +2,8 @@
 
 from abc import ABC, abstractmethod
 
+from models.api.responses import ConversationData
 from models.cache_entry import CacheEntry
-from models.responses import ConversationData
 from utils.suid import check_suid
 
 

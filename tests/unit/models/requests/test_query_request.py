@@ -5,7 +5,7 @@ from logging import Logger
 import pytest
 from pytest_mock import MockerFixture
 
-from models.requests import Attachment, QueryRequest, SolrVectorSearchRequest
+from models.api.requests import Attachment, QueryRequest, SolrVectorSearchRequest
 
 
 class TestQueryRequest:
@@ -105,7 +105,7 @@ class TestQueryRequest:
         """
         # Mock the logger
         mock_logger = mocker.Mock(spec=Logger)
-        mocker.patch("models.requests.logger", mock_logger)
+        mocker.patch("models.api.requests.query.logger", mock_logger)
 
         qr = QueryRequest(
             query="Tell me about Kubernetes",

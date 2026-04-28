@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from models.responses import AuthorizedResponse
+from models.api.responses import AuthorizedResponse
 
 
 class TestAuthorizedResponse:

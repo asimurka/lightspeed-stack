@@ -31,19 +31,19 @@ from app.endpoints.rlsapi_v1 import (
 from authentication.interface import AuthTuple
 from authentication.rh_identity import RHIdentityData
 from configuration import AppConfig
-from models.responses import ServiceUnavailableResponse
-from models.rlsapi.requests import (
+from models.api.requests.rlsapi import (
     RlsapiV1Attachment,
     RlsapiV1Context,
     RlsapiV1InferRequest,
     RlsapiV1SystemInfo,
     RlsapiV1Terminal,
 )
-from models.rlsapi.responses import RlsapiV1InferResponse
+from models.api.responses import ServiceUnavailableResponse
+from models.api.responses.successful.rlsapi import RlsapiV1InferResponse
+from models.shared.shields import ShieldModerationBlocked, ShieldModerationPassed
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
 from utils.rh_identity import get_rh_identity_context
 from utils.suid import check_suid
-from utils.types import ShieldModerationBlocked, ShieldModerationPassed
 
 MOCK_AUTH: AuthTuple = ("mock_user_id", "mock_username", False, "mock_token")
 

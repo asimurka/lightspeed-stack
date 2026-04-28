@@ -21,7 +21,7 @@ from app.endpoints.responses import (
     handle_streaming_response,
 )
 from configuration import AppConfig
-from models.requests import ResponsesRequest
+from models.api.requests import ResponsesRequest
 from observability.formats.responses import ResponsesEventData
 from utils.types import RAGContext, TurnSummary
 

@@ -8,10 +8,8 @@ from authentication import get_auth_dependency
 from authorization.middleware import authorize
 from configuration import configuration
 from log import get_logger
-from models.cache_entry import CacheEntry
-from models.config import Action
-from models.requests import ConversationUpdateRequest
-from models.responses import (
+from models.api.requests import ConversationUpdateRequest
+from models.api.responses import (
     UNAUTHORIZED_OPENAPI_EXAMPLES,
     BadRequestResponse,
     ConversationDeleteResponse,
@@ -26,6 +24,8 @@ from models.responses import (
     ServiceUnavailableResponse,
     UnauthorizedResponse,
 )
+from models.cache_entry import CacheEntry
+from models.config import Action
 from utils.endpoints import check_configuration_loaded
 from utils.suid import check_suid
 

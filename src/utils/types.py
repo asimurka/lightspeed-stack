@@ -1,54 +1,20 @@
 """Common types for the project."""
 
-from typing import Annotated, Any, Literal, Optional
+from typing import Any
 
 from llama_stack_api import ImageContentItem, TextContentItem
-from llama_stack_api.openai_responses import (
-    OpenAIResponseInputFunctionToolCallOutput as FunctionToolCallOutput,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseInputTool as InputTool,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseInputToolChoice as ToolChoice,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseMCPApprovalRequest as McpApprovalRequest,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseMCPApprovalResponse as McpApprovalResponse,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseMessage as ResponseMessage,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageFileSearchToolCall as FileSearchToolCall,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageFunctionToolCall as FunctionToolCall,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageMCPCall as McpCall,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageMCPListTools as McpListTools,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseOutputMessageWebSearchToolCall as WebSearchToolCall,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponsePrompt as Prompt,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseReasoning as Reasoning,
-)
-from llama_stack_api.openai_responses import (
-    OpenAIResponseText as Text,
-)
-from pydantic import AnyUrl, BaseModel, ConfigDict, Field
 
-from models.database.conversations import UserConversation
-from utils.token_counter import TokenCounter
+from models.shared.conversation_resolve import ResponsesConversationContext
+from models.shared.rag import RAGChunk, RAGContext, ReferencedDocument
+from models.shared.responses_llama import IncludeParameter, ResponseInput, ResponseItem
+from models.shared.responses_params import ResponsesApiParams
+from models.shared.shields import (
+    ShieldModerationBlocked,
+    ShieldModerationPassed,
+    ShieldModerationResult,
+)
+from models.shared.tools import ToolCallSummary, ToolResultSummary
+from models.shared.transcripts import Transcript, TranscriptMetadata, TurnSummary
 
 type SingletonInstances = dict[type, Any]
 
@@ -95,293 +61,23 @@ class Singleton(type):
         return cls._instances[cls]
 
 
-class ShieldModerationPassed(BaseModel):
-    """Shield moderation passed; no refusal."""
-
-    decision: Literal["passed"] = "passed"
-
-
-class ResponsesConversationContext(BaseModel):
-    """Result of resolving conversation context for the responses endpoint.
-
-    Holds the conversation ID to use for the LLM, the optional user conversation
-    record, and the resolved generate_topic_summary flag. Caller assigns these
-    to the request in outer scope instead of mutating the request inside the
-    resolver.
-
-    Attributes:
-        conversation: Conversation ID in llama-stack format to use for the request.
-        user_conversation: Resolved user conversation record, or None for new ones.
-        generate_topic_summary: Resolved value for request.generate_topic_summary.
-    """
-
-    conversation: str = Field(description="Conversation ID in llama-stack format")
-    user_conversation: Optional[UserConversation] = Field(
-        default=None,
-        description="Resolved user conversation record, or None for new conversations",
-    )
-    generate_topic_summary: bool = Field(
-        description="Resolved value for request.generate_topic_summary",
-    )
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-
-class ShieldModerationBlocked(BaseModel):
-    """Shield moderation blocked the content; refusal details are present."""
-
-    decision: Literal["blocked"] = "blocked"
-    message: str
-    moderation_id: str
-    refusal_response: ResponseMessage
-
-
-ShieldModerationResult = Annotated[
-    ShieldModerationPassed | ShieldModerationBlocked,
-    Field(discriminator="decision"),
+__all__ = [
+    "IncludeParameter",
+    "ResponseItem",
+    "ResponseInput",
+    "ResponsesApiParams",
+    "ResponsesConversationContext",
+    "ToolCallSummary",
+    "ToolResultSummary",
+    "RAGChunk",
+    "ReferencedDocument",
+    "RAGContext",
+    "TurnSummary",
+    "TranscriptMetadata",
+    "Transcript",
+    "ShieldModerationPassed",
+    "ShieldModerationBlocked",
+    "ShieldModerationResult",
+    "Singleton",
+    "content_to_str",
 ]
-
-type IncludeParameter = Literal[
-    "web_search_call.action.sources",
-    "code_interpreter_call.outputs",
-    "computer_call_output.output.image_url",
-    "file_search_call.results",
-    "message.input_image.image_url",
-    "message.output_text.logprobs",
-    "reasoning.encrypted_content",
-]
-
-type ResponseItem = (
-    ResponseMessage
-    | WebSearchToolCall
-    | FileSearchToolCall
-    | FunctionToolCallOutput
-    | McpCall
-    | McpListTools
-    | McpApprovalRequest
-    | FunctionToolCall
-    | McpApprovalResponse
-)
-
-type ResponseInput = str | list[ResponseItem]
-
-
-class ResponsesApiParams(BaseModel):
-    """Parameters for a Llama Stack Responses API request.
-
-    All fields accepted by the Llama Stack client responses.create() body are
-    included so that dumped model can be passed directly to response create.
-    """
-
-    input: ResponseInput = Field(description="The input text or structured input items")
-    model: str = Field(description='The full model ID in format "provider/model"')
-    conversation: str = Field(description="The conversation ID in llama-stack format")
-    include: Optional[list[IncludeParameter]] = Field(
-        default=None,
-        description="Output item types to include in the response",
-    )
-    instructions: Optional[str] = Field(
-        default=None, description="The resolved system prompt"
-    )
-    max_infer_iters: Optional[int] = Field(
-        default=None,
-        description="Maximum number of inference iterations",
-    )
-    max_output_tokens: Optional[int] = Field(
-        default=None,
-        description="Maximum number of tokens allowed in the response",
-    )
-    max_tool_calls: Optional[int] = Field(
-        default=None,
-        description="Maximum tool calls allowed in a single response",
-    )
-    metadata: Optional[dict[str, str]] = Field(
-        default=None,
-        description="Custom metadata for tracking or logging",
-    )
-    parallel_tool_calls: Optional[bool] = Field(
-        default=None,
-        description="Whether the model can make multiple tool calls in parallel",
-    )
-    previous_response_id: Optional[str] = Field(
-        default=None,
-        description="Identifier of the previous response in a multi-turn conversation",
-    )
-    prompt: Optional[Prompt] = Field(
-        default=None,
-        description="Prompt template with variables for dynamic substitution",
-    )
-    reasoning: Optional[Reasoning] = Field(
-        default=None,
-        description="Reasoning configuration for the response",
-    )
-    safety_identifier: Optional[str] = Field(
-        default=None,
-        description="Stable identifier for safety monitoring and abuse detection",
-    )
-    store: bool = Field(description="Whether to store the response")
-    stream: bool = Field(description="Whether to stream the response")
-    temperature: Optional[float] = Field(
-        default=None,
-        description="Sampling temperature (e.g. 0.0-2.0)",
-    )
-    text: Optional[Text] = Field(
-        default=None,
-        description="Text response configuration (format constraints)",
-    )
-    tool_choice: Optional[ToolChoice] = Field(
-        default=None,
-        description="Tool selection strategy",
-    )
-    tools: Optional[list[InputTool]] = Field(
-        default=None,
-        description="Prepared tool groups for Responses API (same type as ResponsesRequest.tools)",
-    )
-    extra_headers: Optional[dict[str, str]] = Field(
-        default=None,
-        description="Extra HTTP headers to send with the request (e.g. x-llamastack-provider-data)",
-    )
-
-    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
-        """Serialize params, re-injecting MCP authorization stripped by exclude=True.
-
-        llama-stack-api marks ``InputToolMCP.authorization`` with
-        ``Field(exclude=True)`` to prevent token leakage in API responses.
-        The base ``model_dump()`` therefore strips the field, but we need it
-        in the request payload so llama-stack server can authenticate with
-        MCP servers.  See LCORE-1414 / GitHub issue #1269.
-        """
-        result = super().model_dump(*args, **kwargs)
-        # Only one context option is allowed, previous_response_id has priority
-        # Turn is added to conversation manually if previous_response_id is used
-        if self.previous_response_id:
-            result.pop("conversation", None)
-        dumped_tools = result.get("tools")
-        if not self.tools or not isinstance(dumped_tools, list):
-            return result
-        if len(dumped_tools) != len(self.tools):
-            return result
-        for tool, dumped_tool in zip(self.tools, dumped_tools):
-            authorization = getattr(tool, "authorization", None)
-            if authorization is not None and isinstance(dumped_tool, dict):
-                dumped_tool["authorization"] = authorization
-        return result
-
-
-class ToolCallSummary(BaseModel):
-    """Model representing a tool call made during response generation (for tool_calls list)."""
-
-    id: str = Field(description="ID of the tool call")
-    name: str = Field(description="Name of the tool called")
-    args: dict[str, Any] = Field(
-        default_factory=dict, description="Arguments passed to the tool"
-    )
-    type: str = Field("tool_call", description="Type indicator for tool call")
-
-
-class ToolResultSummary(BaseModel):
-    """Model representing a result from a tool call (for tool_results list)."""
-
-    id: str = Field(
-        description="ID of the tool call/result, matches the corresponding tool call 'id'"
-    )
-    status: str = Field(
-        ..., description="Status of the tool execution (e.g., 'success')"
-    )
-    content: str = Field(..., description="Content/result returned from the tool")
-    type: str = Field("tool_result", description="Type indicator for tool result")
-    round: int = Field(..., description="Round number or step of tool execution")
-
-
-class RAGChunk(BaseModel):
-    """Model representing a RAG chunk used in the response."""
-
-    content: str = Field(description="The content of the chunk")
-    source: Optional[str] = Field(
-        default=None,
-        description="Index name identifying the knowledge source from configuration",
-    )
-    score: Optional[float] = Field(default=None, description="Relevance score")
-    attributes: Optional[dict[str, Any]] = Field(
-        default=None,
-        description="Document metadata from the RAG provider (e.g., url, title, author)",
-    )
-
-
-class ReferencedDocument(BaseModel):
-    """Model representing a document referenced in generating a response.
-
-    Attributes:
-        doc_url: Url to the referenced doc.
-        doc_title: Title of the referenced doc.
-    """
-
-    doc_url: Optional[AnyUrl] = Field(
-        default=None, description="URL of the referenced document"
-    )
-
-    doc_title: Optional[str] = Field(
-        default=None, description="Title of the referenced document"
-    )
-
-    source: Optional[str] = Field(
-        default=None,
-        description="Index name identifying the knowledge source from configuration",
-    )
-
-
-class RAGContext(BaseModel):
-    """Result of building RAG context from all enabled pre-query RAG sources.
-
-    Attributes:
-        context_text: Formatted RAG context string for injection into the query.
-        rag_chunks: RAG chunks from pre-query sources (BYOK + Solr).
-        referenced_documents: Referenced documents from pre-query sources.
-    """
-
-    context_text: str = Field(default="", description="Formatted context for injection")
-    rag_chunks: list[RAGChunk] = Field(
-        default_factory=list,
-        description="RAG chunks from pre-query sources",
-    )
-    referenced_documents: list[ReferencedDocument] = Field(
-        default_factory=list,
-        description="Documents from pre-query sources",
-    )
-
-
-class TurnSummary(BaseModel):
-    """Summary of a turn in llama stack."""
-
-    id: str = Field(default="", description="ID of the response")
-    llm_response: str = ""
-    tool_calls: list[ToolCallSummary] = Field(default_factory=list)
-    tool_results: list[ToolResultSummary] = Field(default_factory=list)
-    rag_chunks: list[RAGChunk] = Field(default_factory=list)
-    referenced_documents: list[ReferencedDocument] = Field(default_factory=list)
-    token_usage: TokenCounter = Field(default_factory=TokenCounter)
-
-
-class TranscriptMetadata(BaseModel):
-    """Metadata for a transcript entry."""
-
-    provider: Optional[str] = None
-    model: str
-    query_provider: Optional[str] = None
-    query_model: Optional[str] = None
-    user_id: str
-    conversation_id: str
-    timestamp: str
-
-
-class Transcript(BaseModel):
-    """Model representing a transcript entry to be stored."""
-
-    metadata: TranscriptMetadata
-    redacted_query: str
-    query_is_valid: bool
-    llm_response: str
-    rag_chunks: list[dict[str, Any]] = Field(default_factory=list)
-    truncated: bool
-    attachments: list[dict[str, Any]] = Field(default_factory=list)
-    tool_calls: list[dict[str, Any]] = Field(default_factory=list)
-    tool_results: list[dict[str, Any]] = Field(default_factory=list)

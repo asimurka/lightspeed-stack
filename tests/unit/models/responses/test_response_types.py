@@ -3,7 +3,11 @@
 import pytest
 from pydantic import ValidationError
 
-from models.responses import ConversationData, ConversationDetails, ProviderHealthStatus
+from models.api.responses import (
+    ConversationData,
+    ConversationDetails,
+    ProviderHealthStatus,
+)
 
 
 class TestConversationDetails:

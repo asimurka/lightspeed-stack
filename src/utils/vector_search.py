@@ -18,8 +18,8 @@ from pydantic import AnyUrl
 import constants
 from configuration import configuration
 from log import get_logger
-from models.requests import SolrVectorSearchRequest
-from models.responses import ReferencedDocument
+from models.api.requests import SolrVectorSearchRequest
+from models.shared.rag import ReferencedDocument
 from utils.responses import resolve_vector_store_ids
 from utils.types import RAGChunk, RAGContext, ResponseInput
 

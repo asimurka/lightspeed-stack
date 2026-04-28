@@ -6,7 +6,7 @@ from pytest_mock import MockerFixture
 
 import constants
 from configuration import AppConfig
-from models.requests import SolrVectorSearchRequest
+from models.api.requests import SolrVectorSearchRequest
 from utils.types import RAGChunk
 from utils.vector_search import (
     _build_document_url,

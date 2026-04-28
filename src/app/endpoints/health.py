@@ -16,8 +16,7 @@ from authentication.interface import AuthTuple
 from authorization.middleware import authorize
 from client import AsyncLlamaStackClientHolder
 from log import get_logger
-from models.config import Action
-from models.responses import (
+from models.api.responses import (
     UNAUTHORIZED_OPENAPI_EXAMPLES,
     ForbiddenResponse,
     LivenessResponse,
@@ -26,6 +25,7 @@ from models.responses import (
     ServiceUnavailableResponse,
     UnauthorizedResponse,
 )
+from models.config import Action
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["health"])

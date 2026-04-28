@@ -91,15 +91,15 @@ from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from constants import DEFAULT_RAG_TOOL
 from log import get_logger
-from models.config import ByokRag
-from models.database.conversations import UserConversation
-from models.requests import QueryRequest
-from models.responses import (
+from models.api.requests import QueryRequest
+from models.api.responses import (
     ConflictResponse,
     InternalServerErrorResponse,
     NotFoundResponse,
     ServiceUnavailableResponse,
 )
+from models.config import ByokRag
+from models.database.conversations import UserConversation
 from utils.mcp_headers import (
     McpHeaders,
     build_mcp_headers,

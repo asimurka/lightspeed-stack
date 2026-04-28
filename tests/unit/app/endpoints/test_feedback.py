@@ -18,8 +18,8 @@ from app.endpoints.feedback import (
 )
 from authentication.interface import AuthTuple
 from configuration import AppConfig, configuration
+from models.api.requests import FeedbackRequest, FeedbackStatusUpdateRequest
 from models.config import UserDataCollection
-from models.requests import FeedbackRequest, FeedbackStatusUpdateRequest
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
 
 MOCK_AUTH = ("mock_user_id", "mock_username", False, "mock_token")

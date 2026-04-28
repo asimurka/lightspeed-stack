@@ -11,7 +11,7 @@ from app.endpoints.health import (
     readiness_probe_get_method,
 )
 from authentication.interface import AuthTuple
-from models.responses import ProviderHealthStatus, ReadinessResponse
+from models.api.responses import ProviderHealthStatus, ReadinessResponse
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
 
 

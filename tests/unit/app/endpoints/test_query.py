@@ -12,9 +12,9 @@ from pytest_mock import MockerFixture
 
 from app.endpoints.query import query_endpoint_handler, retrieve_response
 from configuration import AppConfig
+from models.api.requests import Attachment, QueryRequest
+from models.api.responses import QueryResponse
 from models.database.conversations import UserConversation
-from models.requests import Attachment, QueryRequest
-from models.responses import QueryResponse
 from utils.token_counter import TokenCounter
 from utils.types import (
     RAGChunk,
