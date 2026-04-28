@@ -70,7 +70,12 @@ def build_api_params_and_context(  # pylint: disable=too-many-arguments
     generate_topic_summary: bool = False,
 ) -> tuple[ResponsesApiParams, ResponsesContext]:
     """Build api_params/context for direct helper invocation tests."""
-    api_params = ResponsesApiParams.model_validate(updated_request.model_dump())
+    api_params = ResponsesApiParams.model_validate(
+        {
+            **updated_request.model_dump(exclude={"tools"}),
+            "tools": updated_request.tools,
+        }
+    )
     context = ResponsesContext.model_construct(
         client=client,
         auth=auth,
