@@ -23,6 +23,7 @@ from app.endpoints.responses import (
 from configuration import AppConfig
 from models.requests import ResponsesRequest
 from observability.formats.responses import ResponsesEventData
+from tests.unit.app.endpoints.test_responses import build_api_params_and_context
 from utils.types import RAGContext, TurnSummary
 
 MODULE = "app.endpoints.responses"
@@ -256,10 +257,9 @@ class TestSplunkTelemetryHooks:
         )
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
-        await handle_non_streaming_response(
-            client=mock_client,
-            original_request=request,
+        api_params, context = build_api_params_and_context(
             updated_request=request,
+            client=mock_client,
             auth=MOCK_AUTH,
             input_text="Bad input",
             started_at=datetime.now(UTC),
@@ -267,6 +267,11 @@ class TestSplunkTelemetryHooks:
             inline_rag_context=RAGContext(),
             background_tasks=mock_background_tasks,
             rh_identity_context=("org1", "sys1"),
+        )
+        await handle_non_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         mock_queue.assert_called_once()
@@ -333,10 +338,9 @@ class TestSplunkTelemetryHooks:
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
         with pytest.raises(HTTPException):
-            await handle_non_streaming_response(
-                client=mock_client,
-                original_request=request,
+            api_params, context = build_api_params_and_context(
                 updated_request=request,
+                client=mock_client,
                 auth=MOCK_AUTH,
                 input_text="Hello",
                 started_at=datetime.now(UTC),
@@ -344,6 +348,11 @@ class TestSplunkTelemetryHooks:
                 inline_rag_context=RAGContext(),
                 background_tasks=mock_background_tasks,
                 rh_identity_context=("org1", "sys1"),
+            )
+            await handle_non_streaming_response(
+                original_request=request,
+                api_params=api_params,
+                context=context,
             )
 
         mock_queue.assert_called_once()
@@ -412,10 +421,9 @@ class TestSplunkTelemetryHooks:
 
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
-        await handle_non_streaming_response(
-            client=mock_client,
-            original_request=request,
+        api_params, context = build_api_params_and_context(
             updated_request=request,
+            client=mock_client,
             auth=MOCK_AUTH,
             input_text="Hello",
             started_at=datetime.now(UTC),
@@ -423,6 +431,11 @@ class TestSplunkTelemetryHooks:
             inline_rag_context=RAGContext(),
             background_tasks=mock_background_tasks,
             rh_identity_context=("org1", "sys1"),
+        )
+        await handle_non_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         # The success hook fires once (blocked hook is skipped because decision != "blocked")
@@ -469,10 +482,9 @@ class TestSplunkTelemetryHooks:
 
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
-        response = await handle_streaming_response(
-            client=mock_client,
-            original_request=request,
+        api_params, context = build_api_params_and_context(
             updated_request=request,
+            client=mock_client,
             auth=MOCK_AUTH,
             input_text="Bad",
             started_at=datetime.now(UTC),
@@ -480,6 +492,11 @@ class TestSplunkTelemetryHooks:
             inline_rag_context=RAGContext(),
             background_tasks=mock_background_tasks,
             rh_identity_context=("org1", "sys1"),
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         assert isinstance(response, StreamingResponse)
@@ -547,10 +564,9 @@ class TestSplunkTelemetryHooks:
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
         with pytest.raises(HTTPException):
-            await handle_streaming_response(
-                client=mock_client,
-                original_request=request,
+            api_params, context = build_api_params_and_context(
                 updated_request=request,
+                client=mock_client,
                 auth=MOCK_AUTH,
                 input_text="Hello",
                 started_at=datetime.now(UTC),
@@ -558,6 +574,11 @@ class TestSplunkTelemetryHooks:
                 inline_rag_context=RAGContext(),
                 background_tasks=mock_background_tasks,
                 rh_identity_context=("org1", "sys1"),
+            )
+            await handle_streaming_response(
+                original_request=request,
+                api_params=api_params,
+                context=context,
             )
 
         mock_queue.assert_called_once()
@@ -628,10 +649,9 @@ class TestSplunkTelemetryHooks:
 
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
-        response = await handle_streaming_response(
-            client=mock_client,
-            original_request=request,
+        api_params, context = build_api_params_and_context(
             updated_request=request,
+            client=mock_client,
             auth=MOCK_AUTH,
             input_text="Hi",
             started_at=datetime.now(UTC),
@@ -639,6 +659,11 @@ class TestSplunkTelemetryHooks:
             inline_rag_context=RAGContext(),
             background_tasks=mock_background_tasks,
             rh_identity_context=("org1", "sys1"),
+        )
+        response = await handle_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         assert isinstance(response, StreamingResponse)
@@ -700,10 +725,9 @@ class TestSplunkTelemetryHooks:
         mock_queue = mocker.patch(f"{MODULE}._queue_responses_splunk_event")
 
         # background_tasks=None (the default) means Splunk is disabled
-        await handle_non_streaming_response(
-            client=mock_client,
-            original_request=request,
+        api_params, context = build_api_params_and_context(
             updated_request=request,
+            client=mock_client,
             auth=MOCK_AUTH,
             input_text="Bad input",
             started_at=datetime.now(UTC),
@@ -711,6 +735,11 @@ class TestSplunkTelemetryHooks:
             inline_rag_context=RAGContext(),
             background_tasks=None,
             rh_identity_context=("org1", "sys1"),
+        )
+        await handle_non_streaming_response(
+            original_request=request,
+            api_params=api_params,
+            context=context,
         )
 
         mock_queue.assert_called_once()
