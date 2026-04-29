@@ -1229,6 +1229,14 @@
                                                 "response": "Configuration is not loaded"
                                             }
                                         }
+                                    },
+                                    "mcp server registration": {
+                                        "value": {
+                                            "detail": {
+                                                "cause": "Could not register the MCP server with the remote service.",
+                                                "response": "Failed to register MCP server"
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -1397,30 +1405,18 @@
                                                 "response": "User does not have permission to access this endpoint"
                                             }
                                         }
-                                    }
-                                },
-                                "schema": {
-                                    "$ref": "#/components/schemas/ForbiddenResponse"
-                                }
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Resource not found",
-                        "content": {
-                            "application/json": {
-                                "examples": {
-                                    "mcp server": {
+                                    },
+                                    "mcp server static": {
                                         "value": {
                                             "detail": {
-                                                "cause": "Mcp Server with ID test-mcp-server does not exist",
-                                                "response": "Mcp Server not found"
+                                                "cause": "MCP server 'my-mcp' is defined in configuration and cannot be removed via the API.",
+                                                "response": "Cannot delete statically configured MCP server"
                                             }
                                         }
                                     }
                                 },
                                 "schema": {
-                                    "$ref": "#/components/schemas/NotFoundResponse"
+                                    "$ref": "#/components/schemas/ForbiddenResponse"
                                 }
                             }
                         }
@@ -13221,6 +13217,13 @@
                             "response": "This instance does not permit overriding model/provider in the query request (missing permission: model_override). Please remove the model and provider fields from your request."
                         },
                         "label": "model override"
+                    },
+                    {
+                        "detail": {
+                            "cause": "MCP server 'my-mcp' is defined in configuration and cannot be removed via the API.",
+                            "response": "Cannot delete statically configured MCP server"
+                        },
+                        "label": "mcp server static"
                     }
                 ]
             },
@@ -13514,6 +13517,13 @@
                             "response": "Internal server error"
                         },
                         "label": "invalid cluster version"
+                    },
+                    {
+                        "detail": {
+                            "cause": "Could not register the MCP server with the remote service.",
+                            "response": "Failed to register MCP server"
+                        },
+                        "label": "mcp server registration"
                     }
                 ]
             },

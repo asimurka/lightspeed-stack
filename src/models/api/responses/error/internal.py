@@ -80,6 +80,15 @@ class InternalServerErrorResponse(AbstractErrorResponse):
                         "cause": "Missing or invalid 'clusterID' in ClusterVersion",
                     },
                 },
+                {
+                    "label": "mcp server registration",
+                    "detail": {
+                        "response": "Failed to register MCP server",
+                        "cause": (
+                            "Could not register the MCP server with the remote service."
+                        ),
+                    },
+                },
             ]
         }
     }
@@ -172,6 +181,20 @@ class InternalServerErrorResponse(AbstractErrorResponse):
         return cls(
             response="Database query failed",
             cause="Failed to query the database",
+        )
+    
+    @classmethod
+    def mcp_server_registration_failed(cls) -> Self:
+        """
+        Create an InternalServerErrorResponse representing a failed MCP server registration.
+
+        Returns:
+            Error response with response "Failed to register MCP server" and cause
+            "Could not register the MCP server with the remote service."
+        """
+        return cls(
+            response="Failed to register MCP server",
+            cause=("Could not register the MCP server with the remote service."),
         )
 
     def __init__(self, *, response: str, cause: str) -> None:
