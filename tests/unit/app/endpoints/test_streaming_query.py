@@ -64,10 +64,10 @@ from constants import (
     MEDIA_TYPE_JSON,
     MEDIA_TYPE_TEXT,
 )
+from models.api.responses import InternalServerErrorResponse
 from models.config import Action
 from models.context import ResponseGeneratorContext
 from models.requests import Attachment, QueryRequest
-from models.responses import InternalServerErrorResponse
 from utils.stream_interrupts import StreamInterruptRegistry
 from utils.token_counter import TokenCounter
 from utils.types import (

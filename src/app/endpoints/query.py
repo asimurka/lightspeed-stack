@@ -23,19 +23,21 @@ from authorization.middleware import authorize
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
-from models.config import Action
-from models.requests import QueryRequest
-from models.responses import (
+from models.api.responses import (
     UNAUTHORIZED_OPENAPI_EXAMPLES_WITH_MCP_OAUTH,
     ForbiddenResponse,
     InternalServerErrorResponse,
     NotFoundResponse,
     PromptTooLongResponse,
-    QueryResponse,
     QuotaExceededResponse,
     ServiceUnavailableResponse,
     UnauthorizedResponse,
     UnprocessableEntityResponse,
+)
+from models.config import Action
+from models.requests import QueryRequest
+from models.responses import (
+    QueryResponse,
 )
 from utils.conversations import append_turn_items_to_conversation
 from utils.endpoints import (

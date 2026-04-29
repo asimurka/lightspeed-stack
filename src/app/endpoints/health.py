@@ -16,15 +16,17 @@ from authentication.interface import AuthTuple
 from authorization.middleware import authorize
 from client import AsyncLlamaStackClientHolder
 from log import get_logger
-from models.config import Action
-from models.responses import (
+from models.api.responses import (
     UNAUTHORIZED_OPENAPI_EXAMPLES,
     ForbiddenResponse,
+    ServiceUnavailableResponse,
+    UnauthorizedResponse,
+)
+from models.config import Action
+from models.responses import (
     LivenessResponse,
     ProviderHealthStatus,
     ReadinessResponse,
-    ServiceUnavailableResponse,
-    UnauthorizedResponse,
 )
 
 logger = get_logger(__name__)

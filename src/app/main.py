@@ -22,7 +22,7 @@ from authorization.azure_token_manager import AzureEntraIDManager
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
-from models.responses import InternalServerErrorResponse
+from models.api.responses import InternalServerErrorResponse
 from sentry import initialize_sentry
 from utils.common import register_mcp_servers_async
 from utils.llama_stack_version import check_llama_stack_version
