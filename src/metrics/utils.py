@@ -7,7 +7,7 @@ import metrics
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
-from models.api.responses import ServiceUnavailableResponse
+from models.api.responses.error import ServiceUnavailableResponse
 from utils.common import run_once_async
 from utils.endpoints import check_configuration_loaded
 

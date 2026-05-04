@@ -7,7 +7,8 @@ from fastapi import BackgroundTasks
 from llama_stack_client import AsyncLlamaStackClient
 from pydantic import BaseModel, ConfigDict, Field
 
-from utils.types import RAGContext, ShieldModerationResult
+from models.common.moderation import ShieldModerationResult
+from models.common.turn_summary import RAGContext
 
 
 class ResponsesContext(BaseModel):

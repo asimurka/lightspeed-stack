@@ -91,13 +91,21 @@ from configuration import configuration
 from constants import DEFAULT_RAG_TOOL
 from log import get_logger
 from metrics import recording
-from models.api.responses import (
+from models.api.responses.error import (
     ConflictResponse,
     InternalServerErrorResponse,
     NotFoundResponse,
     ServiceUnavailableResponse,
 )
 from models.common.responses.responses_api_params import ResponsesApiParams
+from models.common.responses.types import ResponseInput, ResponseItem
+from models.common.turn_summary import (
+    RAGChunk,
+    ReferencedDocument,
+    ToolCallSummary,
+    ToolResultSummary,
+    TurnSummary,
+)
 from models.config import ByokRag
 from models.database.conversations import UserConversation
 from models.requests import QueryRequest
@@ -114,15 +122,6 @@ from utils.query import (
 )
 from utils.suid import to_llama_stack_conversation_id
 from utils.token_counter import TokenCounter
-from utils.types import (
-    RAGChunk,
-    ReferencedDocument,
-    ResponseInput,
-    ResponseItem,
-    ToolCallSummary,
-    ToolResultSummary,
-    TurnSummary,
-)
 
 logger = get_logger(__name__)
 

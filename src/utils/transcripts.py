@@ -15,14 +15,11 @@ from fastapi import HTTPException
 
 from configuration import configuration
 from log import get_logger
-from models.api.responses import InternalServerErrorResponse
+from models.api.responses.error import InternalServerErrorResponse
+from models.common.transcripts import Transcript, TranscriptMetadata
+from models.common.turn_summary import TurnSummary
 from models.requests import Attachment
 from utils.suid import get_suid
-from utils.types import (
-    Transcript,
-    TranscriptMetadata,
-    TurnSummary,
-)
 
 logger = get_logger(__name__)
 

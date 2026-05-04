@@ -14,7 +14,7 @@ from authentication.utils import extract_user_token
 from configuration import configuration
 from constants import DEFAULT_VIRTUAL_PATH
 from log import get_logger
-from models.api.responses import (
+from models.api.responses.error import (
     ForbiddenResponse,
     InternalServerErrorResponse,
     ServiceUnavailableResponse,

@@ -33,8 +33,8 @@ from constants import (
     SOLR_VECTOR_SEARCH_DEFAULT_MODE,
 )
 from log import get_logger
+from models.common.responses.types import IncludeParameter, ResponseInput
 from utils import suid
-from utils.types import IncludeParameter, ResponseInput
 
 logger = get_logger(__name__)
 

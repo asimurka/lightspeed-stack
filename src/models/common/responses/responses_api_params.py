@@ -23,8 +23,8 @@ from llama_stack_api.openai_responses import (
 )
 from pydantic import BaseModel, Field
 
+from models.common.responses.types import IncludeParameter, ResponseInput
 from utils.tool_formatter import translate_vector_store_ids_to_user_facing
-from utils.types import IncludeParameter, ResponseInput
 
 # Attribute names that are echoed back in the response.
 _ECHOED_FIELDS: Final[set[str]] = set(
@@ -161,7 +161,7 @@ class ResponsesApiParams(BaseModel):
         data = self.model_dump(include=_ECHOED_FIELDS)
         if self.tools is not None:
             tool_dicts: list[dict[str, Any]] = []
-            for t in self.tools:
+            for t in list(self.tools):
                 if t.type == "mcp":
                     validated = OutputToolMCP.model_validate(t.model_dump())
                     tool_dicts.append(validated.model_dump())

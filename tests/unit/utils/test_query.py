@@ -15,12 +15,13 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from cache.cache_error import CacheError
 from configuration import AppConfig
-from models.api.responses import (
+from models.api.responses.error import (
     InternalServerErrorResponse,
     PromptTooLongResponse,
     QuotaExceededResponse,
 )
 from models.cache_entry import CacheEntry
+from models.common.turn_summary import TurnSummary
 from models.config import Action
 from models.database.conversations import UserConversation, UserTurn
 from models.requests import Attachment, QueryRequest
@@ -41,7 +42,6 @@ from utils.query import (
     validate_model_provider_override,
 )
 from utils.token_counter import TokenCounter
-from utils.types import TurnSummary
 
 
 @pytest.fixture(name="mock_config")

@@ -8,10 +8,14 @@ from cache.cache import Cache
 from cache.cache_error import CacheError
 from log import get_logger
 from models.cache_entry import CacheEntry
+from models.common import ConversationData
+from models.common.turn_summary import (
+    ReferencedDocument,
+    ToolCallSummary,
+    ToolResultSummary,
+)
 from models.config import SQLiteDatabaseConfiguration
-from models.responses import ConversationData
 from utils.connection_decorator import connection
-from utils.types import ReferencedDocument, ToolCallSummary, ToolResultSummary
 
 logger = get_logger(__name__)
 
@@ -357,8 +361,7 @@ class SQLiteCache(Cache):
                 referenced_documents_json = json.dumps(docs_as_dicts)
             except (TypeError, ValueError) as e:
                 logger.warning(
-                    "Failed to serialize referenced_documents for "
-                    "conversation %s: %s",
+                    "Failed to serialize referenced_documents for conversation %s: %s",
                     conversation_id,
                     e,
                 )

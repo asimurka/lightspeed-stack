@@ -22,7 +22,7 @@ from constants import (
     DEFAULT_VIRTUAL_PATH,
 )
 from log import get_logger
-from models.api.responses import UnauthorizedResponse
+from models.api.responses.error import UnauthorizedResponse
 from models.config import JwkConfiguration
 
 logger = get_logger(__name__)

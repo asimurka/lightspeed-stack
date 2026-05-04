@@ -2,8 +2,8 @@
 
 from pydantic import HttpUrl
 
-from models.responses import ReferencedDocument
-from utils.types import RAGChunk, RAGContext
+from models.common import ReferencedDocument
+from models.common.turn_summary import RAGChunk, RAGContext
 
 
 class TestRAGChunk:

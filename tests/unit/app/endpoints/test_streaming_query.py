@@ -64,20 +64,20 @@ from constants import (
     MEDIA_TYPE_JSON,
     MEDIA_TYPE_TEXT,
 )
-from models.api.responses import InternalServerErrorResponse
+from models.api.responses.error import InternalServerErrorResponse
+from models.common.moderation import ShieldModerationPassed
 from models.common.responses.responses_api_params import ResponsesApiParams
+from models.common.turn_summary import (
+    RAGChunk,
+    RAGContext,
+    ReferencedDocument,
+    TurnSummary,
+)
 from models.config import Action
 from models.context import ResponseGeneratorContext
 from models.requests import Attachment, QueryRequest
 from utils.stream_interrupts import StreamInterruptRegistry
 from utils.token_counter import TokenCounter
-from utils.types import (
-    RAGChunk,
-    RAGContext,
-    ReferencedDocument,
-    ShieldModerationPassed,
-    TurnSummary,
-)
 
 MOCK_AUTH_STREAMING = (
     "00000001-0001-0001-0001-000000000001",

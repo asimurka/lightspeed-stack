@@ -41,17 +41,18 @@ from llama_stack_client.types.conversations.item_list_response import (
 )
 
 from constants import DEFAULT_RAG_TOOL
-from models.api.responses import (
+from models.api.responses.error import (
     InternalServerErrorResponse,
     ServiceUnavailableResponse,
 )
-from models.database.conversations import UserTurn
-from models.responses import (
+from models.common.conversation import (
     ConversationTurn,
     Message,
 )
+from models.common.responses.types import ResponseInput
+from models.common.turn_summary import ToolCallSummary, ToolResultSummary
+from models.database.conversations import UserTurn
 from utils.responses import parse_arguments_string
-from utils.types import ResponseInput, ToolCallSummary, ToolResultSummary
 
 
 def _extract_text_from_content(content: str | list[Any]) -> str:

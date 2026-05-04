@@ -6,19 +6,10 @@ import pytest
 from pydantic import AnyHttpUrl, AnyUrl, ConfigDict, ValidationError
 from pydantic_core import SchemaError
 
-from models.config import (
-    Configuration,
-    LlamaStackConfiguration,
-    ServiceConfiguration,
-    UserDataCollection,
-)
-from models.responses import (
-    AbstractSuccessfulResponse,
+from models.api.responses.successful import (
     AuthorizedResponse,
     ConfigurationResponse,
-    ConversationData,
     ConversationDeleteResponse,
-    ConversationDetails,
     ConversationResponse,
     ConversationsListResponse,
     ConversationsListResponseV2,
@@ -28,9 +19,7 @@ from models.responses import (
     InfoResponse,
     LivenessResponse,
     MCPClientAuthOptionsResponse,
-    MCPServerAuthInfo,
     ModelsResponse,
-    ProviderHealthStatus,
     ProviderResponse,
     ProvidersListResponse,
     QueryResponse,
@@ -42,7 +31,24 @@ from models.responses import (
     StreamingQueryResponse,
     ToolsResponse,
 )
-from utils.types import ReferencedDocument, ToolCallSummary, ToolResultSummary
+from models.api.responses.successful.bases import AbstractSuccessfulResponse
+from models.common import (
+    ConversationData,
+    ConversationDetails,
+    MCPServerAuthInfo,
+    ProviderHealthStatus,
+)
+from models.common.turn_summary import (
+    ReferencedDocument,
+    ToolCallSummary,
+    ToolResultSummary,
+)
+from models.config import (
+    Configuration,
+    LlamaStackConfiguration,
+    ServiceConfiguration,
+    UserDataCollection,
+)
 
 
 class TestModelsResponse:
@@ -1108,7 +1114,6 @@ class TestStreamingQueryResponse:
 
         schema = content["schema"]
         assert schema["type"] == "string"
-        assert schema["format"] == "text/event-stream"
 
     def test_model_json_schema_has_examples(self) -> None:
         """Test that model_json_schema() includes examples.

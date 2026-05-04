@@ -22,10 +22,10 @@ from app.endpoints.responses import (
     handle_streaming_response,
 )
 from configuration import AppConfig
+from models.common.turn_summary import RAGContext, TurnSummary
 from models.requests import ResponsesRequest
 from observability.formats.responses import ResponsesEventData
 from tests.unit.app.endpoints.test_responses import build_api_params_and_context
-from utils.types import RAGContext, TurnSummary
 
 MODULE = "app.endpoints.responses"
 MOCK_AUTH = (
