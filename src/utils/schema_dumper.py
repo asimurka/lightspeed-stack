@@ -1,6 +1,7 @@
 """Function to dump the configuration schema into OpenAPI-compatible format."""
 
 import json
+from typing import Any
 
 from pydantic.json_schema import models_json_schema
 
@@ -9,8 +10,8 @@ from models.config import Configuration
 
 # pylint: disable=too-many-boolean-expressions
 def recursive_update(
-    original: dict,
-) -> dict:
+    original: dict[str, Any],
+) -> dict[str, Any]:
     """Recursively update the schema to be 100% OpenAPI-compatible.
 
     Parameters:
@@ -21,7 +22,7 @@ def recursive_update(
     -------
         dict: A new dictionary with OpenAPI-compatible transformations applied.
     """
-    new: dict = {}
+    new: dict[str, Any] = {}
     for key, value in original.items():
         # recurse into sub-dictionaries
         if isinstance(value, dict):
