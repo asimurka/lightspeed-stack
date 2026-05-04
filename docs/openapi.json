@@ -16485,21 +16485,13 @@
                         "title": "Response",
                         "description": "Human-readable outcome of the delete operation.",
                         "readOnly": true
-                    },
-                    "success": {
-                        "type": "boolean",
-                        "title": "Success",
-                        "description": "Successful response flag.",
-                        "deprecated": true,
-                        "readOnly": true
                     }
                 },
                 "type": "object",
                 "required": [
                     "deleted",
                     "prompt_id",
-                    "response",
-                    "success"
+                    "response"
                 ],
                 "title": "PromptDeleteResponse",
                 "description": "Result of deleting a stored prompt (always HTTP 200, like conversations v2).",
@@ -19990,21 +19982,13 @@
                         "title": "Response",
                         "description": "Human-readable outcome of the delete operation.",
                         "readOnly": true
-                    },
-                    "success": {
-                        "type": "boolean",
-                        "title": "Success",
-                        "description": "Successful response flag.",
-                        "deprecated": true,
-                        "readOnly": true
                     }
                 },
                 "type": "object",
                 "required": [
                     "deleted",
                     "vector_store_id",
-                    "response",
-                    "success"
+                    "response"
                 ],
                 "title": "VectorStoreDeleteResponse",
                 "description": "Result of deleting a vector store (always HTTP 200).",
@@ -20134,21 +20118,13 @@
                         "title": "Response",
                         "description": "Human-readable outcome of the delete operation.",
                         "readOnly": true
-                    },
-                    "success": {
-                        "type": "boolean",
-                        "title": "Success",
-                        "description": "Successful response flag.",
-                        "deprecated": true,
-                        "readOnly": true
                     }
                 },
                 "type": "object",
                 "required": [
                     "deleted",
                     "file_id",
-                    "response",
-                    "success"
+                    "response"
                 ],
                 "title": "VectorStoreFileDeleteResponse",
                 "description": "Result of deleting a file from a vector store (always HTTP 200).",

@@ -79,12 +79,6 @@ class AbstractDeleteResponse(BaseModel):
             else f"{self.resource_name} not found"
         )
 
-    @computed_field(json_schema_extra={"deprecated": True})
-    def success(self) -> bool:
-        """Successful response flag."""
-        logger.warning("DEPRECATED: Will be removed in a future release.")
-        return True
-
     @classmethod
     def openapi_response(cls) -> dict[str, Any]:
         """Build FastAPI/OpenAPI metadata with named application/json examples.
@@ -1156,6 +1150,12 @@ class ConversationDeleteResponse(AbstractDeleteResponse):
         description="Conversation identifier that was passed to delete.",
         examples=["123e4567-e89b-12d3-a456-426614174000"],
     )
+
+    @computed_field(json_schema_extra={"deprecated": True})
+    def success(self) -> bool:
+        """Successful response flag."""
+        logger.warning("DEPRECATED: Will be removed in a future release.")
+        return True
 
     model_config = {
         "json_schema_extra": {
