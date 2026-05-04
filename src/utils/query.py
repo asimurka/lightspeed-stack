@@ -188,7 +188,10 @@ async def update_azure_token(
         AsyncLlamaStackClient: The client instance (reloaded or updated with fresh token)
     """
     if AsyncLlamaStackClientHolder().is_library_client:
-        return await AsyncLlamaStackClientHolder().reload_library_client()
+        library_client: AsyncLlamaStackClient = (
+            await AsyncLlamaStackClientHolder().reload_library_client()
+        )
+        return library_client
     try:
         providers = await client.providers.list()
         azure_config = next(
@@ -204,12 +207,15 @@ async def update_azure_token(
         error_response = InternalServerErrorResponse.generic()
         raise HTTPException(**error_response.model_dump()) from e
 
-    return AsyncLlamaStackClientHolder().update_provider_data(
+    updated_client: (
+        AsyncLlamaStackClient
+    ) = AsyncLlamaStackClientHolder().update_provider_data(
         {
             "azure_api_key": AzureEntraIDManager().access_token.get_secret_value(),
             "azure_api_base": str(azure_config.get("api_base")),
         }
     )
+    return updated_client
 
 
 def prepare_input(
@@ -230,7 +236,7 @@ def prepare_input(
     Returns:
         str: The input text with RAG context and attachments appended (if any)
     """
-    input_text = query_request.query
+    input_text: str = query_request.query
     if inline_rag_context:
         input_text += f"\n\n{inline_rag_context}"
     if query_request.attachments:
@@ -387,7 +393,10 @@ def is_transcripts_enabled() -> bool:
     Returns:
         bool: True if transcripts is enabled, False otherwise.
     """
-    return configuration.user_data_collection_configuration.transcripts_enabled
+    transcripts_enabled: bool = (
+        configuration.user_data_collection_configuration.transcripts_enabled
+    )
+    return transcripts_enabled
 
 
 def persist_user_conversation_details(
