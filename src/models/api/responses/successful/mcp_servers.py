@@ -1,8 +1,13 @@
 """Successful responses for MCP server registration and listing."""
 
+from typing import ClassVar
+
 from pydantic import Field
 
-from models.api.responses.successful.bases import AbstractSuccessfulResponse
+from models.api.responses.successful.bases import (
+    AbstractDeleteResponse,
+    AbstractSuccessfulResponse,
+)
 from models.common.mcp import MCPServerAuthInfo, MCPServerInfo
 
 
@@ -103,24 +108,41 @@ class MCPServerListResponse(AbstractSuccessfulResponse):
     }
 
 
-class MCPServerDeleteResponse(AbstractSuccessfulResponse):
-    """Response for a successful MCP server deletion.
+class MCPServerDeleteResponse(AbstractDeleteResponse):
+    """Response indicating the outcome of an MCP server delete operation.
 
     Attributes:
-        name: Deleted MCP server name.
-        message: Status message.
+        name: Name of the MCP server targeted for deletion.
+        deleted: Whether the server was successfully deleted (True) or not found (False).
+        response: Description of the result, e.g. "MCP server deleted successfully".
     """
 
-    name: str = Field(..., description="Deleted MCP server name")
-    message: str = Field(..., description="Status message")
+    resource_name: ClassVar[str] = "MCP server"
+    name: str = Field(
+        ...,
+        description="MCP server name that was passed to delete.",
+        examples=["test-mcp-server"],
+    )
 
     model_config = {
         "json_schema_extra": {
             "examples": [
                 {
-                    "name": "test-mcp-server",
-                    "message": "MCP server 'test-mcp-server' unregistered successfully",
-                }
+                    "label": "deleted",
+                    "value": {
+                        "name": "mcp-server",
+                        "deleted": True,
+                        "response": "MCP server deleted successfully",
+                    },
+                },
+                {
+                    "label": "not found",
+                    "value": {
+                        "name": "mcp-server",
+                        "deleted": False,
+                        "response": "MCP server not found",
+                    },
+                },
             ]
         }
     }

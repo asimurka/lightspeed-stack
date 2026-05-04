@@ -56,8 +56,7 @@ Feature: MCP Server Management API tests
     {
         "deleted": false,
         "name": "non-existent-server",
-        "response": "MCP server not found",
-        "success": true
+        "response": "MCP server not found"
     }
     """
 
@@ -116,8 +115,7 @@ Feature: MCP Server Management API tests
     {
         "deleted": false,
         "name": "e2e-lifecycle-server",
-        "response": "MCP server not found",
-        "success": true
+        "response": "MCP server not found"
     }
     """
     When I access REST API endpoint "mcp-servers" using HTTP GET method

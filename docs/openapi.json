@@ -1310,9 +1310,21 @@
                                 "schema": {
                                     "$ref": "#/components/schemas/MCPServerDeleteResponse"
                                 },
-                                "example": {
-                                    "message": "MCP server 'test-mcp-server' unregistered successfully",
-                                    "name": "test-mcp-server"
+                                "examples": {
+                                    "deleted": {
+                                        "value": {
+                                            "deleted": true,
+                                            "name": "mcp-server",
+                                            "response": "MCP server deleted successfully"
+                                        }
+                                    },
+                                    "not found": {
+                                        "value": {
+                                            "deleted": false,
+                                            "name": "mcp-server",
+                                            "response": "MCP server not found"
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -13813,28 +13825,54 @@
             },
             "MCPServerDeleteResponse": {
                 "properties": {
+                    "deleted": {
+                        "type": "boolean",
+                        "title": "Deleted",
+                        "description": "Whether the deletion was successful.",
+                        "examples": [
+                            true,
+                            false
+                        ]
+                    },
                     "name": {
                         "type": "string",
                         "title": "Name",
-                        "description": "Deleted MCP server name"
+                        "description": "MCP server name that was passed to delete.",
+                        "examples": [
+                            "test-mcp-server"
+                        ]
                     },
-                    "message": {
+                    "response": {
                         "type": "string",
-                        "title": "Message",
-                        "description": "Status message"
+                        "title": "Response",
+                        "description": "Human-readable outcome of the delete operation.",
+                        "readOnly": true
                     }
                 },
                 "type": "object",
                 "required": [
+                    "deleted",
                     "name",
-                    "message"
+                    "response"
                 ],
                 "title": "MCPServerDeleteResponse",
-                "description": "Response for a successful MCP server deletion.\n\nAttributes:\n    name: Deleted MCP server name.\n    message: Status message.",
+                "description": "Response indicating the outcome of an MCP server delete operation.\n\nAttributes:\n    name: Name of the MCP server targeted for deletion.\n    deleted: Whether the server was successfully deleted (True) or not found (False).\n    response: Description of the result, e.g. \"MCP server deleted successfully\".",
                 "examples": [
                     {
-                        "message": "MCP server 'test-mcp-server' unregistered successfully",
-                        "name": "test-mcp-server"
+                        "label": "deleted",
+                        "value": {
+                            "deleted": true,
+                            "name": "mcp-server",
+                            "response": "MCP server deleted successfully"
+                        }
+                    },
+                    {
+                        "label": "not found",
+                        "value": {
+                            "deleted": false,
+                            "name": "mcp-server",
+                            "response": "MCP server not found"
+                        }
                     }
                 ]
             },

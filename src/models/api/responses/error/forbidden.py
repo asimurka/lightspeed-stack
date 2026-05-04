@@ -166,17 +166,17 @@ class ForbiddenResponse(AbstractErrorResponse):
                 "to override model/provider."
             ),
         )
-    
+
     @classmethod
     def mcp_server_static_config(cls, server_name: str) -> Self:
-        """Create a ForbiddenResponse indicating the client tried to delete a statically configured MCP server.
+        """Create a response for an attempt to delete a statically configured MCP server.
 
         Args:
             server_name: The name of the MCP server that is statically configured.
 
         Returns:
-            Error response with response "Cannot delete statically configured MCP server" and cause
-            "MCP server 'server_name' is defined in configuration and cannot be removed via the API."
+            A ``ForbiddenResponse`` with the static-delete user message and a cause
+            that names ``server_name`` and states it cannot be removed via the API.
         """
         return cls(
             response="Cannot delete statically configured MCP server",

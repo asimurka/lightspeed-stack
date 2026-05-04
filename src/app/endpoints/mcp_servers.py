@@ -4,7 +4,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from llama_stack_api.common.errors import ToolGroupNotFoundError
-from llama_stack_client import APIConnectionError, APIStatusError
+from llama_stack_client import APIConnectionError, NotFoundError
 
 from authentication import get_auth_dependency
 from authentication.interface import AuthTuple
@@ -222,13 +222,6 @@ async def delete_mcp_server_handler(
             raise HTTPException(**response.model_dump())
 
     try:
-        configuration.remove_mcp_server(name)
-        local_deleted = True
-    except ValueError as e:
-        logger.error("Failed to remove MCP server from configuration: %s", e)
-        local_deleted = False
-
-    try:
         client = AsyncLlamaStackClientHolder().get_client()
         await client.toolgroups.unregister(  # pyright: ignore[reportDeprecated]
             toolgroup_id=name
@@ -239,7 +232,14 @@ async def delete_mcp_server_handler(
             backend_name="Llama Stack", cause=str(e)
         )
         raise HTTPException(**svc_response.model_dump()) from e
-    except (APIStatusError, ToolGroupNotFoundError):
+    except (ToolGroupNotFoundError, NotFoundError):
         logger.warning("MCP server not found, treating as already deleted.")
+
+    try:
+        configuration.remove_mcp_server(name)
+        local_deleted = True
+    except ValueError as e:
+        logger.error("Failed to remove MCP server from configuration: %s", e)
+        local_deleted = False
 
     return MCPServerDeleteResponse(deleted=local_deleted, name=name)

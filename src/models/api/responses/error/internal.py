@@ -182,7 +182,7 @@ class InternalServerErrorResponse(AbstractErrorResponse):
             response="Database query failed",
             cause="Failed to query the database",
         )
-    
+
     @classmethod
     def mcp_server_registration_failed(cls) -> Self:
         """

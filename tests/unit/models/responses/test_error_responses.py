@@ -518,7 +518,7 @@ class TestNotFoundResponse:
 
         # Verify example count matches schema examples count
         assert len(examples) == expected_count
-        assert expected_count == 8
+        assert expected_count == 9
 
         # Verify all labeled examples are present
         assert "conversation" in examples
@@ -529,6 +529,7 @@ class TestNotFoundResponse:
         assert "vector store" in examples
         assert "file" in examples
         assert "prompt" in examples
+        assert "mcp server" in examples
 
         # Verify example structure for one example
         conversation_example = examples["conversation"]
