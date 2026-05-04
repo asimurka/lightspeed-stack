@@ -862,7 +862,7 @@ async def _handle_a2a_jsonrpc(  # pylint: disable=too-many-locals,too-many-state
         logger.info("Handling A2A streaming request")
 
         # Create queue for passing chunks from ASGI app to response generator
-        chunk_queue: asyncio.Queue = asyncio.Queue()
+        chunk_queue: asyncio.Queue[Optional[bytes]] = asyncio.Queue()
 
         async def streaming_send(message: dict[str, Any]) -> None:
             """Send callback that queues chunks for streaming."""
