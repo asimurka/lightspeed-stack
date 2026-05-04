@@ -9,7 +9,7 @@ from pathlib import Path
 DIRECTORIES = ["src", "tests/unit", "tests/integration", "tests/e2e"]
 
 
-def generate_docfile(directory):
+def generate_docfile(directory: Path) -> None:
     """
     Write or overwrite a README.md in the current working directory with module docstring summaries.
 
@@ -42,7 +42,7 @@ def generate_docfile(directory):
                 print(file=indexfile)
 
 
-def generate_documentation_on_path(path):
+def generate_documentation_on_path(path: Path) -> None:
     """Generate documentation for all the sources found in path.
 
     This function generate README.md for Python sources in the given directory.
@@ -62,10 +62,10 @@ def generate_documentation_on_path(path):
         os.chdir(cwd)
 
 
-def main():
+def main() -> None:
     """Entry point to this script, regenerates documentation in all directories."""
     for directory in DIRECTORIES:
-        generate_documentation_on_path(f"{directory}/")
+        generate_documentation_on_path(Path(f"{directory}/"))
         for path in Path(directory).rglob("*"):
             if path.is_dir():
                 # LCORE-679: Script to generate documentation should create
