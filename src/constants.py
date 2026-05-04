@@ -18,7 +18,7 @@ INTERRUPTED_RESPONSE_MESSAGE: Final[str] = "You interrupted this request."
 TOPIC_SUMMARY_INTERRUPT_TIMEOUT_SECONDS: Final[float] = 30.0
 
 # Supported attachment types
-ATTACHMENT_TYPES: Final[frozenset] = frozenset(
+ATTACHMENT_TYPES: Final[frozenset[str]] = frozenset(
     {
         "alert",
         "api object",
@@ -31,7 +31,7 @@ ATTACHMENT_TYPES: Final[frozenset] = frozenset(
 )
 
 # Supported attachment content types
-ATTACHMENT_CONTENT_TYPES: Final[frozenset] = frozenset(
+ATTACHMENT_CONTENT_TYPES: Final[frozenset[str]] = frozenset(
     {"text/plain", "application/json", "application/yaml", "application/xml"}
 )
 
@@ -120,7 +120,7 @@ AUTH_MOD_APIKEY_TOKEN: Final[str] = "api-key-token"
 AUTH_MOD_JWK_TOKEN: Final[str] = "jwk-token"
 AUTH_MOD_RH_IDENTITY: Final[str] = "rh-identity"
 # Supported authentication modules
-SUPPORTED_AUTHENTICATION_MODULES: Final[frozenset] = frozenset(
+SUPPORTED_AUTHENTICATION_MODULES: Final[frozenset[str]] = frozenset(
     {
         AUTH_MOD_K8S,
         AUTH_MOD_NOOP,
