@@ -16,7 +16,7 @@ import constants
 from app.endpoints.streaming_query import streaming_query_endpoint_handler
 from authentication.interface import AuthTuple
 from configuration import AppConfig
-from models.requests import QueryRequest
+from models.api.requests import QueryRequest
 from tests.integration.endpoints.test_query_byok_integration import (
     _build_base_mock_client,
     _make_byok_vector_io_response,

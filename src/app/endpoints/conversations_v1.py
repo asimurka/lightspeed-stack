@@ -16,6 +16,7 @@ from authorization.middleware import authorize
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
+from models.api.requests import ConversationUpdateRequest
 from models.api.responses.constants import UNAUTHORIZED_OPENAPI_EXAMPLES
 from models.api.responses.error import (
     BadRequestResponse,
@@ -36,7 +37,6 @@ from models.config import Action
 from models.database.conversations import (
     UserConversation,
 )
-from models.requests import ConversationUpdateRequest
 from utils.conversations import (
     build_conversation_turns_from_items,
     get_all_conversation_items,

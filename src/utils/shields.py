@@ -18,6 +18,7 @@ from configuration import AppConfig
 from constants import DEFAULT_VIOLATION_MESSAGE
 from log import get_logger
 from metrics import recording
+from models.api.requests import QueryRequest
 from models.api.responses.error import (
     InternalServerErrorResponse,
     NotFoundResponse,
@@ -29,7 +30,6 @@ from models.common.moderation import (
     ShieldModerationPassed,
     ShieldModerationResult,
 )
-from models.requests import QueryRequest
 from utils.query import handle_known_apistatus_errors
 
 logger = get_logger(__name__)

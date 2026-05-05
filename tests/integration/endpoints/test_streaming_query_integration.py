@@ -12,7 +12,8 @@ from pytest_mock import AsyncMockType, MockerFixture
 from app.endpoints.streaming_query import streaming_query_endpoint_handler
 from authentication.interface import AuthTuple
 from configuration import AppConfig
-from models.requests import Attachment, QueryRequest
+from models.api.requests import QueryRequest
+from models.common.query import Attachment
 
 
 @pytest.fixture(name="mock_streaming_llama_stack_client")

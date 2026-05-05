@@ -11462,7 +11462,7 @@
                     "content"
                 ],
                 "title": "Attachment",
-                "description": "Model representing an attachment that can be sent from the UI as part of query.\n\nA list of attachments can be an optional part of 'query' request.\n\nAttributes:\n    attachment_type: The attachment type, like \"log\", \"configuration\" etc.\n    content_type: The content type as defined in MIME standard\n    content: The actual attachment content\n\nYAML attachments with **kind** and **metadata/name** attributes will\nbe handled as resources with the specified name:\n```\nkind: Pod\nmetadata:\n    name: private-reg\n```",
+                "description": "Model representing an attachment that can be sent from the UI as part of query.\n\nA list of attachments can be an optional part of 'query' request.\n\nAttributes:\n    attachment_type: The attachment type, like \"log\", \"configuration\" etc.\n    content_type: The content type as defined in MIME standard\n    content: The actual attachment content",
                 "examples": [
                     {
                         "attachment_type": "log",
@@ -12587,7 +12587,7 @@
                     "topic_summary"
                 ],
                 "title": "ConversationUpdateRequest",
-                "description": "Model representing a request to update a conversation topic summary.\n\nAttributes:\n    topic_summary: The new topic summary for the conversation.\n\nExample:\n    ```python\n    update_request = ConversationUpdateRequest(\n        topic_summary=\"Discussion about machine learning algorithms\"\n    )\n    ```"
+                "description": "Model representing a request to update a conversation topic summary.\n\nAttributes:\n    topic_summary: The new topic summary for the conversation."
             },
             "ConversationUpdateResponse": {
                 "properties": {
@@ -12964,7 +12964,7 @@
                     "llm_response"
                 ],
                 "title": "FeedbackRequest",
-                "description": "Model representing a feedback request.\n\nAttributes:\n    conversation_id: The required conversation ID (UUID).\n    user_question: The required user question.\n    llm_response: The required LLM response.\n    sentiment: The optional sentiment.\n    user_feedback: The optional user feedback.\n    categories: The optional list of feedback categories (multi-select for negative feedback).\n\nExample:\n    ```python\n    feedback_request = FeedbackRequest(\n        conversation_id=\"12345678-abcd-0000-0123-456789abcdef\",\n        user_question=\"what are you doing?\",\n        user_feedback=\"This response is not helpful\",\n        llm_response=\"I don't know\",\n        sentiment=-1,\n        categories=[FeedbackCategory.INCORRECT, FeedbackCategory.INCOMPLETE]\n    )\n    ```",
+                "description": "Model representing a feedback request.\n\nAttributes:\n    conversation_id: The required conversation ID (UUID).\n    user_question: The required user question.\n    llm_response: The required LLM response.\n    sentiment: The optional sentiment.\n    user_feedback: The optional user feedback.\n    categories: The optional list of feedback categories (multi-select for negative feedback).",
                 "examples": [
                     {
                         "conversation_id": "12345678-abcd-0000-0123-456789abcdef",
@@ -13034,7 +13034,7 @@
                 "additionalProperties": false,
                 "type": "object",
                 "title": "FeedbackStatusUpdateRequest",
-                "description": "Model representing a feedback status update request.\n\nAttributes:\n    status: Value of the desired feedback enabled state.\n\nExample:\n    ```python\n    feedback_request = FeedbackRequest(\n        status=false\n    )\n    ```"
+                "description": "Model representing a feedback status update request.\n\nAttributes:\n    status: Value of the desired feedback enabled state."
             },
             "FeedbackStatusUpdateResponse": {
                 "properties": {
@@ -13997,7 +13997,7 @@
                     "url"
                 ],
                 "title": "MCPServerRegistrationRequest",
-                "description": "Request model for dynamically registering an MCP server.\n\nAttributes:\n    name: Unique name for the MCP server.\n    url: URL of the MCP server endpoint.\n    provider_id: MCP provider identification (defaults to \"model-context-protocol\").\n    authorization_headers: Optional headers to send to the MCP server.\n    headers: Optional list of HTTP header names to forward from incoming requests.\n    timeout: Optional request timeout in seconds.\n\nExample:\n    ```python\n    request = MCPServerRegistrationRequest(\n        name=\"my-tools\",\n        url=\"http://localhost:8888/mcp\",\n    )\n    ```",
+                "description": "Request model for dynamically registering an MCP server.\n\nAttributes:\n    name: Unique name for the MCP server.\n    url: URL of the MCP server endpoint.\n    provider_id: MCP provider identification (defaults to \"model-context-protocol\").\n    authorization_headers: Optional headers to send to the MCP server.\n    headers: Optional list of HTTP header names to forward from incoming requests.\n    timeout: Optional request timeout in seconds.",
                 "examples": [
                     {
                         "authorization_headers": {
@@ -16450,7 +16450,7 @@
                     "prompt"
                 ],
                 "title": "PromptCreateRequest",
-                "description": "Request body to create a stored prompt template in Llama Stack.",
+                "description": "Request body to create a stored prompt template in Llama Stack.\n\nAttributes:\n    prompt: Prompt text with variable placeholders.\n    variables: Variable names allowed in the template.",
                 "examples": [
                     {
                         "prompt": "Summarize: {{text}}",
@@ -16684,7 +16684,7 @@
                     "version"
                 ],
                 "title": "PromptUpdateRequest",
-                "description": "Request body to update a stored prompt (creates a new version).",
+                "description": "Request body to update a stored prompt (creates a new version).\n\nAttributes:\n    prompt: Updated prompt text.\n    version: Current version being updated.\n    set_as_default: Whether the new version becomes the default.\n    variables: Updated allowed variable names.",
                 "examples": [
                     {
                         "prompt": "Summarize in bullet points: {{text}}",
@@ -17097,7 +17097,7 @@
                     "query"
                 ],
                 "title": "QueryRequest",
-                "description": "Model representing a request for the LLM (Language Model).\n\nAttributes:\n    query: The query string.\n    conversation_id: The optional conversation ID (UUID).\n    provider: The optional provider.\n    model: The optional model.\n    system_prompt: The optional system prompt.\n    attachments: The optional attachments.\n    no_tools: Whether to bypass all tools and MCP servers (default: False).\n    generate_topic_summary: Whether to generate topic summary for new conversations.\n    media_type: The optional media type for response format (application/json or text/plain).\n    vector_store_ids: The optional list of specific vector store IDs to query for RAG.\n    shield_ids: The optional list of safety shield IDs to apply.\n    solr: Optional Solr inline RAG options (mode, filters) or legacy filter-only dict.\n\nExample:\n    ```python\n    query_request = QueryRequest(query=\"Tell me about Kubernetes\")\n    ```",
+                "description": "Model representing a request for the LLM (Language Model).\n\nAttributes:\n    query: The query string.\n    conversation_id: The optional conversation ID (UUID).\n    provider: The optional provider.\n    model: The optional model.\n    system_prompt: The optional system prompt.\n    attachments: The optional attachments.\n    no_tools: Whether to bypass all tools and MCP servers (default: False).\n    generate_topic_summary: Whether to generate topic summary for new conversations.\n    media_type: The optional media type for response format (application/json or text/plain).\n    vector_store_ids: The optional list of specific vector store IDs to query for RAG.\n    shield_ids: The optional list of safety shield IDs to apply.\n    solr: Optional Solr inline RAG options (mode, filters) or legacy filter-only dict.",
                 "examples": [
                     {
                         "attachments": [
@@ -19291,7 +19291,7 @@
                 "additionalProperties": false,
                 "type": "object",
                 "title": "SolrVectorSearchRequest",
-                "description": "LCORE Solr inline RAG options for ``vector_io.query`` (mode and provider filters).\n\nAttributes:\n    mode: Solr vector_io search mode. When omitted, the server default (hybrid) is used.\n    filters: Solr provider filter payload passed through as params['solr'].\n\nLegacy clients may send a plain JSON object with filter keys only;\nthat object is accepted as filters with mode unset (server default applies)."
+                "description": "LCORE Solr inline RAG options for vector_io.query (mode and provider filters).\n\nAttributes:\n    mode: Solr vector_io search mode. When omitted, the server default (hybrid) is used.\n    filters: Solr provider filter payload passed through as params['solr'].\n\nLegacy clients may send a plain JSON object with filter keys only;\nthat object is accepted as filters with mode unset (server default applies)."
             },
             "SplunkConfiguration": {
                 "properties": {

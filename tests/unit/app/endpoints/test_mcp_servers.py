@@ -14,6 +14,7 @@ from pytest_mock import MockerFixture
 from app.endpoints import mcp_servers
 from authentication.interface import AuthTuple
 from configuration import AppConfig
+from models.api.requests import MCPServerRegistrationRequest
 from models.api.responses.successful import (
     MCPServerDeleteResponse,
     MCPServerListResponse,
@@ -28,7 +29,6 @@ from models.config import (
     TLSConfiguration,
     UserDataCollection,
 )
-from models.requests import MCPServerRegistrationRequest
 
 MOCK_AUTH: AuthTuple = ("mock_user_id", "mock_username", False, "mock_token")
 

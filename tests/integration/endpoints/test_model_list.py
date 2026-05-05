@@ -12,7 +12,7 @@ from pytest_mock import AsyncMockType, MockerFixture
 from app.endpoints.models import models_endpoint_handler
 from authentication.interface import AuthTuple
 from configuration import AppConfig
-from models.requests import ModelFilter
+from models.api.requests import ModelFilter
 
 
 @pytest.fixture(name="mock_llama_stack_client")

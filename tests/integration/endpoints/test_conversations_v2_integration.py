@@ -19,9 +19,9 @@ from app.endpoints.conversations_v2 import (
 from authentication.interface import AuthTuple
 from cache.sqlite_cache import SQLiteCache
 from configuration import AppConfig
+from models.api.requests import ConversationUpdateRequest
 from models.cache_entry import CacheEntry
 from models.config import SQLiteDatabaseConfiguration
-from models.requests import ConversationUpdateRequest
 from tests.integration.conftest import (
     TEST_CONVERSATION_ID,
     TEST_INVALID_ID,

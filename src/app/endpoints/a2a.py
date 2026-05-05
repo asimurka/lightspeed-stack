@@ -44,8 +44,8 @@ from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from constants import MEDIA_TYPE_EVENT_STREAM
 from log import get_logger
+from models.api.requests import QueryRequest
 from models.config import Action
-from models.requests import QueryRequest
 from utils.mcp_headers import McpHeaders, mcp_headers_dependency
 from utils.responses import (
     extract_text_from_response_item,

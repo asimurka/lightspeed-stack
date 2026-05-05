@@ -1,4 +1,4 @@
-"""Shared Pydantic models used across API layers (not response envelopes)."""
+"""Shared Pydantic models and types used across API layers."""
 
 from models.common.conversation import (
     ConversationData,
@@ -6,16 +6,15 @@ from models.common.conversation import (
     ConversationTurn,
     Message,
 )
-from models.common.health import ProviderHealthStatus
+from models.common.feedback import FeedbackCategory
+from models.common.health import HealthStatus, ProviderHealthStatus
 from models.common.mcp import MCPServerAuthInfo, MCPServerInfo
 from models.common.moderation import (
     ShieldModerationBlocked,
     ShieldModerationPassed,
     ShieldModerationResult,
 )
-from models.common.responses.responses_conversation_context import (
-    ResponsesConversationContext,
-)
+from models.common.query import Attachment, SolrVectorSearchRequest
 from models.common.transcripts import Transcript, TranscriptMetadata
 from models.common.turn_summary import (
     RAGChunk,
@@ -27,9 +26,12 @@ from models.common.turn_summary import (
 )
 
 __all__ = [
+    "Attachment",
     "ConversationData",
+    "FeedbackCategory",
     "ConversationDetails",
     "ConversationTurn",
+    "HealthStatus",
     "MCPServerAuthInfo",
     "MCPServerInfo",
     "Message",
@@ -37,10 +39,10 @@ __all__ = [
     "RAGChunk",
     "RAGContext",
     "ReferencedDocument",
-    "ResponsesConversationContext",
     "ShieldModerationBlocked",
     "ShieldModerationPassed",
     "ShieldModerationResult",
+    "SolrVectorSearchRequest",
     "ToolCallSummary",
     "ToolResultSummary",
     "Transcript",

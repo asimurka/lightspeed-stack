@@ -6,8 +6,8 @@ from pytest_mock import MockerFixture
 
 import constants
 from configuration import AppConfig
+from models.api.requests import QueryRequest
 from models.config import CustomProfile
-from models.requests import QueryRequest
 from tests.unit import config_dict
 from utils import prompts
 

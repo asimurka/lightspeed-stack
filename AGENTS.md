@@ -31,9 +31,10 @@ src/
 ├── metrics/              # Prometheus metrics
 ├── runners/              # Agent runners
 ├── models/               # Pydantic models
-│   ├── config.py         # Configuration classes
-│   ├── requests.py       # Request models
-│   ├── responses.py      # Response models
+│   ├── api/
+│   │   ├── requests/     # REST API request models
+│   │   └── responses/    # HTTP response models
+│   ├── common/           # Shared cross-layer models
 │   └── database/         # Database models
 ├── utils/                # Utility functions
 ├── client.py             # Llama Stack client wrapper (Singleton)

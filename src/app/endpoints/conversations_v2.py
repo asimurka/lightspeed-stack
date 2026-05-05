@@ -8,6 +8,7 @@ from authentication import get_auth_dependency
 from authorization.middleware import authorize
 from configuration import configuration
 from log import get_logger
+from models.api.requests import ConversationUpdateRequest
 from models.api.responses.constants import UNAUTHORIZED_OPENAPI_EXAMPLES
 from models.api.responses.error import (
     BadRequestResponse,
@@ -29,7 +30,6 @@ from models.common import (
     Message,
 )
 from models.config import Action
-from models.requests import ConversationUpdateRequest
 from utils.endpoints import check_configuration_loaded
 from utils.suid import check_suid
 

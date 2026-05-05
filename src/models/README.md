@@ -12,9 +12,14 @@ Model with service configuration.
 ## [context.py](context.py)
 Context objects for internal operations.
 
-## [requests.py](requests.py)
-Models for REST API requests.
+## [api/](api/)
+Models for API request and response bodies.
 
-## [responses.py](responses.py)
-Models for REST API responses.
+## [common/](common/)
+Shared models and types used across endpoints.
 
+## [database/](database/)
+SQLAlchemy ORM models.
+
+## [rlsapi/](rlsapi/)
+Models for the rlsapi v1 API surface.

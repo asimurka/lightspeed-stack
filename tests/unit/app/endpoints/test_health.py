@@ -7,7 +7,6 @@ from llama_stack_client import APIConnectionError
 from pytest_mock import MockerFixture
 
 from app.endpoints.health import (
-    HealthStatus,
     check_default_model_available,
     get_providers_health_statuses,
     liveness_probe_get_method,
@@ -15,7 +14,7 @@ from app.endpoints.health import (
 )
 from authentication.interface import AuthTuple
 from models.api.responses.successful import ReadinessResponse
-from models.common import ProviderHealthStatus
+from models.common import HealthStatus, ProviderHealthStatus
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
 
 
