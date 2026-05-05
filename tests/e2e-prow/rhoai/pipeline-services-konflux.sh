@@ -37,7 +37,7 @@ LIGHTSPEED_STACK_IMAGE="${LIGHTSPEED_STACK_IMAGE:-quay.io/lightspeed-core/lights
 export LIGHTSPEED_STACK_IMAGE
 LIGHTSPEED_MANIFEST="$BASE_DIR/manifests/lightspeed/lightspeed-stack.yaml"
 if command -v envsubst >/dev/null 2>&1; then
-  envsubst < "$LIGHTSPEED_MANIFEST" | oc apply -n "$NAMESPACE" -f -
+  envsubst '${LIGHTSPEED_STACK_IMAGE}' < "$LIGHTSPEED_MANIFEST" | oc apply -n "$NAMESPACE" -f -
 else
   # ubi-minimal etc. may lack gettext; template only expands LIGHTSPEED_STACK_IMAGE
   sed "s|\${LIGHTSPEED_STACK_IMAGE}|${LIGHTSPEED_STACK_IMAGE}|g" "$LIGHTSPEED_MANIFEST" |
