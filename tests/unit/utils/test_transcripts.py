@@ -5,6 +5,7 @@ import hashlib
 from pytest_mock import MockerFixture
 
 from configuration import AppConfig
+from models.common.turn_summary import ToolCallSummary, ToolResultSummary, TurnSummary
 from models.requests import QueryRequest
 from utils.transcripts import (
     construct_transcripts_path,
@@ -12,7 +13,6 @@ from utils.transcripts import (
     create_transcript_metadata,
     store_transcript,
 )
-from utils.types import ToolCallSummary, ToolResultSummary, TurnSummary
 
 
 def test_construct_transcripts_path(mocker: MockerFixture) -> None:

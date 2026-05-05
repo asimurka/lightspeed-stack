@@ -9,8 +9,8 @@ from authentication import get_auth_dependency
 from authentication.interface import AuthTuple
 from authorization.middleware import authorize
 from log import get_logger
-from models.api.responses import (
-    UNAUTHORIZED_OPENAPI_EXAMPLES,
+from models.api.responses.constants import UNAUTHORIZED_OPENAPI_EXAMPLES
+from models.api.responses.error import (
     ForbiddenResponse,
     ServiceUnavailableResponse,
     UnauthorizedResponse,

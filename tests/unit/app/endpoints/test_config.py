@@ -33,7 +33,8 @@ async def test_config_endpoint_handler_configuration_not_loaded(
 
     with pytest.raises(HTTPException) as exc_info:
         await config_endpoint_handler(
-            auth=auth, request=request  # pyright:ignore[reportArgumentType]
+            auth=auth,
+            request=request,  # pyright:ignore[reportArgumentType]
         )
     assert exc_info.value.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
 
@@ -66,7 +67,8 @@ async def test_config_endpoint_handler_configuration_loaded(
     auth: AuthTuple = ("test_user_id", "test_user", True, "test_token")
 
     response = await config_endpoint_handler(
-        auth=auth, request=request  # pyright:ignore[reportArgumentType]
+        auth=auth,
+        request=request,  # pyright:ignore[reportArgumentType]
     )
     assert response is not None
     assert response.configuration == minimal_config.configuration

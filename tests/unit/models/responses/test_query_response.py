@@ -2,8 +2,12 @@
 
 from pydantic import AnyUrl
 
-from models.responses import QueryResponse
-from utils.types import ReferencedDocument, ToolCallSummary, ToolResultSummary
+from models.api.responses.successful import QueryResponse
+from models.common.turn_summary import (
+    ReferencedDocument,
+    ToolCallSummary,
+    ToolResultSummary,
+)
 
 
 class TestQueryResponse:

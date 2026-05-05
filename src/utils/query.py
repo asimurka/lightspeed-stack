@@ -25,7 +25,7 @@ from cache.cache_error import CacheError
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
-from models.api.responses import (
+from models.api.responses.error import (
     AbstractErrorResponse,
     ForbiddenResponse,
     InternalServerErrorResponse,
@@ -35,6 +35,7 @@ from models.api.responses import (
     UnprocessableEntityResponse,
 )
 from models.cache_entry import CacheEntry
+from models.common.turn_summary import TurnSummary
 from models.config import Action
 from models.database.conversations import UserConversation, UserTurn
 from models.requests import Attachment, QueryRequest
@@ -46,7 +47,6 @@ from utils.transcripts import (
     create_transcript_metadata,
     store_transcript,
 )
-from utils.types import TurnSummary
 
 logger = get_logger(__name__)
 

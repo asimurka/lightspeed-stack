@@ -4,7 +4,11 @@ from typing import Optional
 
 from pydantic import BaseModel
 
-from utils.types import ReferencedDocument, ToolCallSummary, ToolResultSummary
+from models.common.turn_summary import (
+    ReferencedDocument,
+    ToolCallSummary,
+    ToolResultSummary,
+)
 
 
 class CacheEntry(BaseModel):

@@ -60,8 +60,8 @@ from constants import (
 )
 from log import get_logger
 from metrics import recording
-from models.api.responses import (
-    UNAUTHORIZED_OPENAPI_EXAMPLES_WITH_MCP_OAUTH,
+from models.api.responses.constants import UNAUTHORIZED_OPENAPI_EXAMPLES_WITH_MCP_OAUTH
+from models.api.responses.error import (
     AbstractErrorResponse,
     ForbiddenResponse,
     InternalServerErrorResponse,
@@ -72,13 +72,12 @@ from models.api.responses import (
     UnauthorizedResponse,
     UnprocessableEntityResponse,
 )
+from models.api.responses.successful import StreamingQueryResponse
 from models.common.responses.responses_api_params import ResponsesApiParams
+from models.common.turn_summary import ReferencedDocument, TurnSummary
 from models.config import Action
 from models.context import ResponseGeneratorContext
 from models.requests import QueryRequest
-from models.responses import (
-    StreamingQueryResponse,
-)
 from utils.conversations import append_turn_items_to_conversation
 from utils.endpoints import (
     check_configuration_loaded,
@@ -119,7 +118,6 @@ from utils.shields import (
 from utils.stream_interrupts import get_stream_interrupt_registry
 from utils.suid import get_suid, normalize_conversation_id
 from utils.token_counter import TokenCounter
-from utils.types import ReferencedDocument, TurnSummary
 from utils.vector_search import build_rag_context
 
 logger = get_logger(__name__)
@@ -832,7 +830,8 @@ async def response_generator(  # pylint: disable=too-many-branches,too-many-stat
         # Completed response - capture final text and response object
         elif event_type == "response.completed":
             latest_response_object = cast(
-                OpenAIResponseObject, getattr(chunk, "response")  # noqa: B009
+                OpenAIResponseObject,
+                getattr(chunk, "response"),  # noqa: B009
             )
             turn_summary.llm_response = turn_summary.llm_response or "".join(text_parts)
             yield stream_event(
@@ -848,7 +847,8 @@ async def response_generator(  # pylint: disable=too-many-branches,too-many-stat
         # Incomplete or failed response - emit error
         elif event_type in ("response.incomplete", "response.failed"):
             latest_response_object = cast(
-                OpenAIResponseObject, getattr(chunk, "response")  # noqa: B009
+                OpenAIResponseObject,
+                getattr(chunk, "response"),  # noqa: B009
             )
             error_message = (
                 latest_response_object.error.message

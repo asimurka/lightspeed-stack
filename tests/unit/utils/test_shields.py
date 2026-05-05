@@ -481,9 +481,10 @@ class TestValidateShieldIdsOverride:
             validate_shield_ids_override(query_request, mock_config)
 
         assert exc_info.value.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
-        # pylint: disable=line-too-long
-        assert "Shield IDs customization is disabled" in exc_info.value.detail["response"]  # type: ignore
-        assert "disable_shield_ids_override" in exc_info.value.detail["cause"]  # type: ignore
+        detail = exc_info.value.detail
+        assert isinstance(detail, dict)
+        assert "Shield IDs customization is disabled" in detail["response"]
+        assert "disable_shield_ids_override" in detail["cause"]
 
     def test_raises_422_when_empty_list_shield_ids_and_override_disabled(
         self, mocker: MockerFixture

@@ -6176,8 +6176,7 @@
                         "content": {
                             "text/event-stream": {
                                 "schema": {
-                                    "type": "string",
-                                    "format": "text/event-stream"
+                                    "type": "string"
                                 },
                                 "example": "data: {\"event\": \"start\", \"data\": {\"conversation_id\": \"123e4567-e89b-12d3-a456-426614174000\", \"request_id\": \"123e4567-e89b-12d3-a456-426614174001\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 0, \"token\": \"No Violation\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 1, \"token\": \"\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 2, \"token\": \"Hello\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 3, \"token\": \"!\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 4, \"token\": \" How\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 5, \"token\": \" can\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 6, \"token\": \" I\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 7, \"token\": \" assist\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 8, \"token\": \" you\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 9, \"token\": \" today\"}}\n\ndata: {\"event\": \"token\", \"data\": {\"id\": 10, \"token\": \"?\"}}\n\ndata: {\"event\": \"turn_complete\", \"data\": {\"token\": \"Hello! How can I assist you today?\"}}\n\ndata: {\"event\": \"end\", \"data\": {\"referenced_documents\": [], \"truncated\": null, \"input_tokens\": 11, \"output_tokens\": 19}, \"available_quotas\": {}}\n\n"
                             }
@@ -12048,7 +12047,7 @@
                     "configuration"
                 ],
                 "title": "ConfigurationResponse",
-                "description": "Success response model for the config endpoint.",
+                "description": "Success response model for the config endpoint.\n\nAttributes:\n    configuration: Parsed application configuration returned to the client.",
                 "examples": [
                     {
                         "configuration": {
@@ -12624,7 +12623,7 @@
                     "message"
                 ],
                 "title": "ConversationUpdateResponse",
-                "description": "Model representing a response for updating a conversation topic summary.\n\nAttributes:\n    conversation_id: The conversation ID (UUID) that was updated.\n    success: Whether the update was successful.\n    message: A message about the update result.\n\nExample:\n    ```python\n    update_response = ConversationUpdateResponse(\n        conversation_id=\"123e4567-e89b-12d3-a456-426614174000\",\n        success=True,\n        message=\"Topic summary updated successfully\",\n    )\n    ```",
+                "description": "Model representing a response for updating a conversation topic summary.\n\nAttributes:\n    conversation_id: The conversation ID (UUID) that was updated.\n    success: Whether the update was successful.\n    message: A message about the update result.",
                 "examples": [
                     {
                         "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
@@ -13012,7 +13011,7 @@
                     "response"
                 ],
                 "title": "FeedbackResponse",
-                "description": "Model representing a response to a feedback request.\n\nAttributes:\n    response: The response of the feedback request.\n\nExample:\n    ```python\n    feedback_response = FeedbackResponse(response=\"feedback received\")\n    ```",
+                "description": "Model representing a response to a feedback request.\n\nAttributes:\n    response: The response of the feedback request.",
                 "examples": [
                     {
                         "response": "feedback received"
@@ -13050,7 +13049,7 @@
                     "status"
                 ],
                 "title": "FeedbackStatusUpdateResponse",
-                "description": "Model representing a response to a feedback status update request.\n\nAttributes:\n    status: The previous and current status of the service and who updated it.\n\nExample:\n    ```python\n    status_response = StatusResponse(\n        status={\n            \"previous_status\": true,\n            \"updated_status\": false,\n            \"updated_by\": \"user/test\",\n            \"timestamp\": \"2023-03-15 12:34:56\"\n        },\n    )\n    ```",
+                "description": "Model representing a response to a feedback status update request.\n\nAttributes:\n    status: The previous and current status of the service and who updated it.",
                 "examples": [
                     {
                         "status": {
@@ -13424,7 +13423,7 @@
                     "llama_stack_version"
                 ],
                 "title": "InfoResponse",
-                "description": "Model representing a response to an info request.\n\nAttributes:\n    name: Service name.\n    service_version: Service version.\n    llama_stack_version: Llama Stack version.\n\nExample:\n    ```python\n    info_response = InfoResponse(\n        name=\"Lightspeed Stack\",\n        service_version=\"1.0.0\",\n        llama_stack_version=\"0.2.22\",\n    )\n    ```",
+                "description": "Model representing a response to an info request.\n\nAttributes:\n    name: Service name.\n    service_version: Service version.\n    llama_stack_version: Llama Stack version.",
                 "examples": [
                     {
                         "llama_stack_version": "1.0.0",
@@ -13639,7 +13638,7 @@
                     "alive"
                 ],
                 "title": "LivenessResponse",
-                "description": "Model representing a response to a liveness request.\n\nAttributes:\n    alive: If app is alive.\n\nExample:\n    ```python\n    liveness_response = LivenessResponse(alive=True)\n    ```",
+                "description": "Model representing a response to a liveness request.\n\nAttributes:\n    alive: If app is alive.",
                 "examples": [
                     {
                         "alive": true
@@ -13726,7 +13725,7 @@
                 },
                 "type": "object",
                 "title": "MCPClientAuthOptionsResponse",
-                "description": "Response containing MCP servers that accept client-provided authorization.",
+                "description": "Response containing MCP servers that accept client-provided authorization.\n\nAttributes:\n    servers: MCP servers that declare client authentication headers.",
                 "examples": [
                     {
                         "servers": [
@@ -13821,7 +13820,7 @@
                     "message"
                 ],
                 "title": "MCPServerDeleteResponse",
-                "description": "Response for a successful MCP server deletion.",
+                "description": "Response for a successful MCP server deletion.\n\nAttributes:\n    name: Deleted MCP server name.\n    message: Status message.",
                 "examples": [
                     {
                         "message": "MCP server 'test-mcp-server' unregistered successfully",
@@ -13879,7 +13878,7 @@
                 },
                 "type": "object",
                 "title": "MCPServerListResponse",
-                "description": "Response listing all registered MCP servers.",
+                "description": "Response listing all registered MCP servers.\n\nAttributes:\n    servers: All registered MCP servers (static and dynamic).",
                 "examples": [
                     {
                         "servers": [
@@ -14063,7 +14062,7 @@
                     "message"
                 ],
                 "title": "MCPServerRegistrationResponse",
-                "description": "Response for a successful MCP server registration.",
+                "description": "Response for a successful MCP server registration.\n\nAttributes:\n    name: Registered MCP server name.\n    url: Registered MCP server URL.\n    provider_id: MCP provider identification.\n    message: Status message.",
                 "examples": [
                     {
                         "message": "MCP server 'mcp-integration-tools' registered successfully",
@@ -16494,7 +16493,7 @@
                     "response"
                 ],
                 "title": "PromptDeleteResponse",
-                "description": "Result of deleting a stored prompt (always HTTP 200, like conversations v2).",
+                "description": "Result of deleting a stored prompt (always HTTP 200, like conversations v2).\n\nAttributes:\n    prompt_id: Prompt identifier that was passed to delete.\n    deleted: Whether the prompt was deleted successfully\n    response: Human readable response",
                 "examples": [
                     {
                         "label": "deleted",
@@ -16573,7 +16572,7 @@
                     "version"
                 ],
                 "title": "PromptResourceResponse",
-                "description": "A stored prompt template as returned by Llama Stack.",
+                "description": "A stored prompt template as returned by Llama Stack.\n\nAttributes:\n    prompt_id: Prompt identifier from Llama Stack.\n    version: Version number for this prompt.\n    is_default: Whether this version is the default.\n    prompt: Prompt text with placeholders.\n    variables: Variable names used in the template.",
                 "examples": [
                     {
                         "is_default": true,
@@ -16711,7 +16710,7 @@
                 "additionalProperties": false,
                 "type": "object",
                 "title": "PromptsListResponse",
-                "description": "List of stored prompt templates returned by Llama Stack.",
+                "description": "List of stored prompt templates returned by Llama Stack.\n\nAttributes:\n    data: Prompt entries as returned by the Llama Stack list API.",
                 "examples": [
                     {
                         "data": [
@@ -17184,7 +17183,7 @@
                     "truncated": {
                         "type": "boolean",
                         "title": "Truncated",
-                        "description": "Deprecated:Whether conversation history was truncated",
+                        "description": "Deprecated: whether conversation history was truncated",
                         "default": false,
                         "examples": [
                             false,
@@ -17767,7 +17766,7 @@
                     "providers"
                 ],
                 "title": "ReadinessResponse",
-                "description": "Model representing response to a readiness request.\n\nAttributes:\n    ready: If service is ready.\n    reason: The reason for the readiness.\n    providers: List of unhealthy providers in case of readiness failure.\n\nExample:\n    ```python\n    readiness_response = ReadinessResponse(\n        ready=False,\n        reason=\"Service is not ready\",\n        providers=[\n            ProviderHealthStatus(\n                provider_id=\"ollama\",\n                status=\"unhealthy\",\n                message=\"Server is unavailable\"\n            )\n        ]\n    )\n    ```",
+                "description": "Model representing response to a readiness request.\n\nAttributes:\n    ready: If service is ready.\n    reason: The reason for the readiness.\n    providers: List of unhealthy providers in case of readiness failure.",
                 "examples": [
                     {
                         "providers": [],
@@ -19392,7 +19391,7 @@
                     "status"
                 ],
                 "title": "StatusResponse",
-                "description": "Model representing a response to a status request.\n\nAttributes:\n    functionality: The functionality of the service.\n    status: The status of the service.\n\nExample:\n    ```python\n    status_response = StatusResponse(\n        functionality=\"feedback\",\n        status={\"enabled\": True},\n    )\n    ```",
+                "description": "Model representing a response to a status request.\n\nAttributes:\n    functionality: The functionality of the service.\n    status: The status of the service.",
                 "examples": [
                     {
                         "functionality": "feedback",
@@ -19460,7 +19459,7 @@
                     "message"
                 ],
                 "title": "StreamingInterruptResponse",
-                "description": "Model representing a response to a streaming interrupt request.\n\nAttributes:\n    request_id: The streaming request ID targeted by the interrupt call.\n    interrupted: Whether an in-progress stream was interrupted.\n    message: Human-readable interruption status message.\n\nExample:\n    ```python\n    response = StreamingInterruptResponse(\n        request_id=\"123e4567-e89b-12d3-a456-426614174000\",\n        interrupted=True,\n        message=\"Streaming request interrupted\",\n    )\n    ```",
+                "description": "Model representing a response to a streaming interrupt request.\n\nAttributes:\n    request_id: The streaming request ID targeted by the interrupt call.\n    interrupted: Whether an in-progress stream was interrupted.\n    message: Human-readable interruption status message.",
                 "examples": [
                     {
                         "interrupted": true,

@@ -18,7 +18,7 @@ from authorization.resolvers import (
 )
 from configuration import configuration
 from log import get_logger
-from models.api.responses import (
+from models.api.responses.error import (
     ForbiddenResponse,
     InternalServerErrorResponse,
 )

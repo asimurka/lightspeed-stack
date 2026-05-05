@@ -17,8 +17,8 @@ from app.endpoints.prompts import (
 )
 from authentication.interface import AuthTuple
 from configuration import AppConfig
+from models.api.responses.successful import PromptDeleteResponse
 from models.requests import PromptCreateRequest, PromptUpdateRequest
-from models.responses import PromptDeleteResponse
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
 
 MOCK_AUTH: AuthTuple = ("mock_user_id", "mock_username", False, "mock_token")

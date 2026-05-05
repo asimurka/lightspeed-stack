@@ -11,12 +11,12 @@ from llama_stack_api.openai_responses import (
 from pydantic import AnyUrl, ValidationError
 
 from models.common.responses.responses_api_params import ResponsesApiParams
-from utils.types import (
+from models.common.turn_summary import (
     ReferencedDocument,
     ToolCallSummary,
     ToolResultSummary,
-    content_to_str,
 )
+from utils.types import content_to_str
 
 
 class TestContentToStr:

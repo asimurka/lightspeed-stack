@@ -20,14 +20,16 @@ from app.endpoints.conversations_v2 import (
     update_conversation_endpoint_handler,
 )
 from configuration import AppConfig
+from models.api.responses.successful import ConversationUpdateResponse
 from models.cache_entry import CacheEntry
-from models.requests import ConversationUpdateRequest
-from models.responses import (
-    ConversationData,
-    ConversationUpdateResponse,
+from models.common import ConversationData
+from models.common.turn_summary import (
+    ReferencedDocument,
+    ToolCallSummary,
+    ToolResultSummary,
 )
+from models.requests import ConversationUpdateRequest
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
-from utils.types import ReferencedDocument, ToolCallSummary, ToolResultSummary
 
 MOCK_AUTH = ("mock_user_id", "mock_username", False, "mock_token")
 VALID_CONVERSATION_ID = "123e4567-e89b-12d3-a456-426614174000"

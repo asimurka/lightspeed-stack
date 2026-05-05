@@ -16,8 +16,8 @@ from authorization.middleware import authorize
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
-from models.api.responses import (
-    UNAUTHORIZED_OPENAPI_EXAMPLES,
+from models.api.responses.constants import UNAUTHORIZED_OPENAPI_EXAMPLES
+from models.api.responses.error import (
     BadRequestResponse,
     ForbiddenResponse,
     InternalServerErrorResponse,
@@ -25,18 +25,18 @@ from models.api.responses import (
     ServiceUnavailableResponse,
     UnauthorizedResponse,
 )
+from models.api.responses.successful import (
+    ConversationDeleteResponse,
+    ConversationResponse,
+    ConversationsListResponse,
+    ConversationUpdateResponse,
+)
+from models.common import ConversationDetails
 from models.config import Action
 from models.database.conversations import (
     UserConversation,
 )
 from models.requests import ConversationUpdateRequest
-from models.responses import (
-    ConversationDeleteResponse,
-    ConversationDetails,
-    ConversationResponse,
-    ConversationsListResponse,
-    ConversationUpdateResponse,
-)
 from utils.conversations import (
     build_conversation_turns_from_items,
     get_all_conversation_items,

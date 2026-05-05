@@ -11,9 +11,12 @@ from pydantic import AnyUrl
 from pytest_mock import MockerFixture
 from sqlalchemy.exc import SQLAlchemyError
 
+from models.common.responses.responses_conversation_context import (
+    ResponsesConversationContext,
+)
+from models.common.turn_summary import ReferencedDocument
 from models.database.conversations import UserConversation, UserTurn
 from utils import endpoints
-from utils.types import ReferencedDocument, ResponsesConversationContext
 
 
 @pytest.fixture(name="input_file")

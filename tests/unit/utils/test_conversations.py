@@ -10,6 +10,7 @@ from llama_stack_client import APIConnectionError, APIStatusError
 from pytest_mock import MockerFixture
 
 from constants import DEFAULT_RAG_TOOL
+from models.common.turn_summary import ToolCallSummary
 from models.database.conversations import UserTurn
 from utils.conversations import (
     _build_tool_call_summary_from_item,
@@ -18,7 +19,6 @@ from utils.conversations import (
     build_conversation_turns_from_items,
     get_all_conversation_items,
 )
-from utils.types import ToolCallSummary
 
 # Default conversation start time for tests
 DEFAULT_CONVERSATION_START_TIME = datetime.fromisoformat(

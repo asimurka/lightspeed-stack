@@ -26,8 +26,8 @@ from configuration import configuration
 from constants import ENDPOINT_PATH_INFER
 from log import get_logger
 from metrics import recording
-from models.api.responses import (
-    UNAUTHORIZED_OPENAPI_EXAMPLES,
+from models.api.responses.constants import UNAUTHORIZED_OPENAPI_EXAMPLES
+from models.api.responses.error import (
     ForbiddenResponse,
     InternalServerErrorResponse,
     NotFoundResponse,

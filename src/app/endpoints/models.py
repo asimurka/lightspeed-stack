@@ -12,18 +12,16 @@ from authorization.middleware import authorize
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
-from models.api.responses import (
-    UNAUTHORIZED_OPENAPI_EXAMPLES,
+from models.api.responses.constants import UNAUTHORIZED_OPENAPI_EXAMPLES
+from models.api.responses.error import (
     ForbiddenResponse,
     InternalServerErrorResponse,
     ServiceUnavailableResponse,
     UnauthorizedResponse,
 )
+from models.api.responses.successful import ModelsResponse
 from models.config import Action
 from models.requests import ModelFilter
-from models.responses import (
-    ModelsResponse,
-)
 from utils.endpoints import check_configuration_loaded
 
 logger = get_logger(__name__)

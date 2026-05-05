@@ -16,6 +16,7 @@ from app.endpoints import tools
 from app.endpoints.tools import _input_schema_to_parameters
 from authentication.interface import AuthTuple
 from configuration import AppConfig
+from models.api.responses.successful import ToolsResponse
 from models.config import (
     Configuration,
     CORSConfiguration,
@@ -25,7 +26,6 @@ from models.config import (
     TLSConfiguration,
     UserDataCollection,
 )
-from models.responses import ToolsResponse
 
 # Shared mock auth tuple with 4 fields as expected by the application
 MOCK_AUTH: AuthTuple = ("mock_user_id", "mock_username", False, "mock_token")

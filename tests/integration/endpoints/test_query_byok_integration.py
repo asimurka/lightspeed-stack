@@ -15,8 +15,8 @@ import constants
 from app.endpoints.query import query_endpoint_handler
 from authentication.interface import AuthTuple
 from configuration import AppConfig
+from models.api.responses.successful import QueryResponse
 from models.requests import QueryRequest
-from models.responses import QueryResponse
 
 # ---------------------------------------------------------------------------
 # Helpers

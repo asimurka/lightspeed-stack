@@ -6,8 +6,8 @@ from pytest_mock import MockerFixture
 
 import constants
 from configuration import AppConfig
+from models.common.turn_summary import RAGChunk
 from models.requests import SolrVectorSearchRequest
-from utils.types import RAGChunk
 from utils.vector_search import (
     _build_document_url,
     _build_query_params,

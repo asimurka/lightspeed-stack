@@ -353,7 +353,8 @@ class TestGetLightspeedAgentCard:
     """Tests for the agent card generation."""
 
     def test_get_agent_card_with_config(
-        self, setup_configuration: AppConfig  # pylint: disable=unused-argument
+        self,
+        setup_configuration: AppConfig,  # pylint: disable=unused-argument
     ) -> None:
         """Test getting agent card with full configuration."""
         agent_card = get_lightspeed_agent_card()
