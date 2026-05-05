@@ -1,10 +1,34 @@
 """Decorator that makes sure the object is 'connected' according to it's connected predicate."""
 
 from collections.abc import Callable
-from typing import Any
+from typing import (
+    Concatenate,
+    ParamSpec,
+    Protocol,
+    TypeVar,
+    runtime_checkable,
+)
+
+P = ParamSpec("P")
+R = TypeVar("R")
+S = TypeVar("S", bound="Connectable")  # the method's self type
 
 
-def connection(f: Callable) -> Callable:
+@runtime_checkable
+class Connectable(Protocol):
+    """Any class that implements methods connected and connect."""
+
+    def connected(self) -> bool:
+        """Check if DB is connected."""
+        return False
+
+    def connect(self) -> None:
+        """Connect or reconnect the database."""
+
+
+def connection(
+    f: Callable[Concatenate[S, P], R],
+) -> Callable[Concatenate[S, P], R]:
     """
     Ensure a connectable object is connected before invoking the wrapped function.
 
@@ -31,7 +55,7 @@ def connection(f: Callable) -> Callable:
     ```
     """
 
-    def wrapper(connectable: Any, *args: Any, **kwargs: Any) -> Callable:
+    def wrapper(self: S, *args: P.args, **kwargs: P.kwargs) -> R:
         """
         Ensure the provided connectable is connected, then call the wrapped with the same arguments.
 
@@ -46,8 +70,8 @@ def connection(f: Callable) -> Callable:
         -------
                 Any: The value returned by the wrapped callable.
         """
-        if not connectable.connected():
-            connectable.connect()
-        return f(connectable, *args, **kwargs)
+        if not self.connected():
+            self.connect()
+        return f(self, *args, **kwargs)
 
     return wrapper
