@@ -1022,6 +1022,9 @@ semver==3.0.4 \
 sentence-transformers==5.4.1 \
     --hash=sha256:436bcb1182a0ff42a8fb2b1c43498a70d0a75b688d182f2cd0d1dd115af61ddc \
     --hash=sha256:a6d640fc363849b63affb8e140e9d328feabab86f83d58ac3e16b1c28140b790
+sentry-sdk==2.59.0 \
+    --hash=sha256:abcf65ee9a9d9cdebf9ad369782408ecca9c1c792686ef06ba34f5ab233527fe \
+    --hash=sha256:cd265808ef8bf3f3edf69b527c0a0b2b6b1322762679e55b8987db2e9584aec1
 sse-starlette==3.3.4 \
     --hash=sha256:84bb06e58939a8b38d8341f1bc9792f06c2b53f48c608dd207582b664fc8f3c1 \
     --hash=sha256:aaf92fc067af8a5427192895ac028e947b484ac01edbc3caf00e7e7137c7bef1
