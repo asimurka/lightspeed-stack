@@ -2,7 +2,7 @@
 
 from fastapi import HTTPException, Request
 
-from authentication.interface import AuthInterface
+from authentication.interface import AuthInterface, AuthTuple
 from constants import (
     DEFAULT_USER_NAME,
     DEFAULT_USER_UID,
@@ -31,7 +31,7 @@ class NoopAuthDependency(AuthInterface):  # pylint: disable=too-few-public-metho
         self.virtual_path = virtual_path
         self.skip_userid_check = True
 
-    async def __call__(self, request: Request) -> tuple[str, str, bool, str]:
+    async def __call__(self, request: Request) -> AuthTuple:
         """Validate FastAPI Requests for authentication and authorization.
 
         Parameters:
@@ -40,7 +40,7 @@ class NoopAuthDependency(AuthInterface):  # pylint: disable=too-few-public-metho
 
         Returns:
         -------
-            tuple[str, str, bool, str]: A 4-tuple containing:
+            AuthTuple: A 4-tuple containing:
                 - user_id: the value of the "user_id" query parameter if
                            present, otherwise DEFAULT_USER_UID.
                 - username: DEFAULT_USER_NAME.

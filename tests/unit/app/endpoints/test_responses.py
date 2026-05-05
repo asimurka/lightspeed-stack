@@ -24,6 +24,7 @@ from app.endpoints.responses import (
     handle_streaming_response,
     responses_endpoint_handler,
 )
+from authentication.interface import AuthTuple
 from configuration import AppConfig
 from constants import DEFAULT_SYSTEM_PROMPT, SUBSTITUTED_INSTRUCTIONS_PLACEHOLDER
 from models.api.responses.successful import ResponsesResponse
@@ -57,7 +58,7 @@ def build_api_params_and_context(  # pylint: disable=too-many-arguments
     *,
     updated_request: ResponsesRequest,
     client: Any,
-    auth: tuple[str, str, bool, str],
+    auth: AuthTuple,
     input_text: str,
     started_at: datetime,
     moderation_result: Any,

@@ -11,7 +11,7 @@ Behavior:
 
 from fastapi import HTTPException, Request
 
-from authentication.interface import AuthInterface
+from authentication.interface import AuthInterface, AuthTuple
 from authentication.utils import extract_user_token
 from constants import (
     DEFAULT_USER_NAME,
@@ -43,7 +43,7 @@ class NoopWithTokenAuthDependency(
         self.virtual_path = virtual_path
         self.skip_userid_check = True
 
-    async def __call__(self, request: Request) -> tuple[str, str, bool, str]:
+    async def __call__(self, request: Request) -> AuthTuple:
         """Validate FastAPI Requests for authentication and authorization.
 
         Parameters:
@@ -52,7 +52,7 @@ class NoopWithTokenAuthDependency(
 
         Returns:
         -------
-            tuple[str, str, bool, str]: A 4-tuple containing:
+            AuthTuple: A 4-tuple containing:
                 - user_id: The value of the "user_id" query parameter or
                            DEFAULT_USER_UID if absent.
                 - username: DEFAULT_USER_NAME.
