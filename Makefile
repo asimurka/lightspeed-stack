@@ -48,8 +48,13 @@ test-e2e-tagged-local: ## Same as test-e2e-tagged without script wrapper
 benchmarks: ## Run benchmarks
 	uv run python -m pytest -vv tests/benchmarks/
 
-check-types: ## Checks type hints in sources
-	uv run mypy --explicit-package-bases --disallow-untyped-calls --disallow-untyped-defs --disallow-incomplete-defs --ignore-missing-imports --disable-error-code attr-defined src/ tests/unit tests/integration tests/e2e/
+check-types-src: ## Check type hints in sources only
+	uv run mypy --explicit-package-bases --disallow-untyped-calls --disallow-untyped-defs --disallow-incomplete-defs --ignore-missing-imports --disable-error-code attr-defined src/
+
+check-types-tests: ## Check type hints in tests only
+	uv run mypy --explicit-package-bases --disallow-untyped-calls --disallow-untyped-defs --disallow-incomplete-defs --ignore-missing-imports --disable-error-code attr-defined tests/unit tests/integration tests/e2e/
+
+check-types:	check-types-src check-types-tests ## Checks type hints in sources and tests
 
 security-check: ## Check the project for security issues
 	uv run bandit -c pyproject.toml -r src tests
