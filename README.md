@@ -837,6 +837,8 @@ test-e2e                          Run end to end tests for the service
 test-e2e-local                    Run end to end tests for the service
 benchmarks                        Run benchmarks
 check-types                       Checks type hints in sources
+check-types-src                   Check type hints in sources only
+check-types-tests                 Check type hints in tests only
 security-check                    Check the project for security issues
 format                            Format the code into unified format
 schema                            Generate OpenAPI schema file
