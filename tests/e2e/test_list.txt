@@ -26,3 +26,4 @@ features/mcp_servers_api_auth.feature
 features/mcp_servers_api_no_config.feature
 features/proxy.feature
 features/tls.feature
+features/opentelemetry.feature
