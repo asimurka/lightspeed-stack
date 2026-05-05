@@ -82,7 +82,7 @@ class SQLiteA2AContextStore(A2AContextStore):
                 a2a_context_table.c.context_id == context_id
             )
             result = await session.execute(stmt)
-            row = result.scalar_one_or_none()
+            row: Optional[str] = result.scalar_one_or_none()
 
             if row:
                 logger.debug("Context %s maps to conversation %s", context_id, row)
