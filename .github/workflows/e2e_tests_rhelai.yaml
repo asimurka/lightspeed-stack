@@ -176,7 +176,7 @@ jobs:
         run: |
           set -euo pipefail
           show_logs() {
-            docker compose logs --tail=80
+            docker compose logs
           }
 
           echo "Testing /v1/models and verifying expected LLM is registered..."

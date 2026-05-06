@@ -177,9 +177,9 @@ jobs:
           curl -f http://localhost:8080/v1/models || {
             echo "❌ Basic connectivity failed - showing logs"
             if [ "${{ matrix.mode }}" == "server" ]; then
-              docker compose logs --tail=30
+              docker compose logs
             else
-              docker compose -f docker-compose-library.yaml logs --tail=30
+              docker compose -f docker-compose-library.yaml logs
             fi
             exit 1
           }

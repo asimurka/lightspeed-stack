@@ -179,9 +179,9 @@ jobs:
           set -euo pipefail
           show_logs() {
             if [ "${{ matrix.mode }}" == "server" ]; then
-              docker compose logs --tail=80
+              docker compose logs
             else
-              docker compose -f docker-compose-library.yaml logs --tail=80
+              docker compose -f docker-compose-library.yaml logs
             fi
           }
 
