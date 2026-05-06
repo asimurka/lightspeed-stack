@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 
 from constants import RESPONSES_REQUEST_MAX_SIZE
-from models.requests import ResponsesRequest
+from models.api.requests import ResponsesRequest
 
 _LIMIT = RESPONSES_REQUEST_MAX_SIZE
 _OVERHEAD = len(json.dumps({"input": ""}))  # 13

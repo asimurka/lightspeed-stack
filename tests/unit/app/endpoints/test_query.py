@@ -12,8 +12,10 @@ from pytest_mock import MockerFixture
 
 from app.endpoints.query import query_endpoint_handler, retrieve_response
 from configuration import AppConfig
+from models.api.requests import QueryRequest
 from models.api.responses.successful import QueryResponse
 from models.common.moderation import ShieldModerationPassed
+from models.common.query import Attachment
 from models.common.responses.responses_api_params import ResponsesApiParams
 from models.common.turn_summary import (
     RAGChunk,
@@ -24,7 +26,6 @@ from models.common.turn_summary import (
     TurnSummary,
 )
 from models.database.conversations import UserConversation
-from models.requests import Attachment, QueryRequest
 from utils.token_counter import TokenCounter
 
 # User ID must be proper UUID

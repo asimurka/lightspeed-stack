@@ -5,7 +5,6 @@ requests. Note that these endpoints can be accessed using GET or HEAD HTTP
 methods. For HEAD HTTP method, just the HTTP response code is used.
 """
 
-from enum import Enum
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Response, status
@@ -27,23 +26,11 @@ from models.api.responses.successful import (
     LivenessResponse,
     ReadinessResponse,
 )
-from models.common import ProviderHealthStatus
+from models.common import HealthStatus, ProviderHealthStatus
 from models.config import Action
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["health"])
-
-
-# HealthStatus enum was removed from llama_stack in newer versions
-# Defining locally for compatibility
-class HealthStatus(str, Enum):
-    """Health status enum for provider health checks."""
-
-    OK = "ok"
-    ERROR = "Error"
-    NOT_IMPLEMENTED = "not_implemented"
-    HEALTHY = "healthy"
-    UNKNOWN = "unknown"
 
 
 get_readiness_responses: dict[int | str, dict[str, Any]] = {

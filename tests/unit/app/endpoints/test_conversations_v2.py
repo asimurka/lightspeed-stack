@@ -20,6 +20,7 @@ from app.endpoints.conversations_v2 import (
     update_conversation_endpoint_handler,
 )
 from configuration import AppConfig
+from models.api.requests import ConversationUpdateRequest
 from models.api.responses.successful import ConversationUpdateResponse
 from models.cache_entry import CacheEntry
 from models.common import ConversationData
@@ -28,7 +29,6 @@ from models.common.turn_summary import (
     ToolCallSummary,
     ToolResultSummary,
 )
-from models.requests import ConversationUpdateRequest
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
 
 MOCK_AUTH = ("mock_user_id", "mock_username", False, "mock_token")

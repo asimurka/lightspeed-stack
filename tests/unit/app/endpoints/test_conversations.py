@@ -19,6 +19,7 @@ from app.endpoints.conversations_v1 import (
     update_conversation_endpoint_handler,
 )
 from configuration import AppConfig
+from models.api.requests import ConversationUpdateRequest
 from models.api.responses.error import (
     ForbiddenResponse,
     InternalServerErrorResponse,
@@ -31,7 +32,6 @@ from models.api.responses.successful import (
 )
 from models.config import Action
 from models.database.conversations import UserConversation, UserTurn
-from models.requests import ConversationUpdateRequest
 from tests.unit.utils.auth_helpers import mock_authorization_resolvers
 from utils.conversations import build_conversation_turns_from_items
 

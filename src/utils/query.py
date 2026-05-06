@@ -25,6 +25,7 @@ from cache.cache_error import CacheError
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
+from models.api.requests import QueryRequest
 from models.api.responses.error import (
     AbstractErrorResponse,
     ForbiddenResponse,
@@ -35,10 +36,10 @@ from models.api.responses.error import (
     UnprocessableEntityResponse,
 )
 from models.cache_entry import CacheEntry
+from models.common.query import Attachment
 from models.common.turn_summary import TurnSummary
 from models.config import Action
 from models.database.conversations import UserConversation, UserTurn
-from models.requests import Attachment, QueryRequest
 from utils.quota import consume_tokens
 from utils.suid import is_moderation_id, normalize_conversation_id
 from utils.token_counter import TokenCounter

@@ -20,8 +20,8 @@ from app.endpoints.conversations_v1 import (
 )
 from authentication.interface import AuthTuple
 from configuration import AppConfig
+from models.api.requests import ConversationUpdateRequest
 from models.database.conversations import UserConversation, UserTurn
-from models.requests import ConversationUpdateRequest
 from tests.integration.conftest import (
     TEST_CONVERSATION_ID,
     TEST_INVALID_ID,

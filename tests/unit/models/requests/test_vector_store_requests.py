@@ -3,7 +3,7 @@
 import pytest
 from pydantic import ValidationError
 
-from models.requests import VectorStoreFileCreateRequest, VectorStoreUpdateRequest
+from models.api.requests import VectorStoreFileCreateRequest, VectorStoreUpdateRequest
 
 
 class TestVectorStoreUpdateRequest:

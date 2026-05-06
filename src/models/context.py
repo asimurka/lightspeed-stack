@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 
 from llama_stack_client import AsyncLlamaStackClient
 
+from models.api.requests import QueryRequest
 from models.common.moderation import ShieldModerationResult
 from models.common.turn_summary import RAGContext
-from models.requests import QueryRequest
 
 
 @dataclass

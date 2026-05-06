@@ -8,13 +8,13 @@ from fastapi import Response
 from pytest_mock import AsyncMockType, MockerFixture
 
 from app.endpoints.health import (
-    HealthStatus,
     get_providers_health_statuses,
     liveness_probe_get_method,
     readiness_probe_get_method,
 )
 from authentication.interface import AuthTuple
 from configuration import AppConfig
+from models.common import HealthStatus
 
 
 @pytest.fixture(name="mock_llama_stack_client_health")

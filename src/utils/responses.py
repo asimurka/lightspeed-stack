@@ -91,6 +91,7 @@ from configuration import configuration
 from constants import DEFAULT_RAG_TOOL
 from log import get_logger
 from metrics import recording
+from models.api.requests import QueryRequest
 from models.api.responses.error import (
     ConflictResponse,
     InternalServerErrorResponse,
@@ -108,7 +109,6 @@ from models.common.turn_summary import (
 )
 from models.config import ByokRag
 from models.database.conversations import UserConversation
-from models.requests import QueryRequest
 from utils.mcp_headers import (
     McpHeaders,
     build_mcp_headers,

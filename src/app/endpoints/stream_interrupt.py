@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from authentication import get_auth_dependency
 from authentication.interface import AuthTuple
 from authorization.middleware import authorize
+from models.api.requests import StreamingInterruptRequest
 from models.api.responses.constants import UNAUTHORIZED_OPENAPI_EXAMPLES
 from models.api.responses.error import (
     ForbiddenResponse,
@@ -16,7 +17,6 @@ from models.api.responses.error import (
 )
 from models.api.responses.successful import StreamingInterruptResponse
 from models.config import Action
-from models.requests import StreamingInterruptRequest
 from utils.stream_interrupts import (
     CancelStreamResult,
     StreamInterruptRegistry,

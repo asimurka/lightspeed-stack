@@ -60,6 +60,7 @@ from constants import (
 )
 from log import get_logger
 from metrics import recording
+from models.api.requests import QueryRequest
 from models.api.responses.constants import UNAUTHORIZED_OPENAPI_EXAMPLES_WITH_MCP_OAUTH
 from models.api.responses.error import (
     AbstractErrorResponse,
@@ -77,7 +78,6 @@ from models.common.responses.responses_api_params import ResponsesApiParams
 from models.common.turn_summary import ReferencedDocument, TurnSummary
 from models.config import Action
 from models.context import ResponseGeneratorContext
-from models.requests import QueryRequest
 from utils.conversations import append_turn_items_to_conversation
 from utils.endpoints import (
     check_configuration_loaded,

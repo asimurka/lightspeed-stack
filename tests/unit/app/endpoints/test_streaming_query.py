@@ -64,8 +64,10 @@ from constants import (
     MEDIA_TYPE_JSON,
     MEDIA_TYPE_TEXT,
 )
+from models.api.requests import QueryRequest
 from models.api.responses.error import InternalServerErrorResponse
 from models.common.moderation import ShieldModerationPassed
+from models.common.query import Attachment
 from models.common.responses.responses_api_params import ResponsesApiParams
 from models.common.turn_summary import (
     RAGChunk,
@@ -75,7 +77,6 @@ from models.common.turn_summary import (
 )
 from models.config import Action
 from models.context import ResponseGeneratorContext
-from models.requests import Attachment, QueryRequest
 from utils.stream_interrupts import StreamInterruptRegistry
 from utils.token_counter import TokenCounter
 

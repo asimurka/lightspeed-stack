@@ -1,6 +1,6 @@
 """Unit tests for FeedbackStatusUpdateRequest model."""
 
-from models.requests import FeedbackStatusUpdateRequest
+from models.api.requests import FeedbackStatusUpdateRequest
 
 
 class TestFeedbackStatusUpdateRequest:

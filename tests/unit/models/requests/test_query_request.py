@@ -1,11 +1,9 @@
 """Unit tests for QueryRequest model."""
 
-from logging import Logger
-
 import pytest
-from pytest_mock import MockerFixture
 
-from models.requests import Attachment, QueryRequest, SolrVectorSearchRequest
+from models.api.requests import QueryRequest
+from models.common.query import Attachment, SolrVectorSearchRequest
 
 
 class TestQueryRequest:
@@ -94,32 +92,21 @@ class TestQueryRequest:
         assert qr.system_prompt == "You are a helpful assistant"
         assert qr.attachments is None
 
-    def test_validate_media_type(self, mocker: MockerFixture) -> None:
-        """Test the validate_media_type method.
+    def test_validate_media_type(self) -> None:
+        """Test accepted media_type values on QueryRequest.
 
-        Verify that setting a supported media type does not emit a warning.
-
-        Patches the module logger, constructs a QueryRequest with provider,
-        model, and media_type "text/plain", and asserts the logger's warning
-        method was not called.
+        Constructs a QueryRequest with provider, model, and a supported
+        ``media_type`` and asserts fields are stored correctly.
         """
-        # Mock the logger
-        mock_logger = mocker.Mock(spec=Logger)
-        mocker.patch("models.requests.logger", mock_logger)
-
         qr = QueryRequest(
             query="Tell me about Kubernetes",
             provider="OpenAI",
             model="gpt-3.5-turbo",
             media_type="text/plain",
         )  # pyright: ignore[reportCallIssue]
-        assert qr is not None
         assert qr.provider == "OpenAI"
         assert qr.model == "gpt-3.5-turbo"
         assert qr.media_type == "text/plain"
-
-        # Media type is now fully supported, no warning expected
-        mock_logger.warning.assert_not_called()
 
     def test_generate_topic_summary_explicit_false(self) -> None:
         """Test that generate_topic_summary can be explicitly set to False.

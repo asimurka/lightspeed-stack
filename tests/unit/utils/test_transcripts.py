@@ -5,8 +5,8 @@ import hashlib
 from pytest_mock import MockerFixture
 
 from configuration import AppConfig
+from models.api.requests import QueryRequest
 from models.common.turn_summary import ToolCallSummary, ToolResultSummary, TurnSummary
-from models.requests import QueryRequest
 from utils.transcripts import (
     construct_transcripts_path,
     create_transcript,
