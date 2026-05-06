@@ -54,8 +54,8 @@ from models.api.responses.error import (
 )
 from models.api.responses.successful import ResponsesResponse
 from models.common.moderation import ShieldModerationBlocked
+from models.common.responses.contexts import ResponsesContext
 from models.common.responses.responses_api_params import ResponsesApiParams
-from models.common.responses.responses_context import ResponsesContext
 from models.common.turn_summary import TurnSummary
 from models.config import Action
 from observability import ResponsesEventData, build_responses_event, send_splunk_event
