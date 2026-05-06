@@ -11,6 +11,7 @@ from models.common.moderation import ShieldModerationResult
 from models.common.turn_summary import RAGContext
 
 
+# TODO: LCORE-2121: Use AuthTuple everywhere (type refactoring needed) pylint: disable=W0511
 class ResponsesContext(BaseModel):
     """Shared request-scoped context for the /responses endpoint pipeline."""
 

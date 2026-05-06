@@ -10,7 +10,7 @@ import secrets
 
 from fastapi import HTTPException, Request, status
 
-from authentication.interface import AuthInterface
+from authentication.interface import AuthInterface, AuthTuple
 from authentication.utils import extract_user_token
 from constants import (
     DEFAULT_USER_NAME,
@@ -45,7 +45,7 @@ class APIKeyTokenAuthDependency(
         self.config: APIKeyTokenConfiguration = config
         self.skip_userid_check = True
 
-    async def __call__(self, request: Request) -> tuple[str, str, bool, str]:
+    async def __call__(self, request: Request) -> AuthTuple:
         """Validate FastAPI Requests for authentication and authorization.
 
         Args:

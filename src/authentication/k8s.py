@@ -9,7 +9,7 @@ from fastapi import HTTPException, Request
 from kubernetes.client.rest import ApiException
 from kubernetes.config import ConfigException
 
-from authentication.interface import NO_AUTH_TUPLE, AuthInterface
+from authentication.interface import NO_AUTH_TUPLE, AuthInterface, AuthTuple
 from authentication.utils import extract_user_token
 from configuration import configuration
 from constants import DEFAULT_VIRTUAL_PATH
@@ -418,7 +418,7 @@ class K8SAuthDependency(AuthInterface):  # pylint: disable=too-few-public-method
         self.virtual_path = virtual_path
         self.skip_userid_check = False
 
-    async def __call__(self, request: Request) -> tuple[str, str, bool, str]:
+    async def __call__(self, request: Request) -> AuthTuple:
         """Validate FastAPI Requests for authentication and authorization.
 
         Parameters:
