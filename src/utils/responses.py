@@ -8,6 +8,7 @@ from typing import Any, Optional, cast
 
 from fastapi import HTTPException
 from llama_stack_api import OpenAIResponseObject
+from llama_stack_api.openai_responses import ApprovalFilter
 from llama_stack_api.openai_responses import (
     OpenAIResponseContentPartRefusal as ContentPartRefusal,
 )
@@ -732,12 +733,20 @@ async def get_mcp_tools(
             continue
 
         authorization = headers.pop("Authorization", None)
+
+        require_approval = (
+            mcp_server.require_approval
+            if isinstance(mcp_server.require_approval, str)
+            else ApprovalFilter(
+                always=mcp_server.require_approval.always or None,
+                never=mcp_server.require_approval.never or None,
+            )
+        )
         tools.append(
             InputToolMCP(
-                type="mcp",
                 server_label=mcp_server.name,
                 server_url=mcp_server.url,
-                require_approval="never",
+                require_approval=require_approval,
                 headers=headers or None,
                 authorization=authorization,
             )
