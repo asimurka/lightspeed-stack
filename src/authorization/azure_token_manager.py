@@ -1,6 +1,5 @@
 """Azure Entra ID token manager for Azure OpenAI authentication."""
 
-import os
 import time
 from typing import Optional
 
@@ -34,7 +33,13 @@ class AzureEntraIDManager(metaclass=Singleton):
     def __init__(self) -> None:
         """Initialize the token manager with empty state."""
         self._expires_on: int = 0
+        self._access_token: SecretStr = SecretStr("")
         self._entra_id_config: Optional[AzureEntraIdConfiguration] = None
+        self._azure_base_url: Optional[str] = None
+
+    def set_base_url(self, base_url: Optional[str]) -> None:
+        """Set the Azure API base."""
+        self._azure_base_url = base_url
 
     def set_config(self, azure_config: AzureEntraIdConfiguration) -> None:
         """Set the Azure Entra ID configuration."""
@@ -53,8 +58,24 @@ class AzureEntraIDManager(metaclass=Singleton):
 
     @property
     def access_token(self) -> SecretStr:
-        """Return the access token from environment variable as SecretStr."""
-        return SecretStr(os.environ.get("AZURE_API_KEY", ""))
+        """Return the cached access token."""
+        return self._access_token
+
+    @property
+    def azure_base_url(self) -> Optional[str]:
+        """Return the cached Azure API base."""
+        return self._azure_base_url
+
+    def build_azure_provider_data(self) -> Optional[dict[str, str]]:
+        """Build azure_api_key and azure_base_url entries for provider data.
+
+        Returns:
+            Provider data dict when a token and base_url are available.
+        """
+        token = self.access_token.get_secret_value()
+        if not token or self.azure_base_url is None:
+            return None
+        return {"azure_api_key": token, "azure_api_base": self.azure_base_url}
 
     def refresh_token(self) -> bool:
         """Refresh the cached Azure access token.
@@ -76,9 +97,9 @@ class AzureEntraIDManager(metaclass=Singleton):
         return False
 
     def _update_access_token(self, token: str, expires_on: int) -> None:
-        """Update the token in env var and track expiration time."""
+        """Update the cached token and track expiration time."""
+        self._access_token = SecretStr(token)
         self._expires_on = expires_on - TOKEN_EXPIRATION_LEEWAY
-        os.environ["AZURE_API_KEY"] = token
         expiry_time = time.strftime(
             "%Y-%m-%d %H:%M:%S", time.localtime(self._expires_on)
         )

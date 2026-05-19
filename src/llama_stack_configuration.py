@@ -5,15 +5,11 @@ This module can be used in two ways:
 2. As a module: `from llama_stack_configuration import generate_configuration`
 """
 
-import os
 from argparse import ArgumentParser
-from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import urljoin
 
 import yaml
-from azure.core.exceptions import ClientAuthenticationError
-from azure.identity import ClientSecretCredential, CredentialUnavailableError
 from llama_stack.core.stack import replace_env_vars
 
 import constants
@@ -47,70 +43,38 @@ class YamlDumper(yaml.Dumper):  # pylint: disable=too-many-ancestors
 # =============================================================================
 
 
-def setup_azure_entra_id_token(
-    azure_config: Optional[dict[str, Any]], env_file: str
+def enrich_azure_entra_id_inference(
+    ls_config: dict[str, Any],
+    azure_entra_id: Optional[dict[str, Any]],
 ) -> None:
-    """Generate Azure Entra ID access token and write to .env file.
+    """Enrich remote::azure inference provider for Entra ID authentication.
 
-    Skips generation if AZURE_API_KEY is already set (e.g., orchestrator-injected).
+    When Azure Entra ID is configured, the remote::azure inference provider is enriched
+    with model_validation=false to defer model validation to runtime.
+
+    Parameters:
+        ls_config (dict[str, Any]): Mutable Llama Stack configuration dictionary to update.
+        azure_entra_id (Optional[dict[str, Any]]): Lightspeed azure_entra_id block,
+            or None.
+
+    Returns:
+        None: The configuration is modified in place.
     """
-    # Skip if already injected by orchestrator (secure production setup)
-    if os.environ.get("AZURE_API_KEY"):
-        logger.info("Azure Entra ID: AZURE_API_KEY already set, skipping generation")
+    if azure_entra_id is None:
         return
 
-    if azure_config is None:
-        logger.info("Azure Entra ID: Not configured, skipping")
-        return
+    inference_providers = ls_config.get("providers", {}).get("inference", [])
 
-    tenant_id = azure_config.get("tenant_id")
-    client_id = azure_config.get("client_id")
-    client_secret = azure_config.get("client_secret")
-    scope = azure_config.get("scope", "https://cognitiveservices.azure.com/.default")
+    for provider in inference_providers:
+        if provider.get("provider_type") != "remote::azure":
+            continue
 
-    if not all([tenant_id, client_id, client_secret]):
-        logger.warning(
-            "Azure Entra ID: Missing required fields (tenant_id, client_id, client_secret)"
-        )
-        return
-
-    try:
-        credential = ClientSecretCredential(
-            tenant_id=str(tenant_id),
-            client_id=str(client_id),
-            client_secret=str(client_secret),
-        )
-
-        token = credential.get_token(scope)
-
-        # Write to .env file
-        # Create file if it doesn't exist
-        Path(env_file).touch()
-
-        lines = []
-        with open(env_file, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-
-        # Update or add AZURE_API_KEY
-        key_found = False
-        for i, line in enumerate(lines):
-            if line.startswith("AZURE_API_KEY="):
-                lines[i] = f"AZURE_API_KEY={token.token}\n"
-                key_found = True
-                break
-
-        if not key_found:
-            lines.append(f"AZURE_API_KEY={token.token}\n")
-
-        with open(env_file, "w", encoding="utf-8") as f:
-            f.writelines(lines)
-
+        provider_config = provider.setdefault("config", {})
+        provider_config["model_validation"] = False
         logger.info(
-            "Azure Entra ID: Access token set in env and written to %s", env_file
+            "Azure Entra ID: configured remote::azure provider with "
+            "model_validation=false"
         )
-
-    except (ClientAuthenticationError, CredentialUnavailableError) as e:
-        logger.error("Azure Entra ID: Failed to generate token: %s", e)
 
 
 # =============================================================================
@@ -602,7 +566,6 @@ def generate_configuration(
     input_file: str,
     output_file: str,
     config: dict[str, Any],
-    env_file: str = ".env",
 ) -> None:
     """Generate enriched Llama Stack configuration for service/container mode.
 
@@ -610,7 +573,6 @@ def generate_configuration(
         input_file: Path to input Llama Stack config
         output_file: Path to write enriched config
         config: Lightspeed config dict (from YAML)
-        env_file: Path to .env file
     """
     logger.info("Reading Llama Stack configuration from file %s", input_file)
 
@@ -619,8 +581,8 @@ def generate_configuration(
 
     dedupe_providers_vector_io(ls_config)
 
-    # Enrichment: Azure Entra ID token
-    setup_azure_entra_id_token(config.get("azure_entra_id"), env_file)
+    # Enrichment: Azure Entra ID deferred auth
+    enrich_azure_entra_id_inference(ls_config, config.get("azure_entra_id"))
 
     # Enrichment: BYOK RAG
     enrich_byok_rag(ls_config, config.get("byok_rag", []))
@@ -664,19 +626,12 @@ def main() -> None:
         default="run_.yaml",
         help="Output enriched config (default: run_.yaml)",
     )
-    parser.add_argument(
-        "-e",
-        "--env-file",
-        default=".env",
-        help="Path to .env file for AZURE_API_KEY (default: .env)",
-    )
     args = parser.parse_args()
 
     with open(args.config, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
-        config = replace_env_vars(config)
 
-    generate_configuration(args.input, args.output, config, args.env_file)
+    generate_configuration(args.input, args.output, config)
 
 
 if __name__ == "__main__":

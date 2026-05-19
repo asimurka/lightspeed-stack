@@ -7,10 +7,6 @@ from typing import Optional
 import psycopg2
 from fastapi import HTTPException
 from llama_stack_client import (
-    APIConnectionError,
-    AsyncLlamaStackClient,
-)
-from llama_stack_client import (
     APIStatusError as LLSApiStatusError,
 )
 from llama_stack_client.types import Shield
@@ -20,9 +16,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 import constants
 from app.database import get_session
-from authorization.azure_token_manager import AzureEntraIDManager
 from cache.cache_error import CacheError
-from client import AsyncLlamaStackClientHolder
 from configuration import configuration
 from log import get_logger
 from models.api.requests import QueryRequest
@@ -32,7 +26,6 @@ from models.api.responses.error import (
     InternalServerErrorResponse,
     PromptTooLongResponse,
     QuotaExceededResponse,
-    ServiceUnavailableResponse,
     UnprocessableEntityResponse,
 )
 from models.cache_entry import CacheEntry
@@ -171,52 +164,6 @@ def is_input_shield(shield: Shield) -> bool:
         bool: True if the shield is for input or both input/output monitoring; False otherwise.
     """
     return _is_inout_shield(shield) or not is_output_shield(shield)
-
-
-async def update_azure_token(
-    client: AsyncLlamaStackClient,
-) -> AsyncLlamaStackClient:
-    """
-    Update the client with a fresh Azure token.
-
-    Updates the client with the fresh Azure token. Should be called after
-    verifying that token refresh is needed and successful.
-
-    Args:
-        client: The current AsyncLlamaStackClient instance
-
-    Returns:
-        AsyncLlamaStackClient: The client instance (reloaded or updated with fresh token)
-    """
-    if AsyncLlamaStackClientHolder().is_library_client:
-        library_client: AsyncLlamaStackClient = (
-            await AsyncLlamaStackClientHolder().reload_library_client()
-        )
-        return library_client
-    try:
-        providers = await client.providers.list()
-        azure_config = next(
-            p.config for p in providers if p.provider_type == "remote::azure"
-        )
-    except APIConnectionError as e:
-        error_response = ServiceUnavailableResponse(
-            backend_name="Llama Stack",
-            cause=str(e),
-        )
-        raise HTTPException(**error_response.model_dump()) from e
-    except LLSApiStatusError as e:
-        error_response = InternalServerErrorResponse.generic()
-        raise HTTPException(**error_response.model_dump()) from e
-
-    updated_client: (
-        AsyncLlamaStackClient
-    ) = AsyncLlamaStackClientHolder().update_provider_data(
-        {
-            "azure_api_key": AzureEntraIDManager().access_token.get_secret_value(),
-            "azure_api_base": str(azure_config.get("api_base")),
-        }
-    )
-    return updated_client
 
 
 def prepare_input(

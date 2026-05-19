@@ -54,7 +54,6 @@ from utils.query import (
     is_context_length_error,
     prepare_input,
     store_query_results,
-    update_azure_token,
     validate_attachments_metadata,
     validate_model_provider_override,
 )
@@ -204,7 +203,7 @@ async def query_endpoint_handler(
         and AzureEntraIDManager().is_token_expired
         and AzureEntraIDManager().refresh_token()
     ):
-        client = await update_azure_token(client)
+        client = await AsyncLlamaStackClientHolder().update_azure_token()
 
     # Retrieve response using Responses API
     turn_summary = await retrieve_response(

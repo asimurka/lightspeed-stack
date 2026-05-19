@@ -101,6 +101,9 @@ clean-llama-stack: remove-llama-stack-container ## Remove container and image
 		echo "Removing llama-stack image..."; \
 		$(CONTAINER_RUNTIME) rmi $(LLAMA_STACK_IMAGE); \
 	fi
+run-llama-stack: ## Start Llama Stack with enriched config (for local service mode)
+	uv run src/llama_stack_configuration.py -c $(CONFIG) -i $(LLAMA_STACK_CONFIG) -o $(LLAMA_STACK_CONFIG) && \
+	uv run llama stack run $(LLAMA_STACK_CONFIG)
 
 test-unit: ## Run the unit tests
 	@echo "Running unit tests..."

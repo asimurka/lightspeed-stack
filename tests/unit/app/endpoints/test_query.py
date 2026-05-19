@@ -541,19 +541,8 @@ class TestQueryEndpointHandler:
         )
 
         mock_updated_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_response_obj_updated = mocker.Mock()
-        mock_response_obj_updated.output = []
-        mock_updated_client.responses = mocker.Mock()
-        mock_updated_client.responses.create = mocker.AsyncMock(
-            return_value=mock_response_obj_updated
-        )
-        mock_update_token = mocker.patch(
-            "app.endpoints.query.update_azure_token",
-            new=mocker.AsyncMock(return_value=mock_updated_client),
-        )
-        mocker.patch(
-            "app.endpoints.query.get_topic_summary",
-            new=mocker.AsyncMock(return_value=None),
+        mock_client_holder.update_azure_token = mocker.AsyncMock(
+            return_value=mock_updated_client
         )
 
         async def mock_retrieve_response(*_args: Any, **_kwargs: Any) -> TurnSummary:
@@ -576,7 +565,7 @@ class TestQueryEndpointHandler:
             mcp_headers={},
         )
 
-        mock_update_token.assert_called_once()
+        mock_client_holder.update_azure_token.assert_called_once()
 
 
 class TestRetrieveResponse:

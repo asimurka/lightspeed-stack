@@ -144,18 +144,13 @@ spec:
           INPUT_CONFIG="${LLAMA_STACK_CONFIG:-/opt/app-root/run.yaml}"
           ENRICHED_CONFIG="/opt/app-root/run.yaml"
           LIGHTSPEED_CONFIG="${LIGHTSPEED_CONFIG:-/opt/app-root/lightspeed-stack.yaml}"
-          ENV_FILE="/opt/app-root/.env"
           if [[ -f "$LIGHTSPEED_CONFIG" ]]; then
             echo "Enriching llama-stack config..."
             ENRICHMENT_FAILED=0
             python3 /opt/app-root/src/llama_stack_configuration.py \
               -c "$LIGHTSPEED_CONFIG" \
               -i "$INPUT_CONFIG" \
-              -o "$ENRICHED_CONFIG" \
-              -e "$ENV_FILE" 2>&1 || ENRICHMENT_FAILED=1
-            if [[ -f "$ENV_FILE" ]]; then
-              set -a && . "$ENV_FILE" && set +a
-            fi
+              -o "$ENRICHED_CONFIG" 2>&1 || ENRICHMENT_FAILED=1
             if [[ -f "$ENRICHED_CONFIG" ]] && [[ "$ENRICHMENT_FAILED" -eq 0 ]]; then
               echo "Using enriched config: $ENRICHED_CONFIG"
               restore_rag_seed

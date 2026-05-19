@@ -78,7 +78,6 @@ from utils.query import (
     handle_known_apistatus_errors,
     is_context_length_error,
     store_query_results,
-    update_azure_token,
     validate_model_provider_override,
 )
 from utils.quota import check_tokens_available, get_available_quotas
@@ -405,7 +404,7 @@ async def responses_endpoint_handler(
         and AzureEntraIDManager().is_token_expired
         and AzureEntraIDManager().refresh_token()
     ):
-        client = await update_azure_token(client)
+        client = await AsyncLlamaStackClientHolder().update_azure_token()
 
     input_text = (
         original_request.input

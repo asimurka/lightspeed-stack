@@ -3,15 +3,21 @@
 import json
 import os
 import tempfile
-from typing import Optional
+from typing import Optional, cast
 
 import yaml
 from fastapi import HTTPException
 from llama_stack.core.library_client import AsyncLlamaStackAsLibraryClient
 from llama_stack_client import APIConnectionError, APIStatusError, AsyncLlamaStackClient
 
+from authorization.azure_token_manager import AzureEntraIDManager
 from configuration import configuration
-from llama_stack_configuration import YamlDumper, enrich_byok_rag, enrich_solr
+from llama_stack_configuration import (
+    YamlDumper,
+    enrich_azure_entra_id_inference,
+    enrich_byok_rag,
+    enrich_solr,
+)
 from log import get_logger
 from models.api.responses.error import ServiceUnavailableResponse
 from models.config import LlamaStackConfiguration
@@ -89,6 +95,12 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
 
         # Enrichment: Solr - enabled when "okp" appears in either inline or tool list
         enrich_solr(ls_config, config.rag.model_dump(), config.okp.model_dump())
+
+        # Enrichment: Azure Entra ID deferred auth
+        entra_id_config = (
+            config.azure_entra_id.model_dump() if config.azure_entra_id else None
+        )
+        enrich_azure_entra_id_inference(ls_config, entra_id_config)
 
         enriched_path = os.path.join(
             tempfile.gettempdir(), "llama_stack_enriched_config.yaml"
@@ -211,23 +223,35 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
         )
         return False, f"Model {model_id} not found in model registry"
 
-    def update_provider_data(self, updates: dict[str, str]) -> AsyncLlamaStackClient:
-        """Update provider data headers for service client.
-
-        For use with service mode only.
-
-        Args:
-            updates: Key-value pairs to merge into provider data header.
+    async def update_azure_token(self) -> AsyncLlamaStackClient:
+        """Apply cached Azure credentials and replace the held client.
 
         Returns:
-            The updated client instance.
+            The new client instance assigned to this holder.
         """
-        if not self._lsc:
-            raise RuntimeError(
-                "AsyncLlamaStackClient has not been initialised. Ensure 'load(..)' has been called."
-            )
+        updates = AzureEntraIDManager().build_azure_provider_data()
+        if not updates:
+            return self.get_client()
 
-        current_headers = self._lsc.default_headers or {}
+        if self.is_library_client:
+            if not self._config_path:
+                logger.warning("Cannot update Azure token: config path not set")
+                return self.get_client()
+
+            current_provider_data = dict(
+                cast(AsyncLlamaStackAsLibraryClient, self._lsc).provider_data or {}
+            )
+            current_provider_data.update(updates)
+            client = AsyncLlamaStackAsLibraryClient(
+                self._config_path, provider_data=current_provider_data
+            )
+            await client.initialize()
+            self._lsc = client
+            return client
+
+        # Service client mode
+        current_client = self.get_client()
+        current_headers = current_client.default_headers or {}
         provider_data_json = current_headers.get("X-LlamaStack-Provider-Data")
 
         try:
@@ -242,5 +266,32 @@ class AsyncLlamaStackClientHolder(metaclass=Singleton):
             "X-LlamaStack-Provider-Data": json.dumps(provider_data),
         }
 
-        self._lsc = self._lsc.copy(set_default_headers=updated_headers)  # type: ignore[arg-type]
-        return self._lsc
+        updated_client = current_client.copy(
+            set_default_headers=updated_headers  # type: ignore[arg-type]
+        )
+        self._lsc = updated_client
+        return updated_client
+
+    async def get_azure_base_url(self) -> Optional[str]:
+        """
+        Retrieve the Azure base_url endpoint from the remote Llama Stack provider configuration.
+
+        Returns:
+            Optional[str]: The Azure base_url if available, otherwise None.
+        """
+        if not self._lsc:
+            return None
+
+        try:
+            providers = await self._lsc.providers.list()
+        except (APIConnectionError, APIStatusError) as err:
+            logger.warning("Failed to list providers for Azure base_url: %s", err)
+            return None
+
+        for provider in providers:
+            if provider.provider_type != "remote::azure":
+                continue
+            base = provider.config.get("base_url")
+            if base is not None:
+                return str(base)
+        return None

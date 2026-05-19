@@ -77,15 +77,6 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     initialize_sentry()
 
-    azure_config = configuration.configuration.azure_entra_id
-    if azure_config is not None:
-        AzureEntraIDManager().set_config(azure_config)
-        if not AzureEntraIDManager().refresh_token():
-            logger.warning(
-                "Failed to refresh Azure token at startup. "
-                "Token refresh will be retried on next Azure request."
-            )
-
     llama_stack_config = configuration.configuration.llama_stack
     await AsyncLlamaStackClientHolder().load(llama_stack_config)
     client = AsyncLlamaStackClientHolder().get_client()
@@ -104,6 +95,11 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         )
         raise
 
+    azure_entra_id_config = configuration.configuration.azure_entra_id
+    if azure_entra_id_config is not None:
+        AzureEntraIDManager().set_config(azure_entra_id_config)
+        azure_base_url = await AsyncLlamaStackClientHolder().get_azure_base_url()
+        AzureEntraIDManager().set_base_url(azure_base_url)
     logger.info("Registering MCP servers")
     await register_mcp_servers_async(logger, configuration.configuration)
     logger.info("App startup complete")

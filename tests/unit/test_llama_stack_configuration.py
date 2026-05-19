@@ -12,6 +12,7 @@ from llama_stack_configuration import (
     construct_vector_io_providers_section,
     construct_vector_stores_section,
     dedupe_providers_vector_io,
+    enrich_azure_entra_id_inference,
     enrich_byok_rag,
     enrich_solr,
     generate_configuration,
@@ -23,6 +24,85 @@ from models.config import (
     ServiceConfiguration,
     UserDataCollection,
 )
+
+# =============================================================================
+# Test enrich_azure_entra_id_inference
+# =============================================================================
+
+
+def test_enrich_azure_entra_id_inference_skips_when_not_configured() -> None:
+    """Test enrich_azure_entra_id_inference does nothing without Entra ID config."""
+    ls_config: dict[str, Any] = {
+        "providers": {
+            "inference": [
+                {
+                    "provider_id": "azure",
+                    "provider_type": "remote::azure",
+                    "config": {"model_validation": True},
+                }
+            ]
+        }
+    }
+    enrich_azure_entra_id_inference(ls_config, None)
+    assert ls_config["providers"]["inference"][0]["config"] == {
+        "model_validation": True
+    }
+
+
+def test_enrich_azure_entra_id_inference_sets_model_validation_false() -> None:
+    """Test enrich_azure_entra_id_inference disables startup model validation."""
+    ls_config: dict[str, Any] = {
+        "providers": {
+            "inference": [
+                {
+                    "provider_id": "azure",
+                    "provider_type": "remote::azure",
+                    "config": {},
+                }
+            ]
+        }
+    }
+    enrich_azure_entra_id_inference(ls_config, {"tenant_id": "t"})
+    azure_config = ls_config["providers"]["inference"][0]["config"]
+    assert azure_config["model_validation"] is False
+
+
+def test_generate_configuration_enriches_azure_entra_id(tmp_path: Path) -> None:
+    """Test generate_configuration applies Azure Entra ID enrichment."""
+    infile = tmp_path / "in.yaml"
+    outfile = tmp_path / "out.yaml"
+    with open(infile, "w", encoding="utf-8") as f:
+        yaml.dump(
+            {
+                "version": 2,
+                "providers": {
+                    "inference": [
+                        {
+                            "provider_id": "azure",
+                            "provider_type": "remote::azure",
+                            "config": {"api_key": "${env.AZURE_API_KEY}"},
+                        }
+                    ]
+                },
+                "registered_resources": {},
+            },
+            f,
+        )
+
+    generate_configuration(
+        str(infile),
+        str(outfile),
+        {"azure_entra_id": {"tenant_id": "tenant"}},
+    )
+
+    with open(outfile, encoding="utf-8") as f:
+        result = yaml.safe_load(f)
+
+    azure_config = result["providers"]["inference"][0]["config"]
+    assert azure_config["model_validation"] is False
+    assert azure_config["api_key"] == "${env.AZURE_API_KEY}"
+    assert not (tmp_path / ".env").exists()
+
 
 # =============================================================================
 # Test construct_vector_stores_section
@@ -444,9 +524,7 @@ def test_generate_configuration_dedupes_vector_io_on_load(tmp_path: Path) -> Non
             },
             f,
         )
-    generate_configuration(
-        str(infile), str(outfile), {}, env_file=str(tmp_path / ".env")
-    )
+    generate_configuration(str(infile), str(outfile), {})
     with open(outfile, encoding="utf-8") as f:
         result = yaml.safe_load(f)
     dupme = [

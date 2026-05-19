@@ -53,14 +53,12 @@ class TestAzureEntraIDTokenManager:
         manager2 = AzureEntraIDManager()
         assert token_manager is manager2
 
-    def test_initial_state(
-        self, token_manager: AzureEntraIDManager, mocker: MockerFixture
-    ) -> None:
+    def test_initial_state(self, token_manager: AzureEntraIDManager) -> None:
         """Check the initial token manager state."""
-        mocker.patch.dict("os.environ", {"AZURE_API_KEY": ""}, clear=False)
         assert token_manager.access_token.get_secret_value() == ""
         assert token_manager.is_token_expired
         assert not token_manager.is_entra_id_configured
+        assert token_manager.azure_base_url is None
 
     def test_set_config(
         self,
@@ -73,11 +71,25 @@ class TestAzureEntraIDTokenManager:
 
     def test_token_expiration_logic(self, token_manager: AzureEntraIDManager) -> None:
         """Verify token expiration logic works correctly."""
-        token_manager._expires_on = int(time.time()) + 100
+        token_manager._update_access_token("valid-token", int(time.time()) + 100)
         assert not token_manager.is_token_expired
 
         token_manager._expires_on = 0
         assert token_manager.is_token_expired
+
+    def test_build_azure_provider_data(
+        self, token_manager: AzureEntraIDManager
+    ) -> None:
+        """Test build_azure_provider_data returns token and api_base when set."""
+        assert token_manager.build_azure_provider_data() is None
+
+        token_manager.set_base_url("https://azure.example.com")
+        token_manager._update_access_token("my-token", int(time.time()) + 3600)
+
+        assert token_manager.build_azure_provider_data() == {
+            "azure_api_key": "my-token",
+            "azure_api_base": "https://azure.example.com",
+        }
 
     def test_refresh_token_raises_without_config(
         self, token_manager: AzureEntraIDManager
@@ -153,12 +165,15 @@ class TestAzureEntraIDTokenManager:
     ) -> None:
         """Simulate time passage to test token expiration property."""
         now = 1000000
-        token_manager._expires_on = now + 10
+        token_manager._update_access_token(
+            "valid-token", now + TOKEN_EXPIRATION_LEEWAY + 60
+        )
 
         mocker.patch("authorization.azure_token_manager.time.time", return_value=now)
         assert not token_manager.is_token_expired
 
         mocker.patch(
-            "authorization.azure_token_manager.time.time", return_value=now + 20
+            "authorization.azure_token_manager.time.time",
+            return_value=now + TOKEN_EXPIRATION_LEEWAY + 120,
         )
         assert token_manager.is_token_expired

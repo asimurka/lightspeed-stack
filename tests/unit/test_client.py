@@ -3,16 +3,19 @@
 # pylint: disable=protected-access
 
 import json
+import time
 from collections.abc import Callable
 from typing import Any
 
 import pytest
 from fastapi import HTTPException
 from llama_stack_client import APIConnectionError, APIStatusError
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, SecretStr
 from pytest_mock import MockerFixture
 
+from authorization.azure_token_manager import AzureEntraIDManager
 from client import AsyncLlamaStackClientHolder
+from configuration import AzureEntraIdConfiguration
 from models.config import LlamaStackConfiguration
 from utils.types import Singleton
 
@@ -96,8 +99,60 @@ async def test_get_async_llama_stack_wrong_configuration() -> None:
 
 
 @pytest.mark.asyncio
-async def test_update_provider_data_service_client() -> None:
-    """Test that update_provider_data updates headers for service clients."""
+async def test_update_azure_token_service_client() -> None:
+    """Test update_azure_token replaces the service client with new provider headers."""
+    AzureEntraIDManager._instances = {}  # type: ignore[attr-defined]
+    manager = AzureEntraIDManager()
+    manager.set_config(
+        AzureEntraIdConfiguration(
+            tenant_id=SecretStr("tenant"),
+            client_id=SecretStr("client"),
+            client_secret=SecretStr("secret"),
+            scope="https://cognitiveservices.azure.com/.default",
+        )
+    )
+    manager.set_base_url("https://api.example.com")
+    manager._update_access_token("fresh-token", int(time.time()) + 3600)
+
+    cfg = LlamaStackConfiguration(
+        url=AnyHttpUrl("http://localhost:8321"),
+        api_key=None,
+        use_as_library_client=False,
+        library_client_config_path=None,
+        timeout=60,
+    )
+    holder = AsyncLlamaStackClientHolder()
+    await holder.load(cfg)
+    original_client = holder.get_client()
+
+    updated_client = await holder.update_azure_token()
+
+    assert updated_client is not original_client
+    assert holder.get_client() is updated_client
+    provider_data_json = updated_client.default_headers.get(
+        "X-LlamaStack-Provider-Data"
+    )
+    provider_data = json.loads(provider_data_json)
+    assert provider_data["azure_api_key"] == "fresh-token"
+    assert provider_data["azure_api_base"] == "https://api.example.com"
+
+
+@pytest.mark.asyncio
+async def test_load_service_client_defers_azure_provider_data() -> None:
+    """Test service client load does not set Azure headers until update_azure_token."""
+    AzureEntraIDManager._instances = {}  # type: ignore[attr-defined]
+    manager = AzureEntraIDManager()
+    manager.set_config(
+        AzureEntraIdConfiguration(
+            tenant_id=SecretStr("tenant"),
+            client_id=SecretStr("client"),
+            client_secret=SecretStr("secret"),
+            scope="https://cognitiveservices.azure.com/.default",
+        )
+    )
+    manager.set_base_url("https://ols-test.openai.azure.com/openai/v1")
+    manager._update_access_token("startup-token", int(time.time()) + 3600)
+
     cfg = LlamaStackConfiguration(
         url=AnyHttpUrl("http://localhost:8321"),
         api_key=None,
@@ -108,40 +163,19 @@ async def test_update_provider_data_service_client() -> None:
     holder = AsyncLlamaStackClientHolder()
     await holder.load(cfg)
 
-    original_client = holder.get_client()
-    assert not holder.is_library_client
+    default_headers = holder.get_client().default_headers or {}
+    assert "X-LlamaStack-Provider-Data" not in default_headers
 
-    # Pre-populate with existing provider data via headers
-    original_client._custom_headers["X-LlamaStack-Provider-Data"] = json.dumps(
-        {
-            "existing_field": "keep_this",
-            "azure_api_key": "old_token",
-        }
-    )
-
-    updated_client = holder.update_provider_data(
-        {
-            "azure_api_key": "new_token",
-            "azure_api_base": "https://new.example.com",
-        }
-    )
-
-    # Returns new client and updates holder
-    assert updated_client is not original_client
-    assert holder.get_client() is updated_client
-
-    # Verify headers on updated client
+    updated_client = await holder.update_azure_token()
     provider_data_json = updated_client.default_headers.get(
         "X-LlamaStack-Provider-Data"
     )
     assert provider_data_json is not None
-    assert isinstance(provider_data_json, str)
     provider_data = json.loads(provider_data_json)
-
-    # Existing fields preserved, new fields updated
-    assert provider_data["existing_field"] == "keep_this"
-    assert provider_data["azure_api_key"] == "new_token"
-    assert provider_data["azure_api_base"] == "https://new.example.com"
+    assert provider_data["azure_api_key"] == "startup-token"
+    assert (
+        provider_data["azure_api_base"] == "https://ols-test.openai.azure.com/openai/v1"
+    )
 
 
 @pytest.mark.asyncio

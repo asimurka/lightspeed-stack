@@ -83,7 +83,6 @@ The script reads your `lightspeed-stack.yaml` configuration and enriches a base 
 - `-c, --config`: Lightspeed config file (default: `lightspeed-stack.yaml`)
 - `-i, --input`: Input Llama Stack config (default: `run.yaml`)
 - `-o, --output`: Output enriched config (default: `run_.yaml`)
-- `-e, --env-file`: Path to .env file for AZURE_API_KEY (default: `.env`)
 
 > [!TIP]
 > Use this script to generate your initial `run.yaml` configuration, then manually customize as needed for your specific setup.

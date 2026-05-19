@@ -466,7 +466,7 @@ class TestResponsesEndpointHandler:
         """Test that Azure token refresh is called when model starts with azure."""
         responses_request = ResponsesRequest(input="Hi", model="azure/some-model")
         _patch_base(mocker, minimal_config)
-        _patch_client(mocker)
+        _mock_client, mock_holder = _patch_client(mocker)
         _patch_resolve_response_context(mocker)
         mocker.patch(
             f"{MODULE}.select_model_for_responses",
@@ -482,10 +482,7 @@ class TestResponsesEndpointHandler:
         mock_azure.refresh_token.return_value = True
         mocker.patch(f"{MODULE}.AzureEntraIDManager", return_value=mock_azure)
         updated_client = mocker.AsyncMock(spec=AsyncLlamaStackClient)
-        mock_update_token = mocker.patch(
-            f"{MODULE}.update_azure_token",
-            new=mocker.AsyncMock(return_value=updated_client),
-        )
+        mock_holder.update_azure_token = mocker.AsyncMock(return_value=updated_client)
         _patch_rag(mocker)
         _patch_moderation(mocker, decision="passed")
         mocker.patch(
@@ -505,7 +502,7 @@ class TestResponsesEndpointHandler:
             auth=MOCK_AUTH,
             mcp_headers={},
         )
-        mock_update_token.assert_called_once()
+        mock_holder.update_azure_token.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_responses_structured_input_appends_rag_message(
