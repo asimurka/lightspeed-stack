@@ -20,6 +20,7 @@ from openai._exceptions import APIStatusError as OpenAIAPIStatusError
 import constants
 from authentication import get_auth_dependency
 from authentication.interface import AuthTuple
+from authorization.azure_token_manager import AzureEntraIDManager
 from authorization.middleware import authorize
 from client import AsyncLlamaStackClientHolder
 from configuration import configuration
@@ -327,6 +328,16 @@ async def _call_llm(
     """
     client = AsyncLlamaStackClientHolder().get_client()
     resolved_model_id = model_id or await _get_default_model_id()
+
+    # Handle Azure token refresh if needed
+    if (
+        resolved_model_id.startswith("azure")
+        and AzureEntraIDManager().is_entra_id_configured
+        and AzureEntraIDManager().is_token_expired
+        and AzureEntraIDManager().refresh_token()
+    ):
+        client = await AsyncLlamaStackClientHolder().update_azure_token()
+
     logger.debug("Using model %s for rlsapi v1 inference", resolved_model_id)
 
     response = await client.responses.create(
