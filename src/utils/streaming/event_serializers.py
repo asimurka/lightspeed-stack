@@ -1,7 +1,6 @@
 """Shared streaming event formatting utilities."""
 
 import json
-from functools import singledispatch
 from typing import Optional
 
 from constants import MEDIA_TYPE_JSON
@@ -16,13 +15,9 @@ from models.common.streaming import (
     ErrorStreamPayload,
     InterruptedEventData,
     InterruptedStreamPayload,
-    LlmTokenStreamPayload,
-    LlmToolCallStreamPayload,
-    LlmToolResultStreamPayload,
-    LlmTurnCompleteStreamPayload,
     StartEventData,
     StartStreamPayload,
-    StreamLlmEventPayload,
+    StreamEventPayload,
     StreamPayloadBase,
 )
 from models.common.turn_summary import ReferencedDocument
@@ -99,66 +94,10 @@ def serialize_end_event(
 
 
 def serialize_event(
-    payload: StreamLlmEventPayload,
+    payload: StreamEventPayload,
     media_type: str = MEDIA_TYPE_JSON,
 ) -> str:
     """Serialize an LLM stream payload (token, tool, turn complete) for the client."""
     if media_type == MEDIA_TYPE_JSON:
-        return format_stream_data(payload)
-    return serialize_event_text(payload)
-
-
-@singledispatch
-def serialize_event_text(_payload: StreamPayloadBase) -> str:
-    """Serialize stream payload to plain text for text media type."""
-    return ""
-
-
-@serialize_event_text.register
-def _(payload: LlmTokenStreamPayload) -> str:
-    """Serialize token stream payload to plain text."""
-    return str(payload.data.token)
-
-
-@serialize_event_text.register
-def _(_payload: LlmTurnCompleteStreamPayload) -> str:
-    """Serialize turn complete stream payload to plain text."""
-    return ""
-
-
-@serialize_event_text.register
-def _(payload: LlmToolCallStreamPayload) -> str:
-    """Serialize tool call stream payload to plain text."""
-    return f"[Tool Call: {payload.data.name}]\n"
-
-
-@serialize_event_text.register
-def _(_payload: LlmToolResultStreamPayload) -> str:
-    """Serialize tool result stream payload to plain text."""
-    return "[Tool Result]\n"
-
-
-@serialize_event_text.register
-def _(payload: EndStreamPayload) -> str:
-    """Serialize end stream payload to plain text."""
-    ref_docs_string = "\n".join(
-        f"{doc.doc_title}: {doc.doc_url}"
-        for doc in payload.data.referenced_documents
-        if doc.doc_url and doc.doc_title
-    )
-    return f"\n\n---\n\n{ref_docs_string}" if ref_docs_string else ""
-
-
-@serialize_event_text.register
-def _(payload: ErrorStreamPayload) -> str:
-    """Serialize error stream payload to plain text."""
-    cause_part = payload.data.cause if payload.data.cause is not None else ""
-    return (
-        f"Status: {payload.data.status_code} - {payload.data.response} - {cause_part}"
-    )
-
-
-@serialize_event_text.register
-def _(_payload: StartStreamPayload) -> str:
-    """Serialize start stream payload to plain text."""
-    return ""
+        return payload.serialize_json()
+    return payload.serialize_text()

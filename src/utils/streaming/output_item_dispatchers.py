@@ -17,9 +17,9 @@ from log import get_logger
 from models.common.responses.types import ResponseItem
 from models.common.streaming import (
     ChunkDispatchResult,
-    LlmToolCallStreamPayload,
-    LlmToolResultStreamPayload,
     StreamDispatchState,
+    ToolCallStreamPayload,
+    ToolResultStreamPayload,
 )
 from models.common.streaming.llama_stack_stream_types import (
     StreamOutputItemDoneFileSearchCall as FileSearchCall,
@@ -63,11 +63,11 @@ def _serialize_tool_summary_events(
     events: list[str] = []
     if tool_call:
         events.append(
-            serialize_event(LlmToolCallStreamPayload(data=tool_call), media_type)
+            serialize_event(ToolCallStreamPayload(data=tool_call), media_type)
         )
     if tool_result:
         events.append(
-            serialize_event(LlmToolResultStreamPayload(data=tool_result), media_type)
+            serialize_event(ToolResultStreamPayload(data=tool_result), media_type)
         )
     return events
 

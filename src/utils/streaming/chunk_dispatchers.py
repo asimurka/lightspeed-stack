@@ -12,9 +12,9 @@ from models.api.responses.error import (
 from models.common.streaming import (
     ChunkDispatchResult,
     ErrorStreamPayload,
-    LlmTokenStreamPayload,
-    LlmToolCallStreamPayload,
-    LlmTurnCompleteStreamPayload,
+    TokenStreamPayload,
+    ToolCallStreamPayload,
+    TurnCompleteStreamPayload,
     StreamDispatchState,
 )
 from models.common.streaming.llama_stack_stream_types import (
@@ -32,7 +32,7 @@ from models.common.streaming.llama_stack_stream_types import (
 from models.common.streaming.llama_stack_stream_types import (
     StreamOutputItemAddedMcpCall as MCPCall,
 )
-from models.common.streaming.stream_payloads import ErrorEventData, LlmTokenChunkData
+from models.common.streaming.stream_payloads import ErrorEventData, TokenChunkData
 from models.common.turn_summary import ToolCallSummary
 from utils.query import is_context_length_error
 from utils.responses import parse_arguments_string
@@ -67,8 +67,8 @@ def _(
     _model_id: str,
 ) -> ChunkDispatchResult:
     """Handle content part start by emitting an empty token."""
-    payload = LlmTokenStreamPayload(
-        data=LlmTokenChunkData(id=state.chunk_id, token=""),
+    payload = TokenStreamPayload(
+        data=TokenChunkData(id=state.chunk_id, token=""),
     )
     return ChunkDispatchResult(
         state=replace(state, chunk_id=state.chunk_id + 1),
@@ -104,8 +104,8 @@ def _(
 ) -> ChunkDispatchResult:
     """Handle token delta chunks."""
     state.text_parts.append(chunk.delta)
-    payload = LlmTokenStreamPayload(
-        data=LlmTokenChunkData(id=state.chunk_id, token=chunk.delta)
+    payload = TokenStreamPayload(
+        data=TokenChunkData(id=state.chunk_id, token=chunk.delta)
     )
     return ChunkDispatchResult(
         state=replace(state, chunk_id=state.chunk_id + 1),
@@ -144,7 +144,7 @@ def _(
         args=parse_arguments_string(chunk.arguments),
         type="mcp_call",
     )
-    payload = LlmToolCallStreamPayload(data=tool_call)
+    payload = ToolCallStreamPayload(data=tool_call)
     return ChunkDispatchResult(
         state=replace(
             state,
@@ -181,8 +181,8 @@ def _(
 ) -> ChunkDispatchResult:
     """Handle successful response completion."""
     final_text = state.llm_response or "".join(state.text_parts)
-    payload = LlmTurnCompleteStreamPayload(
-        data=LlmTokenChunkData(id=state.chunk_id, token=final_text),
+    payload = TurnCompleteStreamPayload(
+        data=TokenChunkData(id=state.chunk_id, token=final_text),
     )
     return ChunkDispatchResult(
         state=replace(
