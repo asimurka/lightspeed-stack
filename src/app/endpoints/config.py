@@ -17,8 +17,10 @@ from models.api.responses.error import (
     UnauthorizedResponse,
 )
 from models.api.responses.successful import ConfigurationResponse
+from models.api.responses.successful.configuration import ObservabilityConfiguration
 from models.config import Action
 from utils.endpoints import check_configuration_loaded
+from utils.otel_config import collect_otel_environment_variables
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["config"])
@@ -71,4 +73,9 @@ async def config_endpoint_handler(
     # ensure that configuration is loaded
     check_configuration_loaded(configuration)
 
-    return ConfigurationResponse(configuration=configuration.configuration)
+    return ConfigurationResponse(
+        configuration=configuration.configuration,
+        observability=ObservabilityConfiguration(
+            otel=collect_otel_environment_variables(),
+        ),
+    )

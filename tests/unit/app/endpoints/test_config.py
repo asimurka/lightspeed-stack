@@ -72,3 +72,37 @@ async def test_config_endpoint_handler_configuration_loaded(
     )
     assert response is not None
     assert response.configuration == minimal_config.configuration
+    assert response.observability.otel == {}
+
+
+@pytest.mark.asyncio
+async def test_config_endpoint_handler_exposes_otel_environment(
+    mocker: MockerFixture,
+    minimal_config: AppConfig,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test that OTEL_* environment variables are exposed with secrets redacted."""
+    mock_authorization_resolvers(mocker)
+    mocker.patch("app.endpoints.config.configuration", minimal_config)
+
+    monkeypatch.setenv("OTEL_SERVICE_NAME", "lightspeed-core")
+    monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318")
+    monkeypatch.setenv(
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "Authorization=Bearer secret-token",
+    )
+    monkeypatch.setenv("HOME", "/home/user")
+
+    request = Request(scope={"type": "http"})
+    auth: AuthTuple = ("test_user_id", "test_user", True, "test_token")
+
+    response = await config_endpoint_handler(
+        auth=auth,
+        request=request,  # pyright:ignore[reportArgumentType]
+    )
+
+    assert response.observability.otel == {
+        "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4318",
+        "OTEL_EXPORTER_OTLP_HEADERS": "[REDACTED]",
+        "OTEL_SERVICE_NAME": "lightspeed-core",
+    }

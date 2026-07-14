@@ -363,3 +363,9 @@ SAVED_PROMPTS_MAX_DISPLAY_NAME_LENGTH_UPPER_BOUND: Final[int] = (
 )
 SAVED_PROMPTS_DEFAULT_MAX_CONTENT_LENGTH: Final[int] = 10_000
 SAVED_PROMPTS_MAX_CONTENT_LENGTH_UPPER_BOUND: Final[int] = 30_000
+
+# OpenTelemetry environment variable prefix used by the SDK and /config exposure.
+OTEL_ENV_VAR_PREFIX: Final[str] = "OTEL_"
+
+# Placeholder returned in /config for secret-bearing OTEL_* environment variables.
+OTEL_CONFIG_REDACTED_VALUE: Final[str] = "[REDACTED]"

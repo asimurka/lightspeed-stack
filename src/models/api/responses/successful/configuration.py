@@ -1,9 +1,25 @@
 """Successful response model for the configuration endpoint."""
 
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from models.api.responses.successful.bases import AbstractSuccessfulResponse
-from models.config import Configuration
+from models.config import Configuration, ConfigurationBase
+
+
+class ObservabilityConfiguration(ConfigurationBase):
+    """Runtime observability settings not sourced from lightspeed-stack.yaml.
+
+    Attributes:
+        otel: Effective OpenTelemetry configuration from OTEL_* environment
+            variables. Secret-bearing values are redacted.
+    """
+
+    otel: dict[str, str] = Field(
+        default_factory=dict,
+        title="OpenTelemetry environment",
+        description="Effective OpenTelemetry configuration from OTEL_* "
+        "environment variables. Secret-bearing values are redacted.",
+    )
 
 
 class ConfigurationResponse(AbstractSuccessfulResponse):
@@ -11,9 +27,17 @@ class ConfigurationResponse(AbstractSuccessfulResponse):
 
     Attributes:
         configuration: Parsed application configuration returned to the client.
+        observability: Runtime observability settings collected from the process
+            environment.
     """
 
     configuration: Configuration
+    observability: ObservabilityConfiguration = Field(
+        default_factory=ObservabilityConfiguration,
+        title="Observability configuration",
+        description="Runtime observability settings collected from the process "
+        "environment.",
+    )
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -87,7 +111,16 @@ class ConfigurationResponse(AbstractSuccessfulResponse):
                             "scheduler": {"period": 1},
                             "enable_token_history": False,
                         },
-                    }
+                    },
+                    "observability": {
+                        "otel": {
+                            "OTEL_EXPORTER_OTLP_ENDPOINT": "http://otel-collector:4318",
+                            "OTEL_EXPORTER_OTLP_HEADERS": "[REDACTED]",
+                            "OTEL_EXPORTER_OTLP_PROTOCOL": "http/protobuf",
+                            "OTEL_PROPAGATORS": "tracecontext,baggage",
+                            "OTEL_SERVICE_NAME": "lightspeed-core",
+                        }
+                    },
                 }
             ]
         }

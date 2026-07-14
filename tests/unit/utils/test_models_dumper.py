@@ -7635,6 +7635,7 @@ def test_dump_models(tmpdir: Path) -> None:
             "ModelFilter",
             "ModelsResponse",
             "OkpConfiguration",
+            "ObservabilityConfiguration",
             "OpenAIResponseAnnotationCitation",
             "OpenAIResponseAnnotationContainerFileCitation",
             "OpenAIResponseAnnotationFileCitation",
