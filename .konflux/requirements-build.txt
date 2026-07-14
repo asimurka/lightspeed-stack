@@ -4,43 +4,83 @@
 #
 #    pybuild-deps compile --output-file=requirements-build.txt requirements.source.txt
 #
+beniget==0.4.2.post1
+    # via pythran
 calver==2025.10.20
     # via trove-classifiers
-cython==3.2.4
-    # via oracledb
+coherent-licensed==0.5.2
+    # via
+    #   jaraco-context
+    #   jaraco-functools
+cython==3.2.8
+    # via
+    #   numpy
+    #   oracledb
+    #   scikit-learn
+    #   scipy
 dunamai==1.26.1
     # via uv-dynamic-versioning
+expandvars==1.1.2
+    # via propcache
 flit-core==3.12.0
     # via
-    #   click
+    #   coherent-licensed
+    #   flit-scm
     #   jinja2
+    #   more-itertools
     #   packaging
     #   pathspec
     #   pypdf
+    #   pyproject-metadata
+    #   truststore
+    #   typing-extensions
     #   wheel
+flit-scm==1.7.0
+    # via exceptiongroup
+gast==0.6.0
+    # via
+    #   beniget
+    #   pythran
 hatch-fancy-pypi-readme==25.1.0
     # via
-    #   attrs
+    #   anthropic
+    #   httpcore2
+    #   httpx2
     #   llama-stack-client
     #   openai
 hatch-vcs==0.5.0
     # via
-    #   attrs
+    #   argcomplete
     #   chardet
     #   filelock
+    #   fsspec
+    #   platformdirs
+    #   scikit-build-core
 hatchling==1.26.3
     # via
+    #   anthropic
     #   hatch-fancy-pypi-readme
     #   llama-stack-client
     #   openai
-hatchling==1.29.0
+hatchling==1.31.0
     # via
     #   a2a-sdk
-    #   attrs
+    #   aiofile
+    #   argcomplete
+    #   beartype
     #   chardet
+    #   docstring-parser
+    #   expandvars
+    #   fastmcp-slim
     #   filelock
+    #   fsspec
+    #   griffelib
     #   hatch-fancy-pypi-readme
     #   hatch-vcs
+    #   httpcore2
+    #   httpx2
+    #   logfire
+    #   logfire-api
     #   mcp
     #   opentelemetry-api
     #   opentelemetry-distro
@@ -49,13 +89,23 @@ hatchling==1.29.0
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+    #   opentelemetry-instrumentation-httpx
     #   opentelemetry-proto
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
+    #   opentelemetry-util-http
+    #   platformdirs
+    #   pydantic-ai
+    #   pydantic-ai-skills
+    #   pydantic-ai-slim
+    #   pydantic-evals
+    #   pydantic-graph
     #   pydantic-settings
-    #   pygments
     #   pythainlp
     #   python-multipart
+    #   scikit-build-core
     #   starlette
     #   uv-dynamic-versioning
     #   uvicorn
@@ -64,100 +114,158 @@ jinja2==3.1.6
     # via uv-dynamic-versioning
 markupsafe==3.0.3
     # via jinja2
-maturin==1.10.2
-    # via fastuuid
-packaging==26.0
+maturin==1.14.1
     # via
-    #   dunamai
+    #   rpds-py
+    #   safetensors
+    #   uv-build
+maturin==1.9.4
+    # via litellm
+meson-python==0.19.0
+    # via scikit-learn
+meson-python==0.20.0
+    # via
+    #   numpy
+    #   scipy
+meson==1.11.2
+    # via meson-python
+numpy==2.4.6
+    # via
+    #   scikit-learn
+    #   scipy
+numpy==2.5.1
+    # via
+    #   pythran
+    #   scipy
+packaging==26.2
+    # via
     #   hatchling
+    #   meson-python
+    #   scikit-build-core
     #   setuptools-scm
     #   vcs-versioning
     #   wheel
-pathspec==1.0.4
-    # via hatchling
-pdm-backend==2.4.8
-    # via fastapi
-pkgconfig==1.6.0
-    # via aiohttp
+pathspec==1.1.1
+    # via
+    #   hatchling
+    #   scikit-build-core
+pdm-backend==2.4.9
+    # via
+    #   fastapi
+    #   griffelib
 pluggy==1.6.0
     # via hatchling
-poetry-core==2.3.2
+ply==3.11
+    # via pythran
+poetry-core==2.4.1
     # via
+    #   aiohappyeyeballs
     #   dunamai
-    #   litellm
-    #   pkgconfig
-    #   rich
     #   tomlkit
+pybind11==3.0.4
+    # via scipy
+pyproject-metadata==0.12.1
+    # via meson-python
+pythran==0.18.1
+    # via scipy
+scikit-build-core==1.0.3
+    # via pybind11
+scipy==1.17.1
+    # via scikit-learn
 semantic-version==2.10.0
     # via setuptools-rust
-setuptools-rust==1.12.1
+setuptools-rust==1.13.0
     # via maturin
-setuptools-scm==10.0.5
+setuptools-scm==10.2.0
     # via
+    #   cachetools
+    #   flit-scm
     #   hatch-vcs
+    #   jaraco-context
+    #   jaraco-functools
     #   llama-stack
     #   llama-stack-api
     #   pluggy
     #   setuptools-rust
     #   tenacity
-tomlkit==0.14.0
+    #   tqdm
+tomlkit==0.15.0
     # via uv-dynamic-versioning
-trove-classifiers==2026.1.14.14
+trove-classifiers==2026.6.1.19
     # via hatchling
+uv-build==0.11.28
+    # via
+    #   genai-prices
+    #   narwhals
+    #   py-key-value-aio
 uv-dynamic-versioning==0.14.0
     # via
     #   a2a-sdk
+    #   fastmcp-slim
+    #   griffelib
+    #   httpcore2
+    #   httpx2
     #   mcp
-vcs-versioning==1.1.1
+    #   pydantic-ai
+    #   pydantic-ai-slim
+    #   pydantic-evals
+    #   pydantic-graph
+vcs-versioning==2.2.2
     # via setuptools-scm
-wheel==0.46.3
+wheel==0.47.0
     # via
     #   authlib
     #   azure-core
     #   azure-identity
-    #   cachetools
-    #   litellm
+    #   oci
     #   oracledb
-    #   sentence-transformers
     #   tornado
     #   tzdata
+    #   wrapt
 
 # The following packages are considered to be unsafe in a requirements file:
-setuptools==82.0.1
+setuptools==78.1.1
+    # via oci
+setuptools==83.0.0
     # via
-    #   aiohttp
     #   authlib
+    #   autoevals
     #   azure-core
     #   azure-identity
-    #   blobfile
     #   cachetools
+    #   caio
     #   calver
-    #   certifi
+    #   cffi
     #   charset-normalizer
+    #   crc32c
     #   emoji
     #   google-api-core
     #   google-cloud-bigquery
     #   googleapis-common-protos
     #   greenlet
     #   grpc-google-iam-v1
+    #   jaraco-context
+    #   jaraco-functools
     #   joserfc
     #   llama-stack
     #   llama-stack-api
     #   markupsafe
     #   maturin
+    #   meson
     #   multiprocess
     #   oracledb
     #   pathspec
     #   pluggy
     #   polyleven
+    #   prometheus-client
+    #   propcache
     #   proto-plus
     #   psutil
     #   pyasn1
-    #   pycryptodomex
     #   pyjwt
-    #   python-dotenv
+    #   pyperclip
+    #   pythran
     #   regex
-    #   requests
     #   semver
     #   sentence-transformers
     #   setuptools-rust
@@ -165,7 +273,11 @@ setuptools==82.0.1
     #   sse-starlette
     #   tenacity
     #   tornado
+    #   tqdm
+    #   tree-sitter
     #   trl
     #   trove-classifiers
     #   tzdata
     #   vcs-versioning
+    #   wrapt
+    #   xxhash
