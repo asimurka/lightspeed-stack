@@ -61,6 +61,11 @@ services:
       - FAISS_VECTOR_STORE_ID=${FAISS_VECTOR_STORE_ID:-}
       # Prevent HuggingFace Hub update checks (HTTP 429 rate-limiting in CI from parallel jobs).
       - HF_HUB_OFFLINE=1
+      # OpenTelemetry (tracing disabled until OTEL_SDK_DISABLED=false and exporter is configured)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-}
+      - OTEL_SDK_DISABLED=${OTEL_SDK_DISABLED:-true}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8080/liveness"]
       interval: 10s   # how often to run the check

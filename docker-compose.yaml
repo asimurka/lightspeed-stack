@@ -101,6 +101,11 @@ services:
       # Substituted in mounted lightspeed-stack.yaml (llama_stack.url); GitHub Actions sets via vars
       - E2E_LLAMA_HOSTNAME=${E2E_LLAMA_HOSTNAME:-llama-stack}
       - E2E_LLAMA_PORT=${E2E_LLAMA_PORT:-8321}
+      # OpenTelemetry (tracing disabled until OTEL_SDK_DISABLED=false and exporter is configured)
+      - OTEL_EXPORTER_OTLP_ENDPOINT=${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      - OTEL_EXPORTER_OTLP_PROTOCOL=${OTEL_EXPORTER_OTLP_PROTOCOL:-}
+      - OTEL_SERVICE_NAME=${OTEL_SERVICE_NAME:-}
+      - OTEL_SDK_DISABLED=${OTEL_SDK_DISABLED:-true}
     depends_on:
         llama-stack:
           condition: service_healthy
