@@ -4,7 +4,7 @@
 
 import json
 import time
-from collections.abc import AsyncIterator, Sequence
+from collections.abc import AsyncIterator, Iterator, Sequence
 from datetime import UTC, datetime
 from typing import Annotated, Any, Final, NoReturn, Optional, cast
 
@@ -21,12 +21,7 @@ from ogx_api import (
 from ogx_api import (
     OpenAIResponseObjectStreamResponseOutputItemDone as OutputItemDoneChunk,
 )
-from ogx_client import (
-    APIConnectionError,
-)
-from ogx_client import (
-    APIStatusError as LLSApiStatusError,
-)
+from ogx_client import ApiException
 from openai._exceptions import (
     APIStatusError as OpenAIAPIStatusError,
 )
@@ -82,6 +77,7 @@ from utils.query import (
     extract_provider_and_model_from_model_id,
     handle_known_apistatus_errors,
     is_context_length_error,
+    is_ogx_connection_error,
     store_query_results,
     validate_model_provider_override,
 )
@@ -183,12 +179,15 @@ def _http_exception_for_response_api_error(
         if not is_context_length_error(str(error)):
             return None
         error_response = PromptTooLongResponse(model=api_params.model)
-    elif isinstance(error, APIConnectionError):
-        error_response = ServiceUnavailableResponse(
-            backend_name="OGX",
-            cause=str(error),
-        )
-    elif isinstance(error, (LLSApiStatusError, OpenAIAPIStatusError)):
+    elif isinstance(error, ApiException):
+        if is_ogx_connection_error(error):
+            error_response = ServiceUnavailableResponse(
+                backend_name="OGX",
+                cause=str(error),
+            )
+        else:
+            error_response = handle_known_apistatus_errors(error, api_params.model)
+    elif isinstance(error, OpenAIAPIStatusError):
         error_response = handle_known_apistatus_errors(error, api_params.model)
     else:
         return None
@@ -559,7 +558,7 @@ async def handle_streaming_response(
     """Handle streaming response from Responses API.
 
     Args:
-        client: The AsyncOgxClient instance
+        client: The LlamaStackClient instance
         original_request: Original request (read-only)
         api_params: API parameters
         responses_context: Responses context
@@ -581,25 +580,20 @@ async def handle_streaming_response(
     else:
         inference_start_time = time.monotonic()
         try:
-            response = await context.client.responses.create(
+            response = context.client.responses.create(
                 **api_params.model_dump(
                     exclude_none=True, exclude={"safety_identifier"}
                 )
             )
             generator = response_generator(
-                stream=cast(AsyncIterator[OpenAIResponseObjectStream], response),
+                stream=cast(Iterator[OpenAIResponseObjectStream], response),
                 original_request=original_request,
                 api_params=api_params,
                 context=context,
                 turn_summary=turn_summary,
                 inference_start_time=inference_start_time,
             )
-        except (
-            RuntimeError,
-            APIConnectionError,
-            LLSApiStatusError,
-            OpenAIAPIStatusError,
-        ) as e:
+        except (RuntimeError, ApiException, OpenAIAPIStatusError) as e:
             _record_response_inference_result(
                 api_params.model,
                 context.endpoint_path,
@@ -855,7 +849,7 @@ def _populate_turn_summary(
 
 
 async def response_generator(
-    stream: AsyncIterator[OpenAIResponseObjectStream],
+    stream: Iterator[OpenAIResponseObjectStream],
     original_request: ResponsesRequest,
     api_params: ResponsesApiParams,
     context: ResponsesContext,
@@ -884,7 +878,7 @@ async def response_generator(
     inference_metric_recorded = False
 
     try:
-        async for chunk in stream:
+        for chunk in stream:
             logger.debug("Processing streaming chunk, type: %s", chunk.type)
 
             # Filter out streaming events for server-deployed MCP tools.
@@ -1086,7 +1080,7 @@ async def handle_non_streaming_response(
         try:
             api_response = cast(
                 OpenAIResponseObject,
-                await context.client.responses.create(
+                context.client.responses.create(
                     **api_params.model_dump(
                         exclude_none=True, exclude={"safety_identifier"}
                     )
@@ -1116,12 +1110,7 @@ async def handle_non_streaming_response(
                 api_response.output,
             )
 
-        except (
-            RuntimeError,
-            APIConnectionError,
-            LLSApiStatusError,
-            OpenAIAPIStatusError,
-        ) as e:
+        except (RuntimeError, ApiException, OpenAIAPIStatusError) as e:
             if not inference_metric_recorded:
                 _record_response_inference_result(
                     api_params.model,

@@ -4,9 +4,10 @@ import asyncio
 import re
 from typing import Optional
 
-from ogx_client import APIConnectionError, AsyncOgxClient
+from ogx_client import ApiException
 from semver import Version
 
+from client import LlamaStackClient
 from constants import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_RETRY_DELAY,
@@ -14,6 +15,7 @@ from constants import (
     MINIMAL_SUPPORTED_LLAMA_STACK_VERSION,
 )
 from log import get_logger
+from utils.query import is_ogx_connection_error
 
 logger = get_logger(__name__)
 
@@ -23,7 +25,7 @@ class InvalidLlamaStackVersionException(Exception):
 
 
 async def check_llama_stack_version(
-    client: AsyncOgxClient,
+    client: LlamaStackClient,
     max_retries: int = DEFAULT_MAX_RETRIES,
     retry_delay: int = DEFAULT_RETRY_DELAY,
 ) -> Optional[str]:
@@ -42,7 +44,7 @@ async def check_llama_stack_version(
         retry_delay: Delay in seconds between retry attempts.
 
     Raises:
-        APIConnectionError: If Llama Stack is unreachable after all retries.
+        ApiException: If Llama Stack is unreachable after all retries.
         InvalidLlamaStackVersionException: If the detected version is outside
         the supported range or cannot be parsed.
     """
@@ -51,14 +53,16 @@ async def check_llama_stack_version(
 
     for attempt in range(max_retries):
         try:
-            version_info = await client.inspect.version()
+            version_info = client.inspect.version()
             compare_versions(
                 version_info.version,
                 MINIMAL_SUPPORTED_LLAMA_STACK_VERSION,
                 MAXIMAL_SUPPORTED_LLAMA_STACK_VERSION,
             )
             return version_info.version
-        except APIConnectionError:
+        except ApiException as e:
+            if not is_ogx_connection_error(e):
+                raise
             if attempt == max_retries - 1:
                 raise
             logger.warning(

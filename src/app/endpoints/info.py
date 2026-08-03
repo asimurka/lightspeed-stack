@@ -3,7 +3,7 @@
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from ogx_client import APIConnectionError
+from ogx_client import ApiException
 
 from authentication import get_auth_dependency
 from authentication.interface import AuthTuple
@@ -19,6 +19,7 @@ from models.api.responses.error import (
 )
 from models.api.responses.successful import InfoResponse
 from models.config import Action
+from utils.query import is_ogx_connection_error
 from version import __version__
 
 logger = get_logger(__name__)
@@ -72,7 +73,7 @@ async def info_endpoint_handler(
         # try to get Llama Stack client
         client = AsyncOgxClientHolder().get_client()
         # retrieve version
-        llama_stack_version_object = await client.inspect.version()
+        llama_stack_version_object = client.inspect.version()
         llama_stack_version = llama_stack_version_object.version
         logger.debug("Service name: %s", configuration.configuration.name)
         logger.debug("Service version: %s", __version__)
@@ -83,7 +84,9 @@ async def info_endpoint_handler(
             llama_stack_version=llama_stack_version,
         )
     # connection to Llama Stack server
-    except APIConnectionError as e:
+    except ApiException as e:
+        if not is_ogx_connection_error(e):
+            raise
         logger.error("Unable to connect to Llama Stack: %s", e)
         response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
         raise HTTPException(**response.model_dump()) from e

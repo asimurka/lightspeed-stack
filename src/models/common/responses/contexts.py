@@ -5,13 +5,13 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import BackgroundTasks
-from ogx_client import AsyncOgxClient
 from pydantic import BaseModel, ConfigDict, Field
 
 from models.api.requests import QueryRequest
 from models.common.moderation import ShieldModerationResult
 from models.common.responses.types import ResponseInput
 from models.common.turn_summary import RAGContext
+from utils.types import LlamaStackClient
 
 
 # TODO: LCORE-2121: Use AuthTuple everywhere (type refactoring needed) pylint: disable=W0511
@@ -20,7 +20,7 @@ class ResponsesContext(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    client: AsyncOgxClient = Field(description="The Llama Stack client")
+    client: LlamaStackClient = Field(description="The Llama Stack client")
     auth: tuple[str, str, bool, str] = Field(
         description="Authentication tuple (user_id, username, skip_userid_check, token)",
     )
@@ -103,7 +103,7 @@ class ResponseGeneratorContext:  # pylint: disable=too-many-instance-attributes
     started_at: str
 
     # Dependencies & State
-    client: AsyncOgxClient
+    client: LlamaStackClient
     moderation_result: ShieldModerationResult
 
     # RAG index identification

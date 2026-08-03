@@ -30,8 +30,7 @@ to disentangle a tangle of side effects.
 from datetime import UTC, datetime
 from typing import Any
 
-from ogx_client import AsyncOgxClient
-
+from client import LlamaStackClient
 from log import get_logger
 from models.compaction import ConversationSummary
 from utils.query import normalize_vertex_ai_model_id
@@ -198,7 +197,7 @@ def _extract_response_text(response: Any) -> str:
 
 
 async def summarize_chunk(
-    client: AsyncOgxClient,
+    client: LlamaStackClient,
     model: str,
     old_items: list[Any],
     summarized_through_turn: int,
@@ -268,7 +267,7 @@ async def summarize_chunk(
     # Normalize Vertex AI model IDs to work around llama-stack 0.6.x bug
     normalized_model = normalize_vertex_ai_model_id(model)
 
-    response = await client.responses.create(
+    response = client.responses.create(
         input=f"Conversation:\n{transcript}",
         instructions=SUMMARIZATION_PROMPT,
         model=normalized_model,
@@ -310,7 +309,7 @@ preservation directives are the same.
 
 
 async def recursively_resummarize(
-    client: AsyncOgxClient,
+    client: LlamaStackClient,
     model: str,
     summaries: list[ConversationSummary],
     encoding_name: str,
@@ -380,7 +379,7 @@ async def recursively_resummarize(
     # Normalize Vertex AI model IDs to work around llama-stack 0.6.x bug
     normalized_model = normalize_vertex_ai_model_id(model)
 
-    response = await client.responses.create(
+    response = client.responses.create(
         input=transcript,
         instructions=RECURSIVE_RESUMMARIZATION_PROMPT,
         model=normalized_model,

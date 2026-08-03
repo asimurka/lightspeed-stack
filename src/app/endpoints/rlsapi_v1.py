@@ -13,7 +13,7 @@ import jinja2
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from jinja2.sandbox import SandboxedEnvironment
 from ogx_api.openai_responses import OpenAIResponseObject
-from ogx_client import APIConnectionError, APIStatusError, RateLimitError
+from ogx_client import ApiException, RateLimitError
 from openai._exceptions import APIStatusError as OpenAIAPIStatusError
 
 import constants
@@ -51,6 +51,7 @@ from utils.query import (
     extract_provider_and_model_from_model_id,
     handle_known_apistatus_errors,
     is_context_length_error,
+    is_ogx_connection_error,
     normalize_vertex_ai_model_id,
 )
 from utils.quota_utils import check_tokens_available
@@ -78,9 +79,7 @@ class TemplateRenderError(Exception):
 _INFER_HANDLED_EXCEPTIONS = (
     TemplateRenderError,
     RuntimeError,
-    APIConnectionError,
-    RateLimitError,
-    APIStatusError,
+    ApiException,
     OpenAIAPIStatusError,
 )
 
@@ -187,16 +186,17 @@ async def _get_default_model_id() -> str:
     )
     client = AsyncOgxClientHolder().get_client()
     try:
-        models = parse_model_list_response(await client.models.list())
-    except APIConnectionError as e:
-        error_response = ServiceUnavailableResponse(
-            backend_name="OGX",
-            cause=str(e),
-        )
-        raise HTTPException(**error_response.model_dump()) from e
-    except APIStatusError as e:
-        error_response = InternalServerErrorResponse.generic()
-        raise HTTPException(**error_response.model_dump()) from e
+        models = parse_model_list_response(client.models.list())
+    except ApiException as e:
+        if is_ogx_connection_error(e):
+            error_response = ServiceUnavailableResponse(
+                backend_name="OGX",
+                cause=str(e),
+            )
+            raise HTTPException(**error_response.model_dump()) from e
+        else:
+            error_response = InternalServerErrorResponse.generic()
+            raise HTTPException(**error_response.model_dump()) from e
 
     llm_models = [m for m in models if m.model_type == "llm"]
     if not llm_models:
@@ -258,7 +258,7 @@ async def _call_llm(
         The full OpenAIResponseObject from the LLM.
 
     Raises:
-        APIConnectionError: If the Llama Stack service is unreachable.
+        ApiException: If the Llama Stack service is unreachable.
         HTTPException: 503 if no default model is configured.
     """
     client = AsyncOgxClientHolder().get_client()
@@ -278,7 +278,7 @@ async def _call_llm(
     # Normalize Vertex AI model IDs to work around llama-stack 0.6.x bug
     normalized_model = normalize_vertex_ai_model_id(resolved_model_id)
 
-    response = await client.responses.create(
+    response = client.responses.create(
         input=question,
         model=normalized_model,
         instructions=instructions,
@@ -590,18 +590,6 @@ def _map_inference_error_to_http_exception(  # pylint: disable=too-many-return-s
         )
         return None
 
-    if isinstance(error, APIConnectionError):
-        logger.error(
-            "Unable to connect to OGX for request %s: %s",
-            request_id,
-            type(error).__name__,
-        )
-        error_response = ServiceUnavailableResponse(
-            backend_name="OGX",
-            cause="Unable to connect to the inference backend",
-        )
-        return HTTPException(**error_response.model_dump())
-
     if isinstance(error, RateLimitError):
         logger.error(
             "Rate limit exceeded for request %s: %s",
@@ -614,7 +602,23 @@ def _map_inference_error_to_http_exception(  # pylint: disable=too-many-return-s
         )
         return HTTPException(**error_response.model_dump())
 
-    if isinstance(error, (APIStatusError, OpenAIAPIStatusError)):
+    if isinstance(error, ApiException):
+        if is_ogx_connection_error(error):
+            logger.error(
+                "Unable to connect to OGX for request %s: %s",
+                request_id,
+                type(error).__name__,
+            )
+            error_response = ServiceUnavailableResponse(
+                backend_name="OGX",
+                cause="Unable to connect to the inference backend",
+            )
+            return HTTPException(**error_response.model_dump())
+        logger.error("API error for request %s: %s", request_id, type(error).__name__)
+        error_response = handle_known_apistatus_errors(error, model_id)
+        return HTTPException(**error_response.model_dump())
+
+    if isinstance(error, OpenAIAPIStatusError):
         logger.error("API error for request %s: %s", request_id, type(error).__name__)
         error_response = handle_known_apistatus_errors(error, model_id)
         return HTTPException(**error_response.model_dump())

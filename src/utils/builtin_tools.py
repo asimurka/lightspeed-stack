@@ -5,12 +5,14 @@ from __future__ import annotations
 from typing import Final
 
 from fastapi import HTTPException
-from ogx_client import APIConnectionError, APIStatusError, AsyncOgxClient
-from ogx_client.types.shared.provider_info import ProviderInfo
+from ogx_client import ApiException
+from ogx_client.models.provider_info import ProviderInfo
 
+from client import LlamaStackClient
 from log import get_logger
 from models.api.responses.error import ServiceUnavailableResponse
 from models.common.tools import CatalogTool, CatalogToolParameter
+from utils.query import is_ogx_connection_error
 
 logger = get_logger(__name__)
 
@@ -71,7 +73,7 @@ def _is_file_search_provider(provider: ProviderInfo) -> bool:
 
 
 async def get_file_search_tools(
-    client: AsyncOgxClient,
+    client: LlamaStackClient,
 ) -> list[CatalogTool]:
     """Return builtin file-search tools when that provider is configured.
 
@@ -87,16 +89,16 @@ async def get_file_search_tools(
         list when file search is not configured.
     """
     try:
-        providers = await client.providers.list()
-    except APIStatusError as exc:
-        logger.warning("Unable to list providers for file-search tools: %s", exc)
+        providers = client.providers.list()
+    except ApiException as e:
+        if is_ogx_connection_error(e):
+            logger.error("Unable to connect to OGX: %s", e)
+            response = ServiceUnavailableResponse(
+                backend_name="OGX", cause=str(e)
+            ).model_dump()
+            raise HTTPException(**response) from e
+        logger.warning("Unable to list providers for file-search tools: %s", e)
         return []
-    except APIConnectionError as e:
-        logger.error("Unable to connect to OGX: %s", e)
-        response = ServiceUnavailableResponse(
-            backend_name="OGX", cause=str(e)
-        ).model_dump()
-        raise HTTPException(**response) from e
 
     file_search_provider = next(
         (provider for provider in providers if _is_file_search_provider(provider)),

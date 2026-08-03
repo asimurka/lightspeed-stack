@@ -5,12 +5,11 @@ from __future__ import annotations
 import re
 from typing import Any, Final, Optional
 
-from ogx.core.library_client import AsyncOGXAsLibraryClient
-from ogx_client import AsyncOgxClient
 from pydantic_ai.agent import Agent
 from pydantic_ai.capabilities import AbstractCapability, AgentCapability
 from pydantic_ai_skills import SkillsCapability
 
+from client import LlamaStackClient
 from configuration import AppConfig
 from models.common.responses.responses_api_params import ResponsesApiParams
 from models.common.tools import CatalogTool, CatalogToolParameter
@@ -196,7 +195,7 @@ def _agent_capabilities(
 
 
 def build_agent(
-    client: AsyncOgxClient | AsyncOGXAsLibraryClient,
+    client: LlamaStackClient,
     responses_params: ResponsesApiParams,
     config: AppConfig,
     shields: Optional[list[str]] = None,
@@ -204,7 +203,7 @@ def build_agent(
 ) -> Agent[None, str]:
     """Build a Pydantic AI agent that mirrors ``responses_params`` on the Llama Stack backend.
 
-    Uses ``OgxProvider`` with the same ``AsyncOgxClient`` (or library client)
+    Uses ``OgxProvider`` with the same ``LlamaStackClient`` (or library client)
     as the query endpoint, and ``OpenAIResponsesModel`` so requests follow the Responses API.
     Llama-Stack-specific fields (conversation, tools, MCP headers, etc.) are passed via
     ``model_settings['extra_body']`` so they merge into the OpenAI client request body.

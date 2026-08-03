@@ -7,12 +7,7 @@ from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from ogx_client import (
-    APIConnectionError,
-)
-from ogx_client import (
-    APIStatusError as LLSApiStatusError,
-)
+from ogx_client import ApiException
 from openai._exceptions import APIStatusError as OpenAIAPIStatusError
 
 from authentication import get_auth_dependency
@@ -69,6 +64,7 @@ from utils.query import (
     extract_provider_and_model_from_model_id,
     handle_known_apistatus_errors,
     is_context_length_error,
+    is_ogx_connection_error,
     prepare_input,
     validate_attachments_metadata,
     validate_model_provider_override,
@@ -404,13 +400,19 @@ async def generate_response_with_compaction(
         )
         yield stream_http_error_event(error_response, media_type)
         return
-    except APIConnectionError as e:
-        yield stream_http_error_event(
-            ServiceUnavailableResponse(backend_name="OGX", cause=str(e)),
-            media_type,
-        )
-        return
-    except (LLSApiStatusError, OpenAIAPIStatusError) as e:
+    except ApiException as e:
+        if is_ogx_connection_error(e):
+            yield stream_http_error_event(
+                ServiceUnavailableResponse(backend_name="OGX", cause=str(e)),
+                media_type,
+            )
+            return
+        else:
+            yield stream_http_error_event(
+                handle_known_apistatus_errors(e, responses_params.model), media_type
+            )
+            return
+    except OpenAIAPIStatusError as e:
         yield stream_http_error_event(
             handle_known_apistatus_errors(e, responses_params.model), media_type
         )

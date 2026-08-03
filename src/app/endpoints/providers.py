@@ -4,8 +4,8 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.params import Depends
-from ogx_client import APIConnectionError, BadRequestError
-from ogx_client.types import ProviderListResponse
+from ogx_client import ApiException, BadRequestError, NotFoundError
+from ogx_client.models.list_providers_response import ListProvidersResponse
 
 from authentication import get_auth_dependency
 from authentication.interface import AuthTuple
@@ -27,6 +27,7 @@ from models.api.responses.successful import (
 )
 from models.config import Action
 from utils.endpoints import check_configuration_loaded
+from utils.query import is_ogx_connection_error
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["providers"])
@@ -91,8 +92,10 @@ async def providers_endpoint_handler(
 
     try:
         client = AsyncOgxClientHolder().get_client()
-        providers: ProviderListResponse = await client.providers.list()
-    except APIConnectionError as e:
+        providers: ListProvidersResponse = client.providers.list()
+    except ApiException as e:
+        if not is_ogx_connection_error(e):
+            raise
         logger.error("Unable to connect to Llama Stack: %s", e)
         response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
         raise HTTPException(**response.model_dump()) from e
@@ -100,11 +103,13 @@ async def providers_endpoint_handler(
     return ProvidersListResponse(providers=group_providers(providers))
 
 
-def group_providers(providers: ProviderListResponse) -> dict[str, list[dict[str, Any]]]:
+def group_providers(
+    providers: ListProvidersResponse,
+) -> dict[str, list[dict[str, Any]]]:
     """Group a list of ProviderInfo objects by their API type.
 
     Args:
-        providers: List of ProviderInfo objects.
+        providers: ListProvidersResponse of ProviderInfo objects.
 
     Returns:
         Mapping from API type to list of providers containing
@@ -161,14 +166,16 @@ async def get_provider_endpoint_handler(
 
     try:
         client = AsyncOgxClientHolder().get_client()
-        provider = await client.providers.retrieve(provider_id)
+        provider = client.providers.retrieve(provider_id)
         return ProviderResponse(**provider.model_dump())
 
-    except APIConnectionError as e:
-        logger.error("Unable to connect to Llama Stack: %s", e)
-        response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
+    except (BadRequestError, NotFoundError) as e:
+        response = NotFoundResponse(resource="provider", resource_id=provider_id)
         raise HTTPException(**response.model_dump()) from e
 
-    except BadRequestError as e:
-        response = NotFoundResponse(resource="provider", resource_id=provider_id)
+    except ApiException as e:
+        if not is_ogx_connection_error(e):
+            raise
+        logger.error("Unable to connect to Llama Stack: %s", e)
+        response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
         raise HTTPException(**response.model_dump()) from e

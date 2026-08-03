@@ -2,18 +2,19 @@
 
 from __future__ import annotations as _annotations
 
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, cast
 
 import httpx
-from ogx.core.library_client import AsyncOGXAsLibraryClient
+from ogx.core.library_client import AsyncOGXAsLibraryClient, OGXAsLibraryClient
 from ogx.core.request_headers import parse_request_provider_data
-from ogx_client import AsyncOgxClient
+from ogx_client import OgxClient
 from openai import AsyncOpenAI
 from pydantic_ai import ModelProfile
 from pydantic_ai.models import create_async_http_client
 from pydantic_ai.profiles.openai import openai_model_profile
 from pydantic_ai.providers import Provider
 
+from client import LlamaStackClient
 from pydantic_ai_lightspeed.llamastack._transport import (
     OgxLibraryTransport,
     wrap_http_client_with_provider_data,
@@ -33,7 +34,7 @@ class OgxProvider(Provider[AsyncOpenAI]):
     Supports two modes:
 
     1. **Server mode** — connect to a running Llama Stack server via HTTP
-    2. **Library mode** — run Llama Stack in-process via ``AsyncOGXAsLibraryClient``
+    2. **Library mode** — run Llama Stack in-process via ``OGXAsLibraryClient``
     """
 
     @property
@@ -58,34 +59,38 @@ class OgxProvider(Provider[AsyncOpenAI]):
 
     @staticmethod
     def from_ogx_client(
-        client: AsyncOgxClient | AsyncOGXAsLibraryClient,
+        client: LlamaStackClient,
     ) -> OgxProvider:
         """Create a ``OgxProvider`` from a Llama Stack client.
 
-        For an ``AsyncOGXAsLibraryClient``, delegates to library mode.
-        For an ``AsyncOgxClient``, extracts the base URL, API key, and
-        underlying HTTP client to create a server-mode provider.
+        For an ``OGXAsLibraryClient``, uses the embedded async library client
+        for in-process transport. For a plain ``OgxClient``, uses base URL /
+        API key / default headers and a fresh async httpx client.
 
         Args:
-            client: A Llama Stack client (server or library variant).
+            client: A Llama Stack client (service ``OgxClient`` or library variant).
 
         Returns:
             Configured ``OgxProvider`` instance.
         """
-        if isinstance(client, AsyncOGXAsLibraryClient):
-            return OgxProvider(library_client=client)
-        api_key = client.api_key or "not-needed"
-        base = str(client.base_url).rstrip("/")
+        if isinstance(client, OGXAsLibraryClient):
+            return OgxProvider(library_client=client.async_client)
+
+        ogx_client = cast(OgxClient, client)
+        api_key = ogx_client.api_key or "not-needed"
+        base = str(ogx_client.base_url).rstrip("/")
         base_url = base if base.endswith("/v1") else f"{base}/v1"
-        raw_headers = client.default_headers
+        raw_headers = ogx_client.api_client.default_headers or {}
         default_headers = {
             str(key): str(value)
             for key, value in raw_headers.items()
             if isinstance(value, str)
         }
         provider_data = parse_request_provider_data(default_headers)
-        http_client = client._client  # pylint: disable=protected-access
-        http_client = wrap_http_client_with_provider_data(http_client, provider_data)
+        http_client = wrap_http_client_with_provider_data(
+            create_async_http_client(),
+            provider_data,
+        )
         return OgxProvider(
             base_url=base_url,
             api_key=api_key,

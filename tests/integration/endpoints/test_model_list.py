@@ -7,8 +7,8 @@ import pytest
 from fastapi import Request
 from fastapi.exceptions import HTTPException
 from ogx_client import APIConnectionError
-from ogx_client.types import ListModelsResponse
-from ogx_client.types.model import Model
+from ogx_client.models.list_models_response import ListModelsResponse
+from ogx_client.models.model import Model
 from pytest_mock import AsyncMockType, MockerFixture
 
 from app.endpoints.models import models_endpoint_handler

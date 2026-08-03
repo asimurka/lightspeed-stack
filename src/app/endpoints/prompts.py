@@ -3,8 +3,7 @@
 from typing import Annotated, Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from ogx_client import APIConnectionError, BadRequestError
-from ogx_client import APIStatusError as LLSApiStatusError
+from ogx_client import ApiException, BadRequestError, NotFoundError
 from openai._exceptions import APIStatusError as OpenAIAPIStatusError
 
 from authentication import get_auth_dependency
@@ -30,7 +29,7 @@ from models.api.responses.successful import (
 )
 from models.config import Action
 from utils.endpoints import check_configuration_loaded
-from utils.query import handle_known_apistatus_errors
+from utils.query import handle_known_apistatus_errors, is_ogx_connection_error
 from utils.suid import check_suid_prompt
 
 logger = get_logger(__name__)
@@ -137,13 +136,18 @@ async def create_prompt_handler(
     try:
         client = AsyncOgxClientHolder().get_client()
         payload = body.model_dump(exclude_none=True)
-        created = await client.prompts.create(**payload)
+        created = client.prompts.create(**payload)
         return PromptResourceResponse.model_validate(created.model_dump())
-    except APIConnectionError as e:
-        logger.error("Unable to connect to Llama Stack: %s", e)
-        response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
-        raise HTTPException(**response.model_dump()) from e
-    except (LLSApiStatusError, OpenAIAPIStatusError) as e:
+    except ApiException as e:
+        if is_ogx_connection_error(e):
+            logger.error("Unable to connect to Llama Stack: %s", e)
+            response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
+            raise HTTPException(**response.model_dump()) from e
+        else:
+            logger.error("API status error while creating prompt: %s", e)
+            error_response = handle_known_apistatus_errors(e, "llama-stack")
+            raise HTTPException(**error_response.model_dump()) from e
+    except OpenAIAPIStatusError as e:
         logger.error("API status error while creating prompt: %s", e)
         error_response = handle_known_apistatus_errors(e, "llama-stack")
         raise HTTPException(**error_response.model_dump()) from e
@@ -185,14 +189,19 @@ async def list_prompts_handler(
 
     try:
         client = AsyncOgxClientHolder().get_client()
-        items = await client.prompts.list()
+        items = client.prompts.list()
         data = [PromptResourceResponse.model_validate(p.model_dump()) for p in items]
         return PromptsListResponse(data=data)
-    except APIConnectionError as e:
-        logger.error("Unable to connect to Llama Stack: %s", e)
-        response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
-        raise HTTPException(**response.model_dump()) from e
-    except (LLSApiStatusError, OpenAIAPIStatusError) as e:
+    except ApiException as e:
+        if is_ogx_connection_error(e):
+            logger.error("Unable to connect to Llama Stack: %s", e)
+            response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
+            raise HTTPException(**response.model_dump()) from e
+        else:
+            logger.error("API status error while listing prompts: %s", e)
+            error_response = handle_known_apistatus_errors(e, "llama-stack")
+            raise HTTPException(**error_response.model_dump()) from e
+    except OpenAIAPIStatusError as e:
         logger.error("API status error while listing prompts: %s", e)
         error_response = handle_known_apistatus_errors(e, "llama-stack")
         raise HTTPException(**error_response.model_dump()) from e
@@ -246,19 +255,24 @@ async def get_prompt_handler(
     try:
         client = AsyncOgxClientHolder().get_client()
         if version is not None:
-            retrieved = await client.prompts.retrieve(prompt_id, version=version)
+            retrieved = client.prompts.retrieve(prompt_id, version=version)
         else:
-            retrieved = await client.prompts.retrieve(prompt_id)
+            retrieved = client.prompts.retrieve(prompt_id)
         return PromptResourceResponse.model_validate(retrieved.model_dump())
-    except APIConnectionError as e:
-        logger.error("Unable to connect to Llama Stack: %s", e)
-        response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
-        raise HTTPException(**response.model_dump()) from e
-    except (BadRequestError, ValueError) as e:
+    except (BadRequestError, NotFoundError, ValueError) as e:
         logger.error("Prompt not found: %s", e)
         response = NotFoundResponse(resource="prompt", resource_id=prompt_id)
         raise HTTPException(**response.model_dump()) from e
-    except (LLSApiStatusError, OpenAIAPIStatusError) as e:
+    except ApiException as e:
+        if is_ogx_connection_error(e):
+            logger.error("Unable to connect to Llama Stack: %s", e)
+            response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
+            raise HTTPException(**response.model_dump()) from e
+        else:
+            logger.error("API status error while retrieving prompt: %s", e)
+            error_response = handle_known_apistatus_errors(e, "llama-stack")
+            raise HTTPException(**error_response.model_dump()) from e
+    except OpenAIAPIStatusError as e:
         logger.error("API status error while retrieving prompt: %s", e)
         error_response = handle_known_apistatus_errors(e, "llama-stack")
         raise HTTPException(**error_response.model_dump()) from e
@@ -317,17 +331,22 @@ async def update_prompt_handler(
     try:
         client = AsyncOgxClientHolder().get_client()
         payload = body.model_dump(exclude_none=True, exclude_unset=True)
-        updated = await client.prompts.update(prompt_id, **payload)
+        updated = client.prompts.update(prompt_id, **payload)
         return PromptResourceResponse.model_validate(updated.model_dump())
-    except APIConnectionError as e:
-        logger.error("Unable to connect to Llama Stack: %s", e)
-        response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
-        raise HTTPException(**response.model_dump()) from e
-    except (BadRequestError, ValueError) as e:
+    except (BadRequestError, NotFoundError, ValueError) as e:
         logger.error("Prompt update failed: %s", e)
         response = NotFoundResponse(resource="prompt", resource_id=prompt_id)
         raise HTTPException(**response.model_dump()) from e
-    except (LLSApiStatusError, OpenAIAPIStatusError) as e:
+    except ApiException as e:
+        if is_ogx_connection_error(e):
+            logger.error("Unable to connect to Llama Stack: %s", e)
+            response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
+            raise HTTPException(**response.model_dump()) from e
+        else:
+            logger.error("API status error while updating prompt: %s", e)
+            error_response = handle_known_apistatus_errors(e, "llama-stack")
+            raise HTTPException(**error_response.model_dump()) from e
+    except OpenAIAPIStatusError as e:
         logger.error("API status error while updating prompt: %s", e)
         error_response = handle_known_apistatus_errors(e, "llama-stack")
         raise HTTPException(**error_response.model_dump()) from e
@@ -382,16 +401,21 @@ async def delete_prompt_handler(
 
     try:
         client = AsyncOgxClientHolder().get_client()
-        await client.prompts.delete(prompt_id)
+        client.prompts.delete(prompt_id)
         return PromptDeleteResponse(deleted=True, prompt_id=prompt_id)
-    except APIConnectionError as e:
-        logger.error("Unable to connect to Llama Stack: %s", e)
-        response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
-        raise HTTPException(**response.model_dump()) from e
-    except (BadRequestError, ValueError) as e:
+    except (BadRequestError, NotFoundError, ValueError) as e:
         logger.error("Prompt delete failed: %s", e)
         return PromptDeleteResponse(deleted=False, prompt_id=prompt_id)
-    except (LLSApiStatusError, OpenAIAPIStatusError) as e:
+    except ApiException as e:
+        if is_ogx_connection_error(e):
+            logger.error("Unable to connect to Llama Stack: %s", e)
+            response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
+            raise HTTPException(**response.model_dump()) from e
+        else:
+            logger.error("API status error while deleting prompt: %s", e)
+            error_response = handle_known_apistatus_errors(e, "llama-stack")
+            raise HTTPException(**error_response.model_dump()) from e
+    except OpenAIAPIStatusError as e:
         logger.error("API status error while deleting prompt: %s", e)
         error_response = handle_known_apistatus_errors(e, "llama-stack")
         raise HTTPException(**error_response.model_dump()) from e

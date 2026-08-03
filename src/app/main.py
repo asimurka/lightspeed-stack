@@ -9,7 +9,7 @@ import sentry_sdk  # pyright: ignore[reportMissingImports]
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from ogx_client import APIConnectionError, AsyncOgxClient
+from ogx_client import ApiException
 from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
@@ -19,7 +19,7 @@ from app import routers
 from app.database import create_tables, initialize_database
 from app.endpoints.streaming_query import shutdown_background_topic_summary_tasks
 from authorization.azure_token_manager import AzureEntraIDManager
-from client import AsyncOgxClientHolder
+from client import AsyncOgxClientHolder, LlamaStackClient
 from configuration import configuration
 from log import get_logger
 from metrics import recording
@@ -28,6 +28,7 @@ from models.api.responses.error import InternalServerErrorResponse
 from sentry import initialize_sentry
 from utils.degraded_mode import DegradedModeTracker
 from utils.llama_stack_version import check_llama_stack_version
+from utils.query import is_ogx_connection_error
 
 logger = get_logger(__name__)
 
@@ -84,7 +85,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 
     llama_stack_config = configuration.configuration.llama_stack
     await AsyncOgxClientHolder().load(llama_stack_config)
-    client: AsyncOgxClient = AsyncOgxClientHolder().get_client()
+    client: LlamaStackClient = AsyncOgxClientHolder().get_client()
     logger.debug("Llama Stack client initialized, trying to connect to Llama Stack")
     # Check connectivity to Llama Stack and set degraded mode if unavailable
     degraded_tracker = DegradedModeTracker()
@@ -99,7 +100,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         else:
             logger.debug("Llama Stack version: %s", llama_stack_version)
             degraded_tracker.set_healthy()
-    except APIConnectionError as e:
+    except ApiException as e:
+        if not is_ogx_connection_error(e):
+            raise
         # if degraded mode is allowed, simply ignore the exception
         llama_stack_url = llama_stack_config.url
         logger.error(
@@ -126,7 +129,9 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     if not degraded_tracker.is_degraded():
         try:
             await setup_model_metrics()
-        except APIConnectionError as e:
+        except ApiException as e:
+            if not is_ogx_connection_error(e):
+                raise
             logger.warning("Failed to set up model metrics: %s", e, exc_info=True)
 
     logger.info("App startup complete")

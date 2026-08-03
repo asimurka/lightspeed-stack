@@ -4,7 +4,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.params import Depends
-from ogx_client import APIConnectionError, BadRequestError
+from ogx_client import ApiException, BadRequestError, NotFoundError
 
 from authentication import get_auth_dependency
 from authentication.interface import AuthTuple
@@ -26,6 +26,7 @@ from models.api.responses.successful import (
 )
 from models.config import Action, ByokRag
 from utils.endpoints import check_configuration_loaded
+from utils.query import is_ogx_connection_error
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["rags"])
@@ -93,7 +94,7 @@ async def rags_endpoint_handler(
         # try to get Llama Stack client
         client = AsyncOgxClientHolder().get_client()
         # retrieve list of RAGs
-        rags = await client.vector_stores.list()
+        rags = client.vector_stores.list()
         logger.info("List of rags: %d", len(rags.data))
 
         # Map llama-stack vector store IDs to user-facing rag_ids from config
@@ -106,7 +107,9 @@ async def rags_endpoint_handler(
         return RAGListResponse(rags=rag_ids)
 
     # connection to Llama Stack server
-    except APIConnectionError as e:
+    except ApiException as e:
+        if not is_ogx_connection_error(e):
+            raise
         logger.error("Unable to connect to Llama Stack: %s", e)
         response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
         raise HTTPException(**response.model_dump()) from e
@@ -185,7 +188,7 @@ async def get_rag_endpoint_handler(
         # try to get Llama Stack client
         client = AsyncOgxClientHolder().get_client()
         # retrieve info about RAG
-        rag_info = await client.vector_stores.retrieve(vector_db_id)
+        rag_info = client.vector_stores.retrieve(vector_db_id)
 
         # Return the user-facing ID (rag_id from config if mapped, otherwise as-is)
         display_id = configuration.resolve_index_name(
@@ -202,11 +205,13 @@ async def get_rag_endpoint_handler(
             status=rag_info.status or "unknown",
             usage_bytes=rag_info.usage_bytes or 0,
         )
-    except APIConnectionError as e:
-        logger.error("Unable to connect to Llama Stack: %s", e)
-        response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
-        raise HTTPException(**response.model_dump()) from e
-    except BadRequestError as e:
+    except (BadRequestError, NotFoundError) as e:
         logger.error("RAG not found: %s", e)
         response = NotFoundResponse(resource="rag", resource_id=rag_id)
+        raise HTTPException(**response.model_dump()) from e
+    except ApiException as e:
+        if not is_ogx_connection_error(e):
+            raise
+        logger.error("Unable to connect to Llama Stack: %s", e)
+        response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
         raise HTTPException(**response.model_dump()) from e

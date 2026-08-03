@@ -3,9 +3,9 @@
 from typing import Optional
 
 from fastapi import HTTPException
-from ogx_client import AsyncOgxClient
 from pydantic_ai.exceptions import AgentRunError
 
+from client import LlamaStackClient
 from configuration import AppConfig
 from log import get_logger
 from models.api.requests import QueryRequest
@@ -92,9 +92,10 @@ async def run_shield_moderation_v2(
 
         try:
             shield_result = await shield.run(input_text)
-        # APIConnectionError and APIStatusError from ogx should not be raised from model_request,
-        # because they will be caught inside AsyncOpenAI and transferred into openai's
-        # APIConnectionError. The openai's exceptions will further transferred into ModelHTTPError
+        # ApiException (connection or status) from ogx should not be raised from
+        # model_request, because they will be caught inside AsyncOpenAI and
+        # transferred into openai's APIStatusError. The openai's exceptions will
+        # further transferred into ModelHTTPError
         # or ModelAPIError by _map_api_errors in OpenAIResponseModel.
         except (AgentRunError, RuntimeError) as exc:
             model_id = getattr(shield_config.config, "model_id", "unknown-shield-model")
@@ -124,7 +125,7 @@ def build_shield(shield_config: ShieldConfiguration) -> AbstractSafetyCapability
 
 
 async def run_shield_moderation(
-    _client: AsyncOgxClient,
+    _client: LlamaStackClient,
     _input_text: str,
     _endpoint_path: str,
     _shield_ids: Optional[list[str]] = None,

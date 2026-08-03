@@ -12,10 +12,10 @@ from urllib.parse import urljoin
 from ogx_api.openai_responses import (
     OpenAIResponseMessage as ResponseMessage,
 )
-from ogx_client import AsyncOgxClient
 from pydantic import AnyUrl
 
 import constants
+from client import LlamaStackClient
 from configuration import configuration
 from log import get_logger
 from models.common.query import SolrVectorSearchRequest
@@ -246,7 +246,7 @@ def _format_rag_context(rag_chunks: list[RAGChunk], query: str) -> str:
 
 
 async def _query_store_for_byok_rag(
-    client: AsyncOgxClient,
+    client: LlamaStackClient,
     vector_store_id: str,
     query: str,
     weight: float,
@@ -255,7 +255,7 @@ async def _query_store_for_byok_rag(
     """Query a single vector store for BYOK RAG.
 
     Args:
-        client: AsyncOgxClient for vector_io queries
+        client: LlamaStackClient for vector_io queries
         vector_store_id: ID of the vector store to query
         query: Search query string
         weight: Score multiplier to apply
@@ -265,7 +265,7 @@ async def _query_store_for_byok_rag(
         List of weighted result dictionaries, or empty list on error
     """
     try:
-        search_response = await client.vector_io.query(
+        search_response = client.vector_io.query(
             vector_store_id=vector_store_id,
             query=query,
             params={
@@ -440,7 +440,7 @@ def _process_solr_chunks_for_documents(
 
 
 async def _fetch_byok_rag(  # pylint: disable=too-many-locals
-    client: AsyncOgxClient,
+    client: LlamaStackClient,
     query: str,
     vector_store_ids: Optional[list[str]] = None,
     max_chunks: Optional[int] = None,
@@ -448,7 +448,7 @@ async def _fetch_byok_rag(  # pylint: disable=too-many-locals
     """Fetch chunks and documents from BYOK RAG sources.
 
     Args:
-        client: The AsyncOgxClient to use for the request
+        client: The LlamaStackClient to use for the request
         query: The search query
         vector_store_ids: Optional list of vector store IDs to query.
             If provided, only these stores will be queried. If None, all stores
@@ -551,14 +551,14 @@ async def _fetch_byok_rag(  # pylint: disable=too-many-locals
 
 
 async def _fetch_solr_rag(  # pylint: disable=too-many-locals
-    client: AsyncOgxClient,
+    client: LlamaStackClient,
     query: str,
     solr: Optional[SolrVectorSearchRequest] = None,
 ) -> tuple[list[RAGChunk], list[ReferencedDocument]]:
     """Fetch chunks and documents from Solr RAG source.
 
     Args:
-        client: The AsyncOgxClient to use for the request
+        client: The LlamaStackClient to use for the request
         query: The user's query
         solr: Structured Solr inline RAG request from the API (optional).
         max_chunks: Maximum number of chunks to return. If None, uses
@@ -588,7 +588,7 @@ async def _fetch_solr_rag(  # pylint: disable=too-many-locals
             vector_store_id = vector_store_ids[0]
             params = _build_query_params(solr)
 
-            query_response = await client.vector_io.query(
+            query_response = client.vector_io.query(
                 vector_store_id=vector_store_id,
                 query=query,
                 params=params,
@@ -630,7 +630,7 @@ async def _fetch_solr_rag(  # pylint: disable=too-many-locals
 
 
 async def build_rag_context(  # pylint: disable=too-many-locals,too-many-branches
-    client: AsyncOgxClient,
+    client: LlamaStackClient,
     moderation_decision: str,  # pylint: disable=unused-argument
     query: str,
     vector_store_ids: Optional[list[str]],
@@ -644,7 +644,7 @@ async def build_rag_context(  # pylint: disable=too-many-locals,too-many-branche
     and/or Solr OKP.
 
     Args:
-        client: The AsyncOgxClient to use for the request
+        client: The LlamaStackClient to use for the request
         query: The user's query
         vector_store_ids: The vector store IDs to query
         solr: Structured Solr inline RAG request from the API (optional).

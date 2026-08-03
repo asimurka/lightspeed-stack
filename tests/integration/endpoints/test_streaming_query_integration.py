@@ -7,8 +7,8 @@ import pytest
 from fastapi import HTTPException, Request, status
 from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
-from ogx_client.types import ListModelsResponse
-from ogx_client.types.model import Model
+from ogx_client.models.list_models_response import ListModelsResponse
+from ogx_client.models.model import Model
 from pytest_mock import AsyncMockType, MockerFixture
 
 from app.endpoints.streaming_query import streaming_query_endpoint_handler

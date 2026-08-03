@@ -8,7 +8,7 @@ methods. For HEAD HTTP method, just the HTTP response code is used.
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Response, status
-from ogx_client import APIConnectionError
+from ogx_client import ApiException
 
 from authentication import get_auth_dependency
 from authentication.interface import AuthTuple
@@ -32,6 +32,7 @@ from models.common import (
 )
 from models.config import Action
 from utils.degraded_mode import DegradedModeTracker
+from utils.query import is_ogx_connection_error
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["health"])
@@ -66,7 +67,7 @@ async def get_providers_health_statuses() -> list[ProviderHealthStatus]:
     try:
         client = AsyncOgxClientHolder().get_client()
 
-        providers = await client.providers.list()
+        providers = client.providers.list()
         logger.debug("Found %d providers", len(providers))
 
         return [
@@ -78,7 +79,9 @@ async def get_providers_health_statuses() -> list[ProviderHealthStatus]:
             for provider in providers
         ]
 
-    except APIConnectionError as e:
+    except ApiException as e:
+        if not is_ogx_connection_error(e):
+            raise
         logger.error("Failed to check providers health: %s", e)
         return [
             ProviderHealthStatus(

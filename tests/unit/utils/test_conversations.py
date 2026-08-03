@@ -7,14 +7,14 @@ import pytest
 from fastapi import HTTPException
 from ogx_api import OpenAIResponseMessage
 from ogx_client import APIConnectionError, APIStatusError
-from ogx_client.types.conversations.item_list_response import (
-    OpenAIResponseInputFunctionToolCallOutputOutputListOpenAIResponseInputMessageContentTextOpenAIResponseInputMessageContentImageOpenAIResponseInputMessageContentFileOpenAIResponseInputMessageContentFile as FunctionCallOutputFile,  # pylint: disable=line-too-long
+from ogx_client.models.open_ai_response_input_message_content_file import (
+    OpenAIResponseInputMessageContentFile as FunctionCallOutputFile,
 )
-from ogx_client.types.conversations.item_list_response import (
-    OpenAIResponseInputFunctionToolCallOutputOutputListOpenAIResponseInputMessageContentTextOpenAIResponseInputMessageContentImageOpenAIResponseInputMessageContentFileOpenAIResponseInputMessageContentImage as FunctionCallOutputImage,  # pylint: disable=line-too-long
+from ogx_client.models.open_ai_response_input_message_content_image import (
+    OpenAIResponseInputMessageContentImage as FunctionCallOutputImage,
 )
-from ogx_client.types.conversations.item_list_response import (
-    OpenAIResponseInputFunctionToolCallOutputOutputListOpenAIResponseInputMessageContentTextOpenAIResponseInputMessageContentImageOpenAIResponseInputMessageContentFileOpenAIResponseInputMessageContentText as FunctionCallOutputText,  # pylint: disable=line-too-long
+from ogx_client.models.open_ai_response_input_message_content_text import (
+    OpenAIResponseInputMessageContentText as FunctionCallOutputText,
 )
 from pytest_mock import MockerFixture
 

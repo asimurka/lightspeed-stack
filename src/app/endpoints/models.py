@@ -4,7 +4,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.params import Depends
-from ogx_client import APIConnectionError
+from ogx_client import ApiException
 
 from authentication import get_auth_dependency
 from authentication.interface import AuthTuple
@@ -24,6 +24,7 @@ from models.api.responses.successful import ModelsResponse
 from models.config import Action
 from utils.endpoints import check_configuration_loaded
 from utils.model_list import parse_model_list_response
+from utils.query import is_ogx_connection_error
 
 logger = get_logger(__name__)
 router = APIRouter(tags=["models"])
@@ -93,7 +94,7 @@ async def models_endpoint_handler(
         # try to get Llama Stack client
         client = AsyncOgxClientHolder().get_client()
         # retrieve and normalize models across OpenAI/Anthropic/Google list shapes
-        parsed_models = parse_model_list_response(await client.models.list())
+        parsed_models = parse_model_list_response(client.models.list())
 
         # optional filtering by model type
         if model_type.model_type is not None:
@@ -106,7 +107,9 @@ async def models_endpoint_handler(
         return ModelsResponse(models=parsed_models)
 
     # Connection to Llama Stack server failed
-    except APIConnectionError as e:
+    except ApiException as e:
+        if not is_ogx_connection_error(e):
+            raise
         logger.error("Unable to connect to Llama Stack: %s", e)
         response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))
         raise HTTPException(**response.model_dump()) from e

@@ -1,9 +1,16 @@
 """Common types for the project."""
 
 from re import Pattern
-from typing import Any
+from typing import Any, TypeAlias
 
+from ogx.core.library_client import OGXAsLibraryClient
 from ogx_api import ImageContentItem, TextContentItem
+from ogx_client import OgxClient
+
+# Service mode: sync OgxClient. Library mode: OGXAsLibraryClient (OgxClient subclass).
+# AsyncOgxClient / AsyncOGXAsLibraryClient are not used — generated API mounts need
+# sync ApiClient (call_api / select_header_accept), which AsyncApiClient lacks.
+LlamaStackClient: TypeAlias = OgxClient | OGXAsLibraryClient
 
 type SingletonInstances = dict[type, Any]
 

@@ -3,12 +3,12 @@
 import json
 import os
 import tempfile
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import yaml
 from fastapi import HTTPException
-from ogx.core.library_client import AsyncOGXAsLibraryClient
-from ogx_client import APIConnectionError, APIStatusError, AsyncOgxClient
+from ogx.core.library_client import OGXAsLibraryClient
+from ogx_client import ApiException, OgxClient
 
 import constants
 from authorization.azure_token_manager import AzureEntraIDManager
@@ -24,21 +24,25 @@ from log import get_logger, setup_logging
 from models.api.responses.error import ServiceUnavailableResponse
 from models.config import LlamaStackConfiguration
 from utils.model_list import parse_model_list_response
-from utils.types import Singleton
+from utils.types import LlamaStackClient, Singleton
 
 logger = get_logger(__name__)
 
+# Re-export for typing call sites (`from client import LlamaStackClient`).
+# Alias is OgxClient | OGXAsLibraryClient (see utils.types).
+__all__ = ["AsyncOgxClientHolder", "LlamaStackClient"]
+
 
 class AsyncOgxClientHolder(metaclass=Singleton):
-    """Container for an initialised AsyncOgxClient."""
+    """Container for an initialised sync OGX client (service or library)."""
 
-    _lsc: Optional[AsyncOgxClient] = None
+    _lsc: Optional[LlamaStackClient] = None
     _config_path: Optional[str] = None
 
     @property
     def is_library_client(self) -> bool:
         """Check if using library mode client."""
-        return isinstance(self._lsc, AsyncOGXAsLibraryClient)
+        return isinstance(self._lsc, OGXAsLibraryClient)
 
     async def load(self, llama_stack_config: LlamaStackConfiguration) -> None:
         """Initialize the Llama Stack client based on configuration."""
@@ -78,13 +82,12 @@ class AsyncOgxClientHolder(metaclass=Singleton):
         else:
             self._config_path = self._synthesize_library_config()
 
-        client = AsyncOGXAsLibraryClient(self._config_path)
-        await client.initialize()
-        self._lsc = client
+        # Sync library client initializes in-process Stack in __init__ and patches
+        # ApiClient.call_api for in-process routing (AsyncOGXAsLibraryClient cannot —
+        # AsyncApiClient lacks call_api / select_header_accept).
+        self._lsc = OGXAsLibraryClient(self._config_path)
 
         # Re-apply logging configuration after ogx's setup_logging() is called.
-        # This ensures the desired logging configuration is applied when
-        # using AsyncOGXAsLibraryClient.
         setup_logging()
 
     def _synthesize_library_config(self) -> str:
@@ -127,7 +130,7 @@ class AsyncOgxClientHolder(metaclass=Singleton):
         api_key = config.api_key.get_secret_value() if config.api_key else None
         # Convert AnyHttpUrl to string for the client
         base_url = str(config.url) if config.url else None
-        self._lsc = AsyncOgxClient(
+        self._lsc = OgxClient(
             base_url=base_url, api_key=api_key, timeout=config.timeout
         )
 
@@ -167,23 +170,23 @@ class AsyncOgxClientHolder(metaclass=Singleton):
             logger.warning("Failed to write enriched config: %s", e)
             return input_config_path
 
-    def get_client(self) -> AsyncOgxClient:
+    def get_client(self) -> LlamaStackClient:
         """
         Get the initialized client held by this holder.
 
         Returns:
-            AsyncOgxClient: The initialized client instance.
+            LlamaStackClient: The initialized client instance.
 
         Raises:
             RuntimeError: If the client has not been initialized; call `load(...)` first.
         """
         if not self._lsc:
             raise RuntimeError(
-                "AsyncOgxClient has not been initialised. Ensure 'load(..)' has been called."
+                "OgxClient has not been initialised. Ensure 'load(..)' has been called."
             )
         return self._lsc
 
-    async def reload_library_client(self) -> AsyncOgxClient:
+    async def reload_library_client(self) -> LlamaStackClient:
         """Reload library client to pick up env var changes.
 
         For use with library mode only.
@@ -194,9 +197,8 @@ class AsyncOgxClientHolder(metaclass=Singleton):
         if not self._config_path:
             raise RuntimeError("Cannot reload: config path not set")
         try:
-            client = AsyncOGXAsLibraryClient(self._config_path)
-            await client.initialize()
-        except APIConnectionError as e:
+            client = OGXAsLibraryClient(self._config_path)
+        except ApiException as e:
             error_response = ServiceUnavailableResponse(
                 backend_name="OGX",
                 cause=str(e),
@@ -204,8 +206,6 @@ class AsyncOgxClientHolder(metaclass=Singleton):
             raise HTTPException(**error_response.model_dump()) from e
         self._lsc = client
         # Re-apply logging configuration after ogx's setup_logging() is called.
-        # This ensures the desired logging configuration is applied when
-        # using AsyncOGXAsLibraryClient.
         setup_logging()
 
         return client
@@ -235,11 +235,11 @@ class AsyncOgxClientHolder(metaclass=Singleton):
         """
         try:
             client = self.get_client()
-            models = parse_model_list_response(await client.models.list())
+            models = parse_model_list_response(client.models.list())
         except RuntimeError as e:
             logger.warning("Client not initialized, skipping model check: %s", e)
             return False, f"Client not initialized: {e!s}"
-        except (APIConnectionError, APIStatusError) as e:
+        except ApiException as e:
             logger.error("Error checking model availability: %s", e)
             return False, f"Error checking model availability: {e!s}"
 
@@ -257,19 +257,14 @@ class AsyncOgxClientHolder(metaclass=Singleton):
             try:
                 await self.reload_library_client()
                 client = self.get_client()
-                reloaded_models = parse_model_list_response(await client.models.list())
+                reloaded_models = parse_model_list_response(client.models.list())
                 if any(m.identifier == model_id for m in reloaded_models):
                     logger.info(
                         "Model %s found after client reload",
                         model_id,
                     )
                     return True, f"Model {model_id} is available after reload"
-            except (
-                RuntimeError,
-                HTTPException,
-                APIConnectionError,
-                APIStatusError,
-            ) as err:
+            except (RuntimeError, HTTPException, ApiException) as err:
                 logger.error("Client reload failed: %s", err)
 
         registered_ids = [m.identifier for m in models]
@@ -280,7 +275,7 @@ class AsyncOgxClientHolder(metaclass=Singleton):
         )
         return False, f"Model {model_id} not found in model registry"
 
-    async def update_azure_token(self) -> AsyncOgxClient:
+    async def update_azure_token(self) -> LlamaStackClient:
         """Apply cached Azure credentials and replace the held client.
 
         Returns:
@@ -296,24 +291,21 @@ class AsyncOgxClientHolder(metaclass=Singleton):
                 return self.get_client()
 
             current_provider_data = dict(
-                cast(AsyncOGXAsLibraryClient, self._lsc).provider_data or {}
+                cast(OGXAsLibraryClient, self._lsc).provider_data or {}
             )
             current_provider_data.update(updates)
-            client = AsyncOGXAsLibraryClient(
+            client = OGXAsLibraryClient(
                 self._config_path, provider_data=current_provider_data
             )
-            await client.initialize()
             self._lsc = client
             # Re-apply logging configuration after ogx's setup_logging() is called.
-            # This ensures the desired logging configuration is applied when
-            # using AsyncOGXAsLibraryClient.
             setup_logging()
 
             return client
 
         # Service client mode
         current_client = self.get_client()
-        current_headers = current_client.default_headers or {}
+        current_headers = current_client.api_client.default_headers or {}
         provider_data_json = current_headers.get("X-OGX-Provider-Data")
 
         try:
@@ -323,15 +315,19 @@ class AsyncOgxClientHolder(metaclass=Singleton):
 
         provider_data.update(updates)
 
-        updated_headers = {
-            **current_headers,
-            "X-OGX-Provider-Data": json.dumps(provider_data),
+        # client.copy() is gone in ogx_client >= 1.1.4; build a replacement client.
+        timeout = getattr(current_client.configuration, "timeout", None)
+        client_kwargs: dict[str, Any] = {
+            "base_url": current_client.configuration.host,
+            "api_key": current_client.api_key,
+            "provider_data": provider_data,
         }
+        if timeout is not None:
+            client_kwargs["timeout"] = timeout
 
-        updated_client = current_client.copy(
-            set_default_headers=updated_headers  # type: ignore[arg-type]
-        )
+        updated_client = OgxClient(**client_kwargs)
         self._lsc = updated_client
+        current_client.close()
         return updated_client
 
     async def get_azure_base_url(self) -> Optional[str]:
@@ -345,12 +341,12 @@ class AsyncOgxClientHolder(metaclass=Singleton):
             return None
 
         try:
-            providers = await self._lsc.providers.list()
-        except (APIConnectionError, APIStatusError) as err:
+            providers = self._lsc.providers.list()
+        except ApiException as err:
             logger.warning("Failed to list providers for Azure base_url: %s", err)
             return None
 
-        for provider in providers:
+        for provider in providers.data:
             if provider.provider_type != "remote::azure":
                 continue
             base = provider.config.get("base_url")

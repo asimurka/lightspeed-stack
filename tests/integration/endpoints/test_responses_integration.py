@@ -11,8 +11,8 @@ from typing import Any
 import pytest
 from fastapi import Request
 from fastapi.responses import StreamingResponse
-from ogx_client.types import ListModelsResponse
-from ogx_client.types.model import Model
+from ogx_client.models.list_models_response import ListModelsResponse
+from ogx_client.models.model import Model
 from pytest_mock import MockerFixture
 from sqlalchemy.orm import Session
 

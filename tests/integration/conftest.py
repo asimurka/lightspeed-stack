@@ -9,8 +9,9 @@ import pytest
 from fastapi import Request, Response
 from fastapi.testclient import TestClient
 from ogx_api.openai_responses import OpenAIResponseObject
-from ogx_client.types import ListModelsResponse, VersionInfo
-from ogx_client.types.model import Model
+from ogx_client.models.list_models_response import ListModelsResponse
+from ogx_client.models.model import Model
+from ogx_client.models.version_info import VersionInfo
 from pydantic_ai import AgentRunResultEvent
 from pydantic_ai.messages import (
     ModelMessage,

@@ -6,9 +6,7 @@ from typing import Optional
 
 import psycopg2
 from fastapi import HTTPException
-from ogx_client import (
-    APIStatusError as LLSApiStatusError,
-)
+from ogx_client import ApiException
 from openai._exceptions import APIStatusError as OpenAIAPIStatusError
 from pydantic_ai.messages import ImageUrl, UserContent
 from sqlalchemy import func
@@ -539,8 +537,26 @@ def normalize_vertex_ai_model_id(model_id: str) -> str:
     return model_id
 
 
+def is_ogx_connection_error(error: BaseException) -> bool:
+    """Return whether an OGX exception represents a transport/connection failure.
+
+    OpenAPI-generator clients raise ``ApiException`` with ``status`` None/0 when
+    the HTTP layer fails before a response status is available (replacing the
+    former Stainless ``APIConnectionError``).
+
+    Parameters:
+        error: Exception raised by an OGX client call.
+
+    Returns:
+        True when ``error`` is an ``ApiException`` without a real HTTP status.
+    """
+    return isinstance(error, ApiException) and (
+        error.status is None or error.status == 0
+    )
+
+
 def handle_known_apistatus_errors(
-    error: LLSApiStatusError | OpenAIAPIStatusError, model_id: str
+    error: ApiException | OpenAIAPIStatusError, model_id: str
 ) -> AbstractErrorResponse:
     """Handle known API status errors from both Llama Stack and OpenAI.
 
@@ -551,9 +567,14 @@ def handle_known_apistatus_errors(
     Returns:
         AbstractErrorResponse: The error response model.
     """
-    error_message = getattr(error, "message", str(error))
+    error_message = (
+        getattr(error, "message", None) or getattr(error, "reason", None) or str(error)
+    )
     if is_context_length_error(error_message):
         return PromptTooLongResponse(model=model_id)
-    if error.status_code == 429:
+    status = getattr(error, "status", None)
+    if status is None:
+        status = getattr(error, "status_code", None)
+    if status == 429:
         return QuotaExceededResponse.model(model_id)
     return InternalServerErrorResponse.generic()

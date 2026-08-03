@@ -7,8 +7,9 @@ from typing import Any
 
 import pytest
 from fastapi import Request
-from ogx_client.types import ListModelsResponse, VersionInfo
-from ogx_client.types.model import Model
+from ogx_client.models.list_models_response import ListModelsResponse
+from ogx_client.models.model import Model
+from ogx_client.models.version_info import VersionInfo
 from pytest_mock import AsyncMockType, MockerFixture
 
 import constants

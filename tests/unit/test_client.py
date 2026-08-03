@@ -10,8 +10,8 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 from ogx_client import APIConnectionError, APIStatusError
-from ogx_client.types import ListModelsResponse
-from ogx_client.types.model import Model
+from ogx_client.models.list_models_response import ListModelsResponse
+from ogx_client.models.model import Model
 from pydantic import AnyHttpUrl, SecretStr
 from pytest_mock import MockerFixture
 
@@ -35,7 +35,7 @@ def test_async_client_get_client_method() -> None:
     with pytest.raises(
         RuntimeError,
         match=(
-            "AsyncOgxClient has not been initialised. "
+            "OgxClient has not been initialised. "
             "Ensure 'load\\(..\\)' has been called."
         ),
     ):
@@ -141,7 +141,9 @@ async def test_update_azure_token_service_client() -> None:
 
     assert updated_client is not original_client
     assert holder.get_client() is updated_client
-    provider_data_json = updated_client.default_headers.get("X-OGX-Provider-Data")
+    provider_data_json = updated_client.api_client.default_headers.get(
+        "X-OGX-Provider-Data"
+    )
     provider_data = json.loads(provider_data_json)
     assert provider_data["azure_api_key"] == "fresh-token"
     assert provider_data["azure_api_base"] == "https://api.example.com"
@@ -173,11 +175,13 @@ async def test_load_service_client_defers_azure_provider_data() -> None:
     holder = AsyncOgxClientHolder()
     await holder.load(cfg)
 
-    default_headers = holder.get_client().default_headers or {}
+    default_headers = holder.get_client().api_client.default_headers or {}
     assert "X-OGX-Provider-Data" not in default_headers
 
     updated_client = await holder.update_azure_token()
-    provider_data_json = updated_client.default_headers.get("X-OGX-Provider-Data")
+    provider_data_json = updated_client.api_client.default_headers.get(
+        "X-OGX-Provider-Data"
+    )
     assert provider_data_json is not None
     provider_data = json.loads(provider_data_json)
     assert provider_data["azure_api_key"] == "startup-token"

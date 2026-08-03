@@ -3,9 +3,8 @@
 # pylint: disable=protected-access
 
 import httpx
-import pytest
-from ogx.core.library_client import AsyncOGXAsLibraryClient
-from ogx_client import AsyncOgxClient
+from ogx.core.library_client import AsyncOGXAsLibraryClient, OGXAsLibraryClient
+from ogx_client import OgxClient
 from openai import AsyncOpenAI
 from pytest_mock import MockerFixture
 
@@ -100,76 +99,46 @@ class TestOgxProviderLibraryMode:
         assert provider.client.api_key == "not-needed"
 
 
-class TestOgxProviderMutualExclusion:
-    """Tests for mutual exclusion between library_client and server mode options."""
-
-    def test_library_client_and_base_url_raises(self, mocker: MockerFixture) -> None:
-        """Test that providing both library_client and base_url raises ValueError."""
-        mock_lib_client = mocker.Mock()
-        mock_lib_client.provider_data = None
-
-        with pytest.raises(
-            ValueError,
-            match="Cannot provide both `library_client` and `base_url`",
-        ):
-            OgxProvider(
-                library_client=mock_lib_client,
-                base_url="http://localhost:8321/v1",
-            )
-
-    def test_library_client_and_api_key_raises(self, mocker: MockerFixture) -> None:
-        """Test that providing both library_client and api_key raises ValueError."""
-        mock_lib_client = mocker.Mock()
-        mock_lib_client.provider_data = None
-
-        with pytest.raises(
-            ValueError,
-            match="Cannot provide both `library_client` and `api_key`",
-        ):
-            OgxProvider(
-                library_client=mock_lib_client,
-                api_key="my-key",
-            )
-
-    def test_library_client_and_http_client_raises(self, mocker: MockerFixture) -> None:
-        """Test that providing both library_client and http_client raises ValueError."""
-        mock_lib_client = mocker.Mock()
-        mock_lib_client.provider_data = None
-
-        with pytest.raises(
-            ValueError,
-            match="Cannot provide both `library_client` and `http_client`",
-        ):
-            OgxProvider(
-                library_client=mock_lib_client,
-                http_client=mocker.Mock(spec=httpx.AsyncClient),
-            )
-
-
 class TestFromOgxClient:
     """Tests for OgxProvider.from_ogx_client."""
 
     def test_library_client_dispatches_to_library_mode(
         self, mocker: MockerFixture
     ) -> None:
-        """Test that an AsyncOGXAsLibraryClient creates a library-mode provider."""
-        mock_lib_client = mocker.Mock(spec=AsyncOGXAsLibraryClient)
-        mock_lib_client.provider_data = None
+        """Test that an OGXAsLibraryClient creates a library-mode provider."""
+        mock_async = mocker.Mock(spec=AsyncOGXAsLibraryClient)
+        mock_async.provider_data = None
+        mock_lib_client = mocker.Mock(spec=OGXAsLibraryClient)
+        mock_lib_client.async_client = mock_async
 
         provider = OgxProvider.from_ogx_client(mock_lib_client)
 
-        assert provider._library_client is mock_lib_client
+        assert provider._library_client is mock_async
         assert "llama-stack-library" in provider.base_url
+
+    def _mock_ogx_client(
+        self,
+        mocker: MockerFixture,
+        *,
+        base_url: str,
+        api_key: str | None = "test-key",
+        headers: dict[str, str] | None = None,
+    ):
+        """Build a mock sync OgxClient with api_client.default_headers."""
+        mock_client = mocker.Mock(spec=OgxClient)
+        mock_client.base_url = base_url
+        mock_client.api_key = api_key
+        mock_client.api_client = mocker.Mock()
+        mock_client.api_client.default_headers = headers or {}
+        return mock_client
 
     def test_server_client_extracts_base_url_with_v1(
         self, mocker: MockerFixture
     ) -> None:
         """Test that a server client whose base_url already ends with /v1 is used as-is."""
-        mock_client = mocker.Mock(spec=AsyncOgxClient)
-        mock_client.base_url = "http://my-server:8321/v1"
-        mock_client.api_key = "test-key"
-        mock_client._client = mocker.Mock(spec=httpx.AsyncClient)
-        mock_client.default_headers = {}
+        mock_client = self._mock_ogx_client(
+            mocker, base_url="http://my-server:8321/v1"
+        )
 
         provider = OgxProvider.from_ogx_client(mock_client)
 
@@ -178,11 +147,7 @@ class TestFromOgxClient:
 
     def test_server_client_appends_v1_when_missing(self, mocker: MockerFixture) -> None:
         """Test that /v1 is appended when the server client's base_url lacks it."""
-        mock_client = mocker.Mock(spec=AsyncOgxClient)
-        mock_client.base_url = "http://my-server:8321"
-        mock_client.api_key = "test-key"
-        mock_client._client = mocker.Mock(spec=httpx.AsyncClient)
-        mock_client.default_headers = {}
+        mock_client = self._mock_ogx_client(mocker, base_url="http://my-server:8321")
 
         provider = OgxProvider.from_ogx_client(mock_client)
 
@@ -192,11 +157,7 @@ class TestFromOgxClient:
         self, mocker: MockerFixture
     ) -> None:
         """Test that a trailing slash is stripped before appending /v1."""
-        mock_client = mocker.Mock(spec=AsyncOgxClient)
-        mock_client.base_url = "http://my-server:8321/"
-        mock_client.api_key = "test-key"
-        mock_client._client = mocker.Mock(spec=httpx.AsyncClient)
-        mock_client.default_headers = {}
+        mock_client = self._mock_ogx_client(mocker, base_url="http://my-server:8321/")
 
         provider = OgxProvider.from_ogx_client(mock_client)
 
@@ -205,11 +166,9 @@ class TestFromOgxClient:
 
     def test_server_client_uses_provided_api_key(self, mocker: MockerFixture) -> None:
         """Test that the server client's api_key is forwarded to the provider."""
-        mock_client = mocker.Mock(spec=AsyncOgxClient)
-        mock_client.base_url = "http://my-server:8321/v1"
-        mock_client.api_key = "my-secret"
-        mock_client._client = mocker.Mock(spec=httpx.AsyncClient)
-        mock_client.default_headers = {}
+        mock_client = self._mock_ogx_client(
+            mocker, base_url="http://my-server:8321/v1", api_key="my-secret"
+        )
 
         provider = OgxProvider.from_ogx_client(mock_client)
 
@@ -219,41 +178,40 @@ class TestFromOgxClient:
         self, mocker: MockerFixture
     ) -> None:
         """Test that a None api_key falls back to 'not-needed'."""
-        mock_client = mocker.Mock(spec=AsyncOgxClient)
-        mock_client.base_url = "http://my-server:8321/v1"
-        mock_client.api_key = None
-        mock_client._client = mocker.Mock(spec=httpx.AsyncClient)
-        mock_client.default_headers = {}
+        mock_client = self._mock_ogx_client(
+            mocker, base_url="http://my-server:8321/v1", api_key=None
+        )
 
         provider = OgxProvider.from_ogx_client(mock_client)
 
         assert provider.client.api_key == "not-needed"
 
-    def test_server_client_passes_http_client(self, mocker: MockerFixture) -> None:
-        """Test that the server client's internal httpx client is reused when no provider data."""
-        mock_client = mocker.Mock(spec=AsyncOgxClient)
-        mock_client.base_url = "http://my-server:8321/v1"
-        mock_client.api_key = "test-key"
-        inner_http = mocker.Mock(spec=httpx.AsyncClient)
-        mock_client._client = inner_http
-        mock_client.default_headers = {}
+    def test_server_client_uses_fresh_async_http_client(
+        self, mocker: MockerFixture
+    ) -> None:
+        """Test that server mode builds a fresh async httpx client."""
+        mock_client = self._mock_ogx_client(
+            mocker, base_url="http://my-server:8321/v1"
+        )
+        fresh = mocker.Mock(spec=httpx.AsyncClient)
+        mocker.patch(
+            "pydantic_ai_lightspeed.llamastack._provider.create_async_http_client",
+            return_value=fresh,
+        )
 
         provider = OgxProvider.from_ogx_client(mock_client)
 
-        assert provider._client._client is inner_http
+        assert provider._client._client is fresh
 
     def test_server_client_wraps_transport_with_provider_data(
         self, mocker: MockerFixture
     ) -> None:
         """Test provider data from default_headers is forwarded in server mode."""
-        mock_client = mocker.Mock(spec=AsyncOgxClient)
-        mock_client.base_url = "http://my-server:8321/v1"
-        mock_client.api_key = "test-key"
-        inner_http = httpx.AsyncClient()
-        mock_client._client = inner_http
-        mock_client.default_headers = {
-            "X-OGX-Provider-Data": '{"azure_api_key": "token"}'
-        }
+        mock_client = self._mock_ogx_client(
+            mocker,
+            base_url="http://my-server:8321/v1",
+            headers={"X-OGX-Provider-Data": '{"azure_api_key": "token"}'},
+        )
 
         provider = OgxProvider.from_ogx_client(mock_client)
 

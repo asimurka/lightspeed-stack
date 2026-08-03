@@ -24,8 +24,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any, Final, Optional, cast
 
-from ogx.core.library_client import AsyncOGXAsLibraryClient
-from ogx_client import AsyncOgxClient
 from openai import AsyncStream
 from openai.types import responses
 from pydantic_ai import UnexpectedModelBehavior
@@ -46,6 +44,7 @@ from pydantic_ai.models.openai import (
 from pydantic_ai.profiles import ModelProfileSpec
 from pydantic_ai.settings import ModelSettings
 
+from client import LlamaStackClient
 from log import get_logger
 from models.common.responses.responses_api_params import ResponsesApiParams
 from pydantic_ai_lightspeed.llamastack._provider import OgxProvider
@@ -403,7 +402,7 @@ class OgxResponsesModel(OpenAIResponsesModel):
     @staticmethod
     def from_ogx_client(
         model_name: str,
-        client: AsyncOgxClient | AsyncOGXAsLibraryClient,
+        client: LlamaStackClient,
         *,
         responses_params: Optional[ResponsesApiParams] = None,
         model_settings: Optional[ModelSettings] = None,
