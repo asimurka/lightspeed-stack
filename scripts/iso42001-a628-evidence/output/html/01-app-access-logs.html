@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <title>Application / access logs — LCORE A.6.2.8</title>
+  <style>
+body { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+       background: #0f1419; color: #e7ecf1; margin: 0; padding: 24px; }
+header { border-bottom: 1px solid #2a3440; margin-bottom: 16px; padding-bottom: 12px; }
+h1 { font-size: 18px; margin: 0 0 6px; color: #f0f3f6; }
+.meta { color: #9aa7b5; font-size: 12px; line-height: 1.5; }
+.badge { display: inline-block; background: #1f6feb; color: white; padding: 2px 8px;
+         border-radius: 4px; font-size: 11px; margin-right: 8px; }
+pre { white-space: pre-wrap; word-break: break-word; background: #161b22; border: 1px solid #30363d;
+      border-radius: 8px; padding: 16px; font-size: 12px; line-height: 1.45; max-height: 720px;
+      overflow: auto; }
+</style>
+</head>
+<body>
+  <header>
+    <h1><span class="badge">ISO/IEC 42001 A.6.2.8</span>Application / access logs</h1>
+    <div class="meta">
+      Lightspeed Core Stack — in-system event log evidence<br/>
+      Captured (UTC): 20260811T075028Z<br/>
+      Test request label: A.6.2.8 evidence test (POST /v1/query)<br/>
+      Timestamped LCORE application and HTTP access log lines for the labeled inference request.
+    </div>
+  </header>
+  <pre>2026-08-11 09:31:07.529 WARNING:  No-op authentication dependency is being used. The service is running in insecure mode intended solely for development purposes  [lightspeed_stack.authentication.noop:50]
+2026-08-11 09:31:07.538 WARNING:  No-op authentication dependency is being used. The service is running in insecure mode intended solely for development purposes  [lightspeed_stack.authentication.noop:50]
+2026-08-11 09:31:07.539 WARNING:  Storage configuration for quota limiters not specified  [lightspeed_stack.quota.quota_limiter_factory:38]
+2026-08-11 09:31:07.539 INFO:     No inline BYOK RAG sources configured, skipping BYOK RAG search  [lightspeed_stack.utils.vector_search:507]
+2026-08-11 09:31:07.539 INFO:     OKP vector IO is disabled, skipping OKP search  [lightspeed_stack.utils.vector_search:589]
+2026-08-11 09:31:07.539 INFO:     Reranker disabled: using original vector similarity scores  [lightspeed_stack.utils.vector_search:710]
+2026-08-11 09:31:07.551 INFO:     Created new conversation with ID: conv_3e8726b065a59b72659c64f7c0b124c2d464f8e87826f4a3  [lightspeed_stack.utils.responses:404]
+2026-08-11 09:31:08.396 INFO:     RAG as a tool retrieved 0 chunks  [lightspeed_stack.app.endpoints.query:283]
+2026-08-11 09:31:09.600 INFO:     Consuming tokens  [lightspeed_stack.app.endpoints.query:304]
+2026-08-11 09:31:09.600 INFO:     Consuming tokens  [lightspeed_stack.utils.query:299]
+2026-08-11 09:31:09.600 WARNING:  Storage configuration for quota limiters not specified  [lightspeed_stack.quota.quota_limiter_factory:38]
+2026-08-11 09:31:09.600 INFO:     Getting available quotas  [lightspeed_stack.app.endpoints.query:311]
+2026-08-11 09:31:09.600 WARNING:  Storage configuration for quota limiters not specified  [lightspeed_stack.quota.quota_limiter_factory:38]
+2026-08-11 09:31:09.600 INFO:     Storing query results  [lightspeed_stack.app.endpoints.query:319]
+2026-08-11 09:31:09.600 INFO:     Storing transcript  [lightspeed_stack.utils.query:214]
+2026-08-11 09:31:09.601 INFO:     Transcript successfully stored at: /tmp/data/transcripts/a6f4b327410712dadc5fd94216cba24064c684adffbc426096dd7ee2745c28d0/3e8726b065a59b72659c64f7c0b124c2d464f8e87826f4a3/2f4e8396-8069-4865-abf2-8d84e1ede4ef.json  [lightspeed_stack.utils.transcripts:95]
+2026-08-11 09:31:09.601 INFO:     Persisting conversation details  [lightspeed_stack.utils.query:235]
+2026-08-11 09:31:09.603 INFO:     Storing conversation in cache  [lightspeed_stack.utils.query:264]
+2026-08-11 09:31:09.603 INFO:     Connection to storage is ok  [lightspeed_stack.cache.sqlite_cache:224]
+2026-08-11 09:31:09.603 INFO:     Connection to storage is ok  [lightspeed_stack.cache.sqlite_cache:224]
+2026-08-11 09:31:09.603 INFO:     Building final response  [lightspeed_stack.app.endpoints.query:335]
+2026-08-11 09:31:09.603 INFO:     127.0.0.1:38332 - &quot;POST /v1/query HTTP/1.1&quot; 200 OK</pre>
+</body>
+</html>

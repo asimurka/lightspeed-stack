@@ -1,0 +1,32 @@
+# Local Splunk Enterprise for A.6.2.8 HEC evidence screenshots.
+# UI: http://localhost:8000  |  HEC: https://localhost:8088
+#
+# Start:
+#   SPLUNK_PASSWORD='A628Evidence!' podman compose -f scripts/iso42001-a628-evidence/docker-compose.splunk.yaml up -d
+#   # or: docker compose -f ... up -d
+
+services:
+  splunk:
+    image: ${SPLUNK_IMAGE:-docker.io/splunk/splunk:9.1.3}
+    container_name: lcore-a628-splunk
+    platform: linux/amd64
+    environment:
+      SPLUNK_START_ARGS: "--accept-license"
+      SPLUNK_GENERAL_TERMS: "--accept-sgt-current-at-splunk-com"
+      SPLUNK_PASSWORD: "${SPLUNK_PASSWORD:-A628Evidence!}"
+      SPLUNK_HEC_TOKEN: "${SPLUNK_HEC_TOKEN:-a628-local-hec-token}"
+    ports:
+      - "8000:8000"   # Splunk Web UI
+      - "8088:8088"   # HEC
+      - "8089:8089"   # Management API (index creation)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000"]
+      interval: 15s
+      timeout: 10s
+      retries: 40
+      start_period: 90s
+    volumes:
+      - lcore-a628-splunk-data:/opt/splunk/var
+
+volumes:
+  lcore-a628-splunk-data:

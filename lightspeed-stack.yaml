@@ -7,14 +7,15 @@ service:
   workers: 1
   color_log: true
   access_log: true
-# llama_stack configuration
+# llama_stack / OGX configuration
 # When using 'make run', a container is ALWAYS launched at http://localhost:8321 (hardcoded in Makefile).
-# This llama_stack section controls where lightspeed-core connects to llama-stack.
+# This llama_stack section controls where lightspeed-core connects to llama-stack / OGX.
 # To use a different port: override with 'make run LLAMA_STACK_PORT=<port>' and update the url below,
 # or run llama-stack manually and don't use 'make run'.
 llama_stack:
-  use_as_library_client: false
-  url: http://localhost:8321
+  use_as_library_client: true
+  config:
+    profile: "run.yaml"
   # api_key: custom-key  # Uncomment if your llama-stack requires authentication
 user_data_collection:
   feedback_enabled: true
@@ -31,3 +32,17 @@ conversation_cache:
 authentication:
   module: "noop"
 
+# Deployment label included in Splunk / telemetry event payloads
+deployment_environment: "a628-audit-evidence"
+
+# Splunk HEC — inference telemetry (infer_*/responses_* sourcetypes).
+# Local UI: scripts/iso42001-a628-evidence/start_splunk.sh → http://localhost:8000
+# (Stop mock HEC on :8090 when using real Splunk.)
+splunk:
+  enabled: true
+  url: "https://127.0.0.1:8088/services/collector"
+  token_path: "scripts/iso42001-a628-evidence/secrets/splunk-hec-token"
+  index: "lcore_a628_evidence"
+  source: "lightspeed-stack"
+  timeout: 5
+  verify_ssl: false

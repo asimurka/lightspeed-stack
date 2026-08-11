@@ -1,0 +1,86 @@
+# HELP python_gc_objects_collected_total Objects collected during gc
+# TYPE python_gc_objects_collected_total counter
+python_gc_objects_collected_total{generation="0"} 23058.0
+python_gc_objects_collected_total{generation="1"} 5687.0
+python_gc_objects_collected_total{generation="2"} 1275.0
+# HELP python_gc_objects_uncollectable_total Uncollectable objects found during GC
+# TYPE python_gc_objects_uncollectable_total counter
+python_gc_objects_uncollectable_total{generation="0"} 0.0
+python_gc_objects_uncollectable_total{generation="1"} 0.0
+python_gc_objects_uncollectable_total{generation="2"} 0.0
+# HELP python_gc_collections_total Number of times this generation was collected
+# TYPE python_gc_collections_total counter
+python_gc_collections_total{generation="0"} 1344.0
+python_gc_collections_total{generation="1"} 122.0
+python_gc_collections_total{generation="2"} 8.0
+# HELP python_info Python platform information
+# TYPE python_info gauge
+python_info{implementation="CPython",major="3",minor="12",patchlevel="11",version="3.12.11"} 1.0
+# HELP process_virtual_memory_bytes Virtual memory size in bytes.
+# TYPE process_virtual_memory_bytes gauge
+process_virtual_memory_bytes 1.182089216e+09
+# HELP process_resident_memory_bytes Resident memory size in bytes.
+# TYPE process_resident_memory_bytes gauge
+process_resident_memory_bytes 4.32984064e+08
+# HELP process_start_time_seconds Start time of the process since unix epoch in seconds.
+# TYPE process_start_time_seconds gauge
+process_start_time_seconds 1.78643244959e+09
+# HELP process_cpu_seconds_total Total user and system CPU time spent in seconds.
+# TYPE process_cpu_seconds_total counter
+process_cpu_seconds_total 4.17
+# HELP process_open_fds Number of open file descriptors.
+# TYPE process_open_fds gauge
+process_open_fds 23.0
+# HELP process_max_fds Maximum number of open file descriptors.
+# TYPE process_max_fds gauge
+process_max_fds 524288.0
+# HELP ls_rest_api_calls_total REST API calls counter
+# TYPE ls_rest_api_calls_total counter
+# HELP ls_response_duration_seconds Response durations
+# TYPE ls_response_duration_seconds histogram
+# HELP ls_provider_model_configuration LLM provider/models combinations defined in configuration
+# TYPE ls_provider_model_configuration gauge
+ls_provider_model_configuration{model="openai/gpt-4o-mini",provider="openai"} 0.0
+# HELP ls_llm_calls_total LLM calls counter
+# TYPE ls_llm_calls_total counter
+ls_llm_calls_total{endpoint="/v1/responses",model="gpt-4o-mini",provider="openai"} 2.0
+# HELP ls_llm_calls_created LLM calls counter
+# TYPE ls_llm_calls_created gauge
+ls_llm_calls_created{endpoint="/v1/responses",model="gpt-4o-mini",provider="openai"} 1.786432476759597e+09
+# HELP ls_llm_calls_failures_total LLM calls failures
+# TYPE ls_llm_calls_failures_total counter
+# HELP ls_llm_validation_errors_total LLM validation errors
+# TYPE ls_llm_validation_errors_total counter
+# HELP ls_llm_token_sent_total LLM tokens sent
+# TYPE ls_llm_token_sent_total counter
+ls_llm_token_sent_total{endpoint="/v1/responses",model="gpt-4o-mini",provider="openai"} 74.0
+# HELP ls_llm_token_sent_created LLM tokens sent
+# TYPE ls_llm_token_sent_created gauge
+ls_llm_token_sent_created{endpoint="/v1/responses",model="gpt-4o-mini",provider="openai"} 1.7864324767595837e+09
+# HELP ls_llm_token_received_total LLM tokens received
+# TYPE ls_llm_token_received_total counter
+ls_llm_token_received_total{endpoint="/v1/responses",model="gpt-4o-mini",provider="openai"} 28.0
+# HELP ls_llm_token_received_created LLM tokens received
+# TYPE ls_llm_token_received_created gauge
+ls_llm_token_received_created{endpoint="/v1/responses",model="gpt-4o-mini",provider="openai"} 1.786432476759591e+09
+# HELP ls_llm_inference_duration_seconds LLM inference call duration
+# TYPE ls_llm_inference_duration_seconds histogram
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="0.1",model="gpt-4o-mini",provider="openai",result="success"} 0.0
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="0.5",model="gpt-4o-mini",provider="openai",result="success"} 0.0
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="1.0",model="gpt-4o-mini",provider="openai",result="success"} 0.0
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="2.5",model="gpt-4o-mini",provider="openai",result="success"} 1.0
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="5.0",model="gpt-4o-mini",provider="openai",result="success"} 1.0
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="10.0",model="gpt-4o-mini",provider="openai",result="success"} 1.0
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="20.0",model="gpt-4o-mini",provider="openai",result="success"} 1.0
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="30.0",model="gpt-4o-mini",provider="openai",result="success"} 1.0
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="60.0",model="gpt-4o-mini",provider="openai",result="success"} 1.0
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="120.0",model="gpt-4o-mini",provider="openai",result="success"} 1.0
+ls_llm_inference_duration_seconds_bucket{endpoint="/v1/responses",le="+Inf",model="gpt-4o-mini",provider="openai",result="success"} 1.0
+ls_llm_inference_duration_seconds_count{endpoint="/v1/responses",model="gpt-4o-mini",provider="openai",result="success"} 1.0
+ls_llm_inference_duration_seconds_sum{endpoint="/v1/responses",model="gpt-4o-mini",provider="openai",result="success"} 1.1807855100050801
+# HELP ls_llm_inference_duration_seconds_created LLM inference call duration
+# TYPE ls_llm_inference_duration_seconds_created gauge
+ls_llm_inference_duration_seconds_created{endpoint="/v1/responses",model="gpt-4o-mini",provider="openai",result="success"} 1.7864324767595284e+09
+# HELP ls_started_in_degraded_mode Indicates if service started in degraded mode (1 = degraded, 0 = healthy)
+# TYPE ls_started_in_degraded_mode gauge
+ls_started_in_degraded_mode 0.0
