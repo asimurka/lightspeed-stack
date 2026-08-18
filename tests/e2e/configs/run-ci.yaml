@@ -61,6 +61,7 @@ providers:
     provider_type: inline::reference
 server:
   port: 8321
+  insecure: true
 storage:
   backends:
     kv_default:

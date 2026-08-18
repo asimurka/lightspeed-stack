@@ -26,6 +26,73 @@ from utils.responses import resolve_vector_store_ids
 
 logger = get_logger(__name__)
 
+_INLINE_RAG_LOG_PREFIX = "Inline RAG"
+
+
+def _summarize_byok_rag_config() -> list[dict[str, str]]:
+    """Return a compact summary of configured BYOK RAG entries for logging."""
+    return [
+        {
+            "rag_id": brag.rag_id,
+            "vector_db_id": brag.vector_db_id,
+            "rag_type": brag.rag_type,
+            "db_path": brag.db_path or "",
+            "score_multiplier": str(brag.score_multiplier),
+        }
+        for brag in configuration.configuration.byok_rag
+    ]
+
+
+def _summarize_solr_request(
+    solr: Optional[SolrVectorSearchRequest],
+) -> Optional[dict[str, Any]]:
+    """Return a compact summary of the Solr inline RAG request for logging."""
+    if solr is None:
+        return None
+    return {
+        "mode": solr.mode,
+        "filters": solr.filters,
+    }
+
+
+def _log_vector_io_query_request(
+    source: str,
+    vector_store_id: str,
+    query: str,
+    params: dict[str, Any],
+    **extra: Any,
+) -> None:
+    """Log attributes sent to vector_io.query for inline RAG debugging."""
+    extra_parts = ", ".join(f"{key}={value!r}" for key, value in extra.items())
+    suffix = f", {extra_parts}" if extra_parts else ""
+    logger.info(
+        "%s %s vector_io.query request: vector_store_id=%r query=%r params=%r%s",
+        _INLINE_RAG_LOG_PREFIX,
+        source,
+        vector_store_id,
+        query,
+        params,
+        suffix,
+    )
+
+
+def _log_vector_io_query_response(
+    source: str,
+    vector_store_id: str,
+    chunk_count: int,
+    scores: list[float],
+) -> None:
+    """Log a compact summary of vector_io.query results for inline RAG debugging."""
+    logger.info(
+        "%s %s vector_io.query response: vector_store_id=%r chunk_count=%d "
+        "scores_sample=%r",
+        _INLINE_RAG_LOG_PREFIX,
+        source,
+        vector_store_id,
+        chunk_count,
+        scores[:5],
+    )
+
 
 def _filter_documents_for_chunks(
     all_documents: list[ReferencedDocument],
@@ -264,18 +331,42 @@ async def _query_store_for_byok_rag(
     Returns:
         List of weighted result dictionaries, or empty list on error
     """
+    params = {
+        "max_chunks": max_chunks,
+        "mode": "vector",
+    }
+    _log_vector_io_query_request(
+        "BYOK",
+        vector_store_id,
+        query,
+        params,
+        weight=weight,
+    )
     try:
         search_response = await client.vector_io.query(
             vector_store_id=vector_store_id,
             query=query,
-            params={
-                "max_chunks": max_chunks,
-                "mode": "vector",
-            },
+            params=params,
         )
+        scores = (
+            list(search_response.scores)
+            if hasattr(search_response, "scores") and search_response.scores
+            else []
+        )
+        chunk_count = len(search_response.chunks or [])
+        _log_vector_io_query_response("BYOK", vector_store_id, chunk_count, scores)
         return _extract_byok_rag_chunks(search_response, vector_store_id, weight)
     except Exception as e:  # pylint: disable=broad-exception-caught
-        logger.warning("Failed to search '%s': %s", vector_store_id, e)
+        logger.warning(
+            "%s BYOK vector_io.query failed: vector_store_id=%r query=%r params=%r "
+            "weight=%r error=%s",
+            _INLINE_RAG_LOG_PREFIX,
+            vector_store_id,
+            query,
+            params,
+            weight,
+            e,
+        )
         return []
 
 
@@ -492,13 +583,39 @@ async def _fetch_byok_rag(  # pylint: disable=too-many-locals
 
     # If inline byok stores are not defined, we disable the inline RAG for backward compatibility
     if not vector_store_ids_to_query:
-        logger.info("No inline BYOK RAG sources configured, skipping BYOK RAG search")
+        logger.info(
+            "%s BYOK skipped: no stores to query after resolution "
+            "(request_vector_store_ids=%r config_rag_inline=%r "
+            "rag_ids_to_query=%r vector_store_ids_to_query=%r byok_rag=%r)",
+            _INLINE_RAG_LOG_PREFIX,
+            vector_store_ids,
+            configuration.configuration.rag.inline,
+            rag_ids_to_query,
+            vector_store_ids_to_query,
+            _summarize_byok_rag_config(),
+        )
         return rag_chunks, referenced_documents
 
     try:
         # Get score multiplier and rag_id mappings
         score_multiplier_mapping = configuration.score_multiplier_mapping
         rag_id_mapping = configuration.rag_id_mapping
+
+        logger.info(
+            "%s BYOK store resolution: request_vector_store_ids=%r "
+            "config_rag_inline=%r rag_ids_to_query=%r "
+            "vector_store_ids_to_query=%r max_chunks=%d byok_rag=%r "
+            "score_multiplier_mapping=%r rag_id_mapping=%r",
+            _INLINE_RAG_LOG_PREFIX,
+            vector_store_ids,
+            configuration.configuration.rag.inline,
+            rag_ids_to_query,
+            vector_store_ids_to_query,
+            limit,
+            _summarize_byok_rag_config(),
+            score_multiplier_mapping,
+            rag_id_mapping,
+        )
 
         # Query all vector stores in parallel
         results_per_store = await asyncio.gather(
@@ -588,11 +705,28 @@ async def _fetch_solr_rag(  # pylint: disable=too-many-locals
             vector_store_id = vector_store_ids[0]
             params = _build_query_params(solr)
 
+            _log_vector_io_query_request(
+                "Solr",
+                vector_store_id,
+                query,
+                params,
+                offline=offline,
+                solr_enabled=True,
+            )
+
             query_response = await client.vector_io.query(
                 vector_store_id=vector_store_id,
                 query=query,
                 params=params,
             )
+
+            scores = (
+                list(query_response.scores)
+                if hasattr(query_response, "scores") and query_response.scores
+                else []
+            )
+            chunk_count = len(query_response.chunks or [])
+            _log_vector_io_query_response("Solr", vector_store_id, chunk_count, scores)
 
             logger.debug(
                 "OKP query returned %d chunks", len(query_response.chunks or [])
@@ -652,6 +786,23 @@ async def build_rag_context(  # pylint: disable=too-many-locals,too-many-branche
     Returns:
         RAGContext containing formatted context text and referenced documents
     """
+    logger.info(
+        "%s build_rag_context: query=%r request_vector_store_ids=%r solr=%r "
+        "moderation_decision=%r config_rag_inline=%r byok_max_chunks=%d "
+        "inline_max_chunks=%d reranker_enabled=%s solr_enabled=%s byok_rag=%r",
+        _INLINE_RAG_LOG_PREFIX,
+        query,
+        vector_store_ids,
+        _summarize_solr_request(solr),
+        moderation_decision,
+        configuration.configuration.rag.inline,
+        constants.BYOK_RAG_MAX_CHUNKS,
+        constants.INLINE_RAG_MAX_CHUNKS,
+        configuration.reranker.enabled,
+        _is_solr_enabled(),
+        _summarize_byok_rag_config(),
+    )
+
     if moderation_decision == "blocked":
         return RAGContext()
 
@@ -698,6 +849,18 @@ async def build_rag_context(  # pylint: disable=too-many-locals,too-many-branche
     # Filter documents to match final chunks (after reranking)
     all_documents = byok_documents + solr_documents
     top_documents = _filter_documents_for_chunks(all_documents, context_chunks)
+
+    logger.info(
+        "%s build_rag_context result: byok_chunks=%d solr_chunks=%d merged=%d "
+        "context_chunks=%d context_text_len=%d referenced_documents=%d",
+        _INLINE_RAG_LOG_PREFIX,
+        len(byok_chunks),
+        len(solr_chunks),
+        len(merged),
+        len(context_chunks),
+        len(context_text),
+        len(top_documents),
+    )
 
     return RAGContext(
         context_text=context_text,

@@ -1836,9 +1836,9 @@ requires-dist = [
     { name = "jsonpath-ng", specifier = ">=1.6.1" },
     { name = "kubernetes", specifier = ">=30.1.0" },
     { name = "litellm", specifier = ">=1.83.7" },
-    { name = "ogx", specifier = "==1.3.0" },
-    { name = "ogx-api", specifier = "==1.3.0" },
-    { name = "ogx-client", specifier = "==1.3.0" },
+    { name = "ogx", specifier = "==1.2.3" },
+    { name = "ogx-api", specifier = "==1.2.3" },
+    { name = "ogx-client", specifier = "==1.2.3" },
     { name = "openai", specifier = ">=1.99.9" },
     { name = "opentelemetry-distro", specifier = ">=0.49b0" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.34.1" },
@@ -2375,7 +2375,7 @@ wheels = [
 
 [[package]]
 name = "ogx"
-version = "1.3.0"
+version = "1.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -2406,14 +2406,14 @@ dependencies = [
     { name = "websockets" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/26/bd/5f8ce11504990bb25336a402acfca48c042f89c101130f63ed07292b8f0e/ogx-1.3.0.tar.gz", hash = "sha256:cf20a116fc5c93cbd88eed3c6d0d25eb52ca338a53a54b8d3c09917a9391340d", size = 18530591, upload-time = "2026-08-07T13:36:17.545Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/1a/f4/60018ff6335e9d6afb52d31d3831983ef3d943908bb2c44bf2ad8e903afe/ogx-1.2.3.tar.gz", hash = "sha256:e15d4e651135aa80d1ffb04a8e6b65a7d952bc76afd29c3590711b0f1af920cd", size = 18178052, upload-time = "2026-08-17T16:32:41.753Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/07/ea/a9490b815f2fd6c91d343ee878891391a2cf2907debd2dac161463e1bb70/ogx-1.3.0-py3-none-any.whl", hash = "sha256:e3e1f50afad849ff385e6c1e033d9116346a2166333fd4088fc778fcc9692b0d", size = 814873, upload-time = "2026-08-07T13:36:15.91Z" },
+    { url = "https://files.pythonhosted.org/packages/64/4a/82008354e5ec5cd009a23a09eb38f97208e1c1ab4e41d73940a2ac5b5ed8/ogx-1.2.3-py3-none-any.whl", hash = "sha256:8d44f90cd478bb8de7e8856ab51ded2aa8714994ef450381520181b2a02496cd", size = 779458, upload-time = "2026-08-17T16:32:39.897Z" },
 ]
 
 [[package]]
 name = "ogx-api"
-version = "1.3.0"
+version = "1.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fastapi" },
@@ -2424,14 +2424,14 @@ dependencies = [
     { name = "opentelemetry-sdk" },
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4e/0a/1e5eee4ef6ce1b54828533150b4de23dc231d3a41da920428ce9aa3dcca1/ogx_api-1.3.0.tar.gz", hash = "sha256:4e67727df23aaaa1b6773de47440f1eb68790212013138e048247cc3cb2cf312", size = 167727, upload-time = "2026-08-07T13:35:19.678Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ba/70/1344a223c2b4ec3974b60c15481f143ab714be662da891d2ed23319d4553/ogx_api-1.2.3.tar.gz", hash = "sha256:66c2857e4fa9fa5e75371cf0a9b242ca9891cbca86e645ba58ac84afea6915b6", size = 166454, upload-time = "2026-08-17T16:32:04.516Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e8/30/0be9638b7c521a9a0c22e1c87af2822410ef0d2e43bb65780413254e9920/ogx_api-1.3.0-py3-none-any.whl", hash = "sha256:f29b0a98dfb0f9cc694ca7d643efd1aa212b23290d5b02a3b543cf365a8f5299", size = 168296, upload-time = "2026-08-07T13:35:18.037Z" },
+    { url = "https://files.pythonhosted.org/packages/df/d3/f1815a724fdd36f5fa76e8dc9c330f5944008cb77c7c8569f054689b8ef3/ogx_api-1.2.3-py3-none-any.whl", hash = "sha256:6462dd61df2a3c2ea1e29672b68d4e03faeeafc7eee2cb7ebfb9d829dca75876", size = 166522, upload-time = "2026-08-17T16:32:03.053Z" },
 ]
 
 [[package]]
 name = "ogx-client"
-version = "1.3.0"
+version = "1.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "fire" },
@@ -2441,9 +2441,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/50/e6/d45678153a2624870ce8571a1968c828c408f5ce029483c34019757af4b0/ogx_client-1.3.0.tar.gz", hash = "sha256:ebe5d0004433a7e1728b1f45e18bd3dabfddc6ac3d9f7bba51fb64e777fb921d", size = 648519, upload-time = "2026-08-07T13:34:42.221Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/69/b2/808f2f4c301bc249b83f4b2f979cb93de03988c951ac5ae69898cd520d99/ogx_client-1.2.3.tar.gz", hash = "sha256:03417ab0168e53c750412ce7e94170e28c4717c503c44d1ba5d65fd2f2910dee", size = 642336, upload-time = "2026-08-17T16:31:23.198Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/38/2b/45c20180b9664a94e38706c7c0fcee32eb56195b3b36924455b1900cf3d4/ogx_client-1.3.0-py3-none-any.whl", hash = "sha256:50d18b4952e814cc6785b396220e75780ef8a28ea01bec008d1f716fb8f08203", size = 1593011, upload-time = "2026-08-07T13:34:40.321Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/fa/b7afdd5e1e80962f5e5c0b954565d5fe82bc1c575b08ca552968d1fbda4a/ogx_client-1.2.3-py3-none-any.whl", hash = "sha256:6ba0e4458c4abfc509d12aeb5c6db45235d16ed1af300983775452ffd6a61b96", size = 1584406, upload-time = "2026-08-17T16:31:21.59Z" },
 ]
 
 [[package]]

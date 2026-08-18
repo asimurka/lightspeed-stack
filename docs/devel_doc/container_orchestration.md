@@ -284,6 +284,12 @@ The Makefile passes these environment variables to the llama-stack container:
 - `VERTEX_AI_PROJECT`: GCP project ID
 - `VERTEX_AI_LOCATION`: GCP region
 
+**OGX / llama-stack TLS (1.2.0+):**
+- OGX **1.2.0** introduced mandatory TLS unless disabled ([strict TLS mode](https://github.com/ogx-ai/ogx/pull/5603), shipped in v1.2.0).
+- OGX **1.1.x** allows plain HTTP without `--insecure`.
+- For local/e2e plain HTTP on port 8321, use `server.insecure: true` in run config and/or `ogx stack run --insecure`.
+- Production should use `tls_certfile` / `tls_keyfile` (or TLS termination at the ingress).
+
 **IBM WatsonX:**
 - `WATSONX_BASE_URL`: WatsonX API base URL
 - `WATSONX_PROJECT_ID`: WatsonX project ID

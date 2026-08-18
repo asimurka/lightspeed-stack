@@ -59,7 +59,7 @@ providers:
     provider_type: inline::reference
 server:
   port: 8321
-  # OGX 1.3+ requires TLS by default; e2e/local use plain HTTP.
+  # OGX 1.2.0+ (PR ogx-ai/ogx#5603) requires TLS certs or server.insecure for plain HTTP.
   insecure: true
 storage:
   backends:
