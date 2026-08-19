@@ -28,8 +28,13 @@ from models.api.responses.error import InternalServerErrorResponse
 from sentry import initialize_sentry
 from utils.degraded_mode import DegradedModeTracker
 from utils.llama_stack_version import check_llama_stack_version
+from utils.vertexai_service_tier import apply_vertexai_service_tier_workaround
+from utils.vertexai_thought_signature import apply_vertexai_thought_signature_workaround
 
 logger = get_logger(__name__)
+
+apply_vertexai_thought_signature_workaround()
+apply_vertexai_service_tier_workaround()
 
 logger.info("Initializing app")
 

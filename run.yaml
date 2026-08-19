@@ -1,4 +1,5 @@
 version: 2
+distro_name: vertexai-configuration
 
 apis:
 - responses
@@ -9,16 +10,23 @@ apis:
 - conversations
 - vector_io
 
-distro_name: starter
+# external_providers_dir: /opt/app-root/src/.llama/providers.d
 
 providers:
   inference:
-  - provider_id: openai # This ID is a reference to 'providers.inference'
+  - provider_id: google-vertex
+    provider_type: remote::vertexai
+    config:
+      project: ${env.VERTEX_AI_PROJECT}
+      location: ${env.VERTEX_AI_LOCATION}
+      allowed_models: ["publishers/google/models/gemini-3.5-flash"]
+  - provider_id: openai
     provider_type: remote::openai
     config:
       api_key: ${env.OPENAI_API_KEY}
       allowed_models: ["${env.E2E_OPENAI_MODEL:=gpt-4o-mini}"]
-  - provider_id: sentence-transformers
+  - config: {}
+    provider_id: sentence-transformers
     provider_type: inline::sentence-transformers
   files:
   - config:
@@ -36,10 +44,10 @@ providers:
     provider_id: model-context-protocol
     provider_type: remote::model-context-protocol
   vector_io:
-  - config:
+  - config: # Define the storage backend for RAG
       persistence:
         namespace: vector_io::faiss
-        backend: kv_default
+        backend: kv_rag
     provider_id: faiss
     provider_type: inline::faiss
   responses:
@@ -61,9 +69,12 @@ server:
   port: 8321
 storage:
   backends:
-    kv_default: # Define the storage backend type for RAG, in this case registry and RAG are unified i.e. information on registered resources (e.g. models, vector_stores) are saved together with the RAG chunks
+    kv_default:
       type: kv_sqlite
-      db_path: ${env.KV_STORE_PATH:=~/.llama/storage/rag/kv_store.db}
+      db_path: ${env.KV_STORE_PATH:=~/.llama/storage/kv_store.db}
+    kv_rag: # Define the storage backend type for RAG
+      type: kv_sqlite
+      db_path: ${env.KV_RAG_PATH:=~/.llama/storage/rag/kv_store.db}
     sql_default:
       type: sql_sqlite
       db_path: ${env.SQL_STORE_PATH:=~/.llama/storage/sql_store.db}
@@ -86,17 +97,20 @@ storage:
       table_name: connectors
       backend: sql_default
 registered_resources:
-  models: []
+  models:
+  - model_id: publishers/google/models/gemini-3.5-flash
+    provider_id: google-vertex
+    model_type: llm
+    provider_model_id: publishers/google/models/gemini-3.5-flash
+  - model_id: all-mpnet-base-v2
+    model_type: embedding
+    provider_id: sentence-transformers
+    provider_model_id: all-mpnet-base-v2
+    metadata:
+      embedding_dimension: 768
   vector_stores: []
-# REQUIRED: This section is necessary for file_search tool calls to work.
-# Without it, llama-stack's file-search runtime silently fails all file_search operations
-# with no error logged.
 vector_stores:
-  # LCORE-1498: Disables Llama Stack RAG annotation generation
-  # causing unwanted citation/file markers in model output.
-  annotation_prompt_params:
-    enable_annotations: false
   default_provider_id: faiss
   default_embedding_model: # Define the default embedding model for RAG
     provider_id: sentence-transformers
-    model_id: nomic-ai/nomic-embed-text-v1.5
+    model_id: all-mpnet-base-v2
