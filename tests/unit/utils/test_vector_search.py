@@ -5,13 +5,17 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 import pytest
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 from pydantic import AnyUrl
 from pytest_mock import MockerFixture
 
 import constants
 from configuration import AppConfig
 from models.common.query import SolrVectorSearchRequest
-from models.common.turn_summary import RAGChunk
+from models.common.turn_summary import RAGChunk, ReferencedDocument
+from utils.otel_tracing import SpanAttributes, SpanEvents
 from utils.reranker import (
     _get_cross_encoder,
     apply_byok_rerank_boost,
@@ -1665,3 +1669,144 @@ class TestApplyByokRerankBoost:
             "title": "Test Doc",
             "url": "http://example.com",
         }
+
+
+class TestBuildRagContextOtel:
+    """OpenTelemetry attrs/events for build_rag_context."""
+
+    @staticmethod
+    def _patch_rag_config(mocker: MockerFixture) -> None:
+        """Patch vector_search configuration for minimal inline RAG."""
+        config_mock = mocker.Mock(spec=AppConfig)
+        config_mock.rag.retrieval.inline.sources = []
+        config_mock.rag.byok.stores = []
+        config_mock.rag.retrieval.inline.max_chunks = (
+            constants.DEFAULT_INLINE_RAG_MAX_CHUNKS
+        )
+        config_mock.rag.byok.max_chunks = constants.DEFAULT_BYOK_RAG_MAX_CHUNKS
+        config_mock.inline_solr_enabled = False
+        config_mock.reranker = None
+        mocker.patch("utils.vector_search.configuration", config_mock)
+
+    @pytest.mark.asyncio
+    async def test_blocked_moderation_sets_zero_sources_without_completed_event(
+        self,
+        otel: tuple[Any, InMemorySpanExporter],
+        mocker: MockerFixture,
+    ) -> None:
+        """Blocked moderation skips retrieval and does not emit completed event."""
+        tracer, exporter = otel
+        mocker.patch("utils.vector_search.tracer", tracer)
+        mocker.patch(
+            "utils.vector_search.anonymize_value",
+            side_effect=lambda value: f"[anon:{value}]",
+        )
+        self._patch_rag_config(mocker)
+        client = mocker.AsyncMock()
+
+        await build_rag_context(client, "blocked", "test query", None)
+
+        span = next(
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "rag.retrieve"
+        )
+        assert span.attributes is not None
+        assert span.attributes[SpanAttributes.RAG_INPUT] == "[anon:test query]"
+        assert span.attributes[SpanAttributes.RAG_SOURCES_COUNT] == 0
+        event_names = [event.name for event in span.events]
+        assert SpanEvents.RAG_RETRIEVAL_COMPLETED not in event_names
+
+    @pytest.mark.asyncio
+    async def test_passed_with_no_chunks_emits_zero_count_event(
+        self,
+        otel: tuple[Any, InMemorySpanExporter],
+        mocker: MockerFixture,
+    ) -> None:
+        """Passed moderation with no chunks emits retrieval completed with count 0."""
+        tracer, exporter = otel
+        mocker.patch("utils.vector_search.tracer", tracer)
+        mocker.patch(
+            "utils.vector_search.anonymize_value",
+            side_effect=lambda value: f"[anon:{value}]",
+        )
+        self._patch_rag_config(mocker)
+        mocker.patch(
+            "utils.vector_search._fetch_byok_rag",
+            new=mocker.AsyncMock(return_value=([], [])),
+        )
+        mocker.patch(
+            "utils.vector_search._fetch_okp_rag",
+            new=mocker.AsyncMock(return_value=([], [])),
+        )
+        client = mocker.AsyncMock()
+
+        await build_rag_context(client, "passed", "test query", None)
+
+        span = next(
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "rag.retrieve"
+        )
+        assert span.attributes is not None
+        assert span.attributes[SpanAttributes.RAG_SOURCES_COUNT] == 0
+        completed = next(
+            event
+            for event in span.events
+            if event.name == SpanEvents.RAG_RETRIEVAL_COMPLETED
+        )
+        completed_attrs = completed.attributes
+        assert completed_attrs is not None
+        assert completed_attrs["rag.chunks.count"] == 0
+
+    @pytest.mark.asyncio
+    async def test_passed_with_chunks_sets_sources_and_chunk_count(
+        self,
+        otel: tuple[Any, InMemorySpanExporter],
+        mocker: MockerFixture,
+    ) -> None:
+        """Passed moderation with chunks sets source attrs and chunk count event."""
+        tracer, exporter = otel
+        mocker.patch("utils.vector_search.tracer", tracer)
+        mocker.patch(
+            "utils.vector_search.anonymize_value",
+            side_effect=lambda value: f"[anon:{value}]",
+        )
+        self._patch_rag_config(mocker)
+        chunk = RAGChunk(
+            content="chunk text",
+            source="source-a",
+            score=0.9,
+            attributes={"doc_url": "http://example.com/doc"},
+        )
+        document = ReferencedDocument(
+            doc_url=AnyUrl("http://example.com/doc"),
+            doc_title="Example Doc",
+        )
+        mocker.patch(
+            "utils.vector_search._fetch_byok_rag",
+            new=mocker.AsyncMock(return_value=([chunk], [document])),
+        )
+        mocker.patch(
+            "utils.vector_search._fetch_okp_rag",
+            new=mocker.AsyncMock(return_value=([], [])),
+        )
+        client = mocker.AsyncMock()
+
+        await build_rag_context(client, "passed", "test query", None)
+
+        span = next(
+            span
+            for span in exporter.get_finished_spans()
+            if span.name == "rag.retrieve"
+        )
+        assert span.attributes is not None
+        assert span.attributes[SpanAttributes.RAG_SOURCES_COUNT] == 1
+        completed = next(
+            event
+            for event in span.events
+            if event.name == SpanEvents.RAG_RETRIEVAL_COMPLETED
+        )
+        completed_attrs = completed.attributes
+        assert completed_attrs is not None
+        assert completed_attrs["rag.chunks.count"] == 1

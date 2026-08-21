@@ -28,6 +28,10 @@ from pydantic_ai.native_tools import FileSearchTool, MCPServerTool
 from pydantic_ai.run import AgentRunResult
 from pydantic_ai.usage import RunUsage
 from pytest_mock import AsyncMockType, MockerFixture
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+    InMemorySpanExporter,
+)
 from sqlalchemy import create_engine
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
@@ -441,9 +445,63 @@ def set_streaming_query_agent_run(
     )
 
 
+OTEL_INSTRUMENTED_MODULES = (
+    "app.endpoints.query",
+    "app.endpoints.responses",
+    "utils.quota_utils",
+    "utils.responses",
+    "utils.shields",
+    "utils.vector_search",
+)
+
+
+def install_integration_otel_provider(
+    exporter: InMemorySpanExporter,
+) -> TracerProvider:
+    """Install a global TracerProvider and refresh cached module tracers."""
+    import importlib
+
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider as SdkTracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+
+    provider = SdkTracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+
+    trace._TRACER_PROVIDER_SET_ONCE._done = False  # pylint: disable=protected-access
+    trace._TRACER_PROVIDER = None  # pylint: disable=protected-access
+    trace.set_tracer_provider(provider)
+
+    for module_name in OTEL_INSTRUMENTED_MODULES:
+        module = importlib.import_module(module_name)
+        setattr(module, "tracer", provider.get_tracer(module_name))
+
+    return provider
+
+
+def shutdown_integration_otel_provider(provider: TracerProvider) -> None:
+    """Shut down the integration OTEL provider and clear global state."""
+    from opentelemetry import trace
+
+    provider.shutdown()
+    trace._TRACER_PROVIDER_SET_ONCE._done = False  # pylint: disable=protected-access
+    trace._TRACER_PROVIDER = None  # pylint: disable=protected-access
+
+
 # ==========================================
 # Fixtures
 # ==========================================
+
+
+@pytest.fixture(name="otel_collector", scope="module")
+def otel_collector_fixture() -> Generator[InMemorySpanExporter, None, None]:
+    """Module-scoped OTEL exporter for integration tests that opt in via fixture."""
+    exporter = InMemorySpanExporter()
+    provider = install_integration_otel_provider(exporter)
+
+    yield exporter
+
+    shutdown_integration_otel_provider(provider)
 
 
 @pytest.fixture(autouse=True)

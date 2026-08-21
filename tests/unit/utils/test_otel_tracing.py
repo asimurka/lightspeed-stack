@@ -307,7 +307,9 @@ class TestRecordException:
 
         with tracer.start_as_current_span("test_span") as span:
             record_exception(
-                span, test_exception, attributes={"error.context": "quota_check"}
+                span,
+                test_exception,
+                {SpanAttributes.RESPONSE_ERROR: "quota_check"},
             )
 
         spans = exporter.get_finished_spans()
@@ -316,7 +318,7 @@ class TestRecordException:
         assert len(events) == 1
         assert events[0].name == "exception"
         assert events[0].attributes["exception.type"] == "RuntimeError"
-        assert events[0].attributes["error.context"] == "quota_check"
+        assert events[0].attributes[SpanAttributes.RESPONSE_ERROR] == "quota_check"
 
     def test_record_multiple_exceptions(self, otel):
         """Test recording multiple exceptions on a span."""
