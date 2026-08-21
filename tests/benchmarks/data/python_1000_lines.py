@@ -17,7 +17,7 @@
 #     - Frameworky pro GenAI
 #     - Základní vlastnosti LLM
 #     - OpenAI a další standardizovaná API
-#     - Framework Llama Stack
+#     - Framework ogx
 #     - Langchain pro tvorbu aplikací využívajících GenAI
 #     - RAG (Retrieval-augmented generation)
 #     - Evaluace
@@ -414,7 +414,7 @@
 # * controlflow
 # * langflow
 # * LiteLLM (???)
-# * Llama Stack
+# * OGX
 #
 # ---
 #
@@ -465,13 +465,13 @@ for model in models:
 #
 # ---
 #
-# ## Llama Stack
+# ## OGX
 #
-# ![Llama Stack logo](images/llama_stack_logo.png)
+# ![OGX logo](images/llama_stack_logo.png)
 #
 # ---
 #
-# ## Co je to Llama Stack?
+# ## Co je to OGX?
 #
 # * Framework pro tvorbu aplikací s AI
 #     - chat boti
@@ -542,13 +542,13 @@ for model in models:
 # * CLI
 # * REST API
 # * Jako běžná knihovna (Python atd.)
-# * Llama Stack klient
+# * OGX klient
 #     - podporuje REST API
 #     - podporuje i běh formou knihovny (async)
 #
 # ---
 #
-# ### Llama Stack klient
+# ### OGX klient
 #
 # * Python
 # * Swift
@@ -557,13 +557,13 @@ for model in models:
 #
 # ---
 #
-# ### Llama Stack jako knihovna
+# ### OGX jako knihovna
 #
 # ![LS1](images/llama_stack_as_library.png)
 #
 # ---
 #
-# ### Llama Stack jako samostatná služba
+# ### OGX jako samostatná služba
 #
 # ![LS1](images/llama_stack_as_service.png)
 #
@@ -659,20 +659,20 @@ for model in models:
 #
 # ---
 #
-# ### Llama Stack klient
+# ### OGX klient
 #
 # * Využijeme klienta pro Python
 #
 # ```bash
 # uv init
-# uv add llama-stack-client
+# uv add OGX-client
 # ```
 #
 # ---
 #
 
 #
-# ### Llama Stack běží jako samostatná služba
+# ### OGX běží jako samostatná služba
 #
 
 # Získání seznamu všech dostupných modelů
@@ -689,7 +689,7 @@ for model in models:
 
 # ---
 #
-# ### Llama Stack je použit jako běžná knihovna
+# ### OGX je použit jako běžná knihovna
 #
 
 # Získání seznamu všech dostupných modelů
@@ -905,7 +905,7 @@ print_rag_response(response)
 # * Podpora pro agentic flow (ovšem jen základní)
 # * Postupně se některé další funkce odstraňují (!)
 # * Výsledkem je nestabilita celé platformy
-# * Pokud vyvíjíte stabilní projekt, je Llama Stack riziko
+# * Pokud vyvíjíte stabilní projekt, je OGX riziko
 #
 # ---
 #

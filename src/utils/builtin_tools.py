@@ -20,7 +20,7 @@ FILE_SEARCH_PROVIDER_ID: Final[str] = "file-search"
 FILE_SEARCH_TOOLGROUP_ID: Final[str] = "builtin::file_search"
 BUILTIN_SERVER_SOURCE: Final[str] = "builtin"
 
-# OGX server-mode GET /v1/admin/tools is broken (admin deps / nested routers),
+# ogx server-mode GET /v1/admin/tools is broken (admin deps / nested routers),
 # so expose the known builtin::file_search catalog when the provider is present.
 FILE_SEARCH_CATALOG_TOOLS: Final[list[CatalogTool]] = [
     CatalogTool(
@@ -76,7 +76,7 @@ async def get_file_search_tools(
     """Return builtin file-search tools when that provider is configured.
 
     Provider presence is checked via ``providers.list()``. Tool definitions are
-    not fetched from ``/v1/admin/tools`` (broken in OGX server mode); the
+    not fetched from ``/v1/admin/tools`` (broken in ogx server mode); the
     known ``builtin::file_search`` catalog is returned instead.
 
     Parameters:

@@ -1,6 +1,6 @@
-# Llama Stack Container Orchestration
+# OGX Container Orchestration
 
-This guide explains how Lightspeed Core Stack (LCORE) manages the Llama Stack container lifecycle, including startup, teardown, customization, and troubleshooting.
+This guide explains how Lightspeed Core Stack (LCORE) manages the ogx container lifecycle, including startup, teardown, customization, and troubleshooting.
 
 ## Table of Contents
 
@@ -28,9 +28,9 @@ This guide explains how Lightspeed Core Stack (LCORE) manages the Llama Stack co
 
 When you run `make run`, the Makefile automatically:
 
-1. **Builds** the llama-stack container image (if not already built)
-2. **Stops and removes** any existing llama-stack container (ensures clean state)
-3. **Starts** a new llama-stack container with your configuration
+1. **Builds** the ogx container image (if not already built)
+2. **Stops and removes** any existing ogx container (ensures clean state)
+3. **Starts** a new ogx container with your configuration
 4. **Waits** for the container to pass health checks (up to 60 seconds)
 5. **Starts** the Lightspeed Core Stack service
 6. **Sets up** automatic cleanup on exit (Ctrl+C or kill signal)
@@ -55,7 +55,7 @@ The Makefile will auto-detect which runtime is available.
 # Install dependencies
 uv sync --group dev --group llslibdev
 
-# Generate llama-stack config (run.yaml)
+# Generate ogx config (run.yaml)
 ./scripts/generate_local_run.sh
 
 # Set required environment variables
@@ -65,7 +65,7 @@ export OPENAI_API_KEY=sk-xxxxx
 make run
 ```
 
-**Stop the service:** Press `Ctrl+C`. This will automatically stop and remove the llama-stack container.
+**Stop the service:** Press `Ctrl+C`. This will automatically stop and remove the ogx container.
 
 ---
 
@@ -83,8 +83,8 @@ When you run `make run`, the following happens:
 make build-llama-stack-image
 ```
 
-- Builds from `deploy/llama-stack/test.containerfile`
-- Tags as `lightspeed-llama-stack:local` (customizable via `LLAMA_STACK_IMAGE`)
+- Builds from `deploy/OGX/test.containerfile`
+- Tags as `lightspeed-OGX:local` (customizable via `LLAMA_STACK_IMAGE`)
 - Only rebuilds if the image doesn't exist or source files changed
 - Removes any existing container before building (ensures clean build)
 
@@ -97,7 +97,7 @@ make stop-llama-stack-container
 ```
 
 - Gracefully stops the container with 10-second timeout
-- If graceful stop fails, captures logs to `/tmp/llama-stack-failure.log` and force-kills
+- If graceful stop fails, captures logs to `/tmp/OGX-failure.log` and force-kills
 - Safe to run even if no container is running
 
 #### 3. Start New Container
@@ -131,11 +131,11 @@ make wait-for-llama-stack-health
 - If timeout occurs, displays container logs and exits with error
 - Example output:
   ```
-  Waiting for llama-stack container to be healthy...
+  Waiting for ogx container to be healthy...
     Health status: starting (attempt 1/30)
     Health status: starting (attempt 2/30)
     Health status: healthy (attempt 3/30)
-  ✓ Llama-stack is healthy and ready!
+  ✓ OGX is healthy and ready!
   ```
 
 #### 5. Start Lightspeed Core Stack
@@ -147,7 +147,7 @@ make run-stack
 ```
 
 - Starts the FastAPI service with `uv run src/lightspeed_stack.py`
-- Connects to llama-stack at `http://localhost:8321` (or configured URL)
+- Connects to OGX at `http://localhost:8321` (or configured URL)
 - Sets up trap handler to stop container on exit
 
 ### Teardown and Cleanup
@@ -160,7 +160,7 @@ When you press `Ctrl+C` or the process receives a termination signal, the trap h
 trap 'echo ""; echo "Stopping services..."; $(MAKE) stop-llama-stack-container' EXIT INT TERM
 ```
 
-This ensures the llama-stack container is always cleaned up, even if the service crashes.
+This ensures the ogx container is always cleaned up, even if the service crashes.
 
 #### Manual Cleanup Commands
 
@@ -194,10 +194,10 @@ Override any of these variables when running `make`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLAMA_STACK_CONTAINER_NAME` | `lightspeed-llama-stack` | Container name |
-| `LLAMA_STACK_IMAGE` | `lightspeed-llama-stack:local` | Container image name and tag |
-| `LLAMA_STACK_PORT` | `8321` | Host port for llama-stack |
-| `LLAMA_STACK_CONFIG` | `run.yaml` | Llama Stack config file path |
+| `LLAMA_STACK_CONTAINER_NAME` | `lightspeed-OGX` | Container name |
+| `LLAMA_STACK_IMAGE` | `lightspeed-OGX:local` | Container image name and tag |
+| `LLAMA_STACK_PORT` | `8321` | Host port for OGX |
+| `LLAMA_STACK_CONFIG` | `run.yaml` | ogx config file path |
 | `CONFIG` | `lightspeed-stack.yaml` | LCORE config file path |
 | `CONTAINER_RUNTIME` | auto-detected | Force specific runtime (`podman` or `docker`) |
 
@@ -216,7 +216,7 @@ make run CONFIG=my-config.yaml LLAMA_STACK_CONFIG=my-run.yaml
 
 **Use custom container name:**
 ```bash
-make run LLAMA_STACK_CONTAINER_NAME=my-llama-stack
+make run LLAMA_STACK_CONTAINER_NAME=my-OGX
 ```
 
 **Force Docker instead of Podman:**
@@ -226,9 +226,9 @@ make run CONTAINER_RUNTIME=docker
 
 ### Configuration Files
 
-#### `run.yaml` (Llama Stack Configuration)
+#### `run.yaml` (OGX Configuration)
 
-This file configures the llama-stack server itself. Generated by `./scripts/generate_local_run.sh`.
+This file configures the ogx server itself. Generated by `./scripts/generate_local_run.sh`.
 
 **Key sections:**
 - `providers`: Which LLM providers to enable (OpenAI, Azure, etc.)
@@ -243,7 +243,7 @@ This file configures the llama-stack server itself. Generated by `./scripts/gene
 
 This file configures the Lightspeed Core Stack service.
 
-**Llama Stack connection settings:**
+**ogx connection settings:**
 ```yaml
 llama_stack:
   use_as_library_client: false
@@ -255,7 +255,7 @@ llama_stack:
 
 ### Environment Variables
 
-The Makefile passes these environment variables to the llama-stack container:
+The Makefile passes these environment variables to the ogx container:
 
 #### Required for OpenAI
 - `OPENAI_API_KEY`: OpenAI API key for inference
@@ -312,7 +312,7 @@ See [OKP Guide](okp_guide.md) for detailed setup instructions.
 #### Other Configuration
 
 - `E2E_OPENAI_MODEL`: OpenAI model for E2E tests (default: `gpt-4o-mini`)
-- `LLAMA_STACK_LOGGING`: Enable debug logging in llama-stack
+- `OGX_LOGGING`: Enable debug logging in OGX
 - `FAISS_VECTOR_STORE_ID`: FAISS vector store identifier
 - `LITELLM_DROP_PARAMS`: Drop unsupported params in LiteLLM (default: `true`)
 
@@ -354,7 +354,7 @@ The container has a built-in Docker/Podman health check:
 
 ```bash
 # Check container health status
-podman inspect --format='{{.State.Health.Status}}' lightspeed-llama-stack
+podman inspect --format='{{.State.Health.Status}}' lightspeed-OGX
 
 # Possible values:
 # - starting: Container is starting, health check not yet run
@@ -371,7 +371,7 @@ podman inspect --format='{{.State.Health.Status}}' lightspeed-llama-stack
 
 ### LCORE Readiness Endpoint
 
-The `/v1/readiness` endpoint checks llama-stack connectivity:
+The `/v1/readiness` endpoint checks OGX connectivity:
 
 ```bash
 # Check LCORE readiness
@@ -384,7 +384,7 @@ curl http://localhost:8080/v1/readiness
   "providers": []
 }
 
-# Response when llama-stack is unreachable (HTTP 503):
+# Response when OGX is unreachable (HTTP 503):
 {
   "ready": false,
   "reason": "Providers not healthy: unknown",
@@ -400,7 +400,7 @@ curl http://localhost:8080/v1/readiness
 
 ### Manual Health Checks
 
-**Test llama-stack directly:**
+**Test OGX directly:**
 ```bash
 curl http://localhost:8321/v1/health
 # Expected: {"status":"OK"}
@@ -415,10 +415,10 @@ curl http://localhost:8080/v1/liveness
 **View container logs:**
 ```bash
 # Follow logs in real-time
-podman logs -f lightspeed-llama-stack
+podman logs -f lightspeed-OGX
 
 # View last 50 lines
-podman logs --tail 50 lightspeed-llama-stack
+podman logs --tail 50 lightspeed-OGX
 ```
 
 ---
@@ -431,7 +431,7 @@ podman logs --tail 50 lightspeed-llama-stack
 
 **Symptoms:**
 ```
-✗ ERROR: Llama-stack did not become healthy within 60 seconds
+✗ ERROR: OGX did not become healthy within 60 seconds
 Container logs:
 [error logs shown here]
 ```
@@ -446,14 +446,14 @@ Container logs:
 
 1. **Check logs saved by Makefile:**
    ```bash
-   cat /tmp/llama-stack-failure.log
+   cat /tmp/OGX-failure.log
    ```
 
 2. **Inspect container manually:**
    ```bash
    # Container might still be running in unhealthy state
-   podman logs lightspeed-llama-stack
-   podman exec lightspeed-llama-stack curl http://localhost:8321/v1/health
+   podman logs lightspeed-OGX
+   podman exec lightspeed-OGX curl http://localhost:8321/v1/health
    ```
 
 3. **Test config enrichment:**
@@ -576,7 +576,7 @@ curl -fsSL https://get.docker.com | sh
 
 **Solutions:**
 
-1. **Check llama-stack URL in config:**
+1. **Check ogx URL in config:**
    ```yaml
    # lightspeed-stack.yaml
    llama_stack:
@@ -605,7 +605,7 @@ google.auth._default.load_credentials_from_file() failed to open credentials fil
 ```
 
 **Cause:**
-The llama-stack container runs as UID 1001 (non-root user for security). When you mount a credentials file with restrictive permissions (`600`), the container user cannot read it:
+The ogx container runs as UID 1001 (non-root user for security). When you mount a credentials file with restrictive permissions (`600`), the container user cannot read it:
 
 - **Host file:** Owned by your user (e.g., UID 1000) with permissions `600` (owner-only)
 - **Container process:** Runs as UID 1001 (different user)
@@ -649,7 +649,7 @@ This grants read-only access to UID 1001 (container user) without changing base 
 **macOS note:** macOS uses BSD ACLs and cannot assign numeric UID-based ACLs to non-existent host users. If you are testing locally on macOS, you must temporarily use `chmod 644` to allow the container access, but **be aware that this makes the credentials file world-readable on your host machine.** Alternately, ensure your local user matches the container's execution environment.
 
 **Why this happens:**
-This is expected container behavior. The container runs as a non-root user (UID 1001) for security - see `USER 1001` in `deploy/llama-stack/test.containerfile`. Files with `600` permissions are only accessible to their owner, and the container's UID differs from your host UID.
+This is expected container behavior. The container runs as a non-root user (UID 1001) for security - see `USER 1001` in `deploy/OGX/test.containerfile`. Files with `600` permissions are only accessible to their owner, and the container's UID differs from your host UID.
 
 **Production recommendation:**
 For production deployments, avoid mounting credential files entirely. Instead use:
@@ -663,13 +663,13 @@ The Makefile automatically saves logs to `/tmp` when issues occur:
 
 | File | Content | When Created |
 |------|---------|--------------|
-| `/tmp/llama-stack-failure.log` | Last 200 lines of logs when container fails to stop gracefully | Container stop timeout |
+| `/tmp/OGX-failure.log` | Last 200 lines of logs when container fails to stop gracefully | Container stop timeout |
 | `/tmp/llama-stack-last-run.log` | Full logs before container removal | `make remove-llama-stack-container` |
-| (Container logs) | View with `podman logs lightspeed-llama-stack` | While container is running |
+| (Container logs) | View with `podman logs lightspeed-OGX` | While container is running |
 
-**Enable debug logging in llama-stack:**
+**Enable debug logging in OGX:**
 ```bash
-export LLAMA_STACK_LOGGING=debug
+export OGX_LOGGING=debug
 make run
 ```
 
@@ -679,7 +679,7 @@ make run
 
 ### Configuration Enrichment
 
-When the llama-stack container starts, it automatically enriches the `run.yaml` file with settings from `lightspeed-stack.yaml`. This is done by the entrypoint script mounted into the container.
+When the ogx container starts, it automatically enriches the `run.yaml` file with settings from `lightspeed-stack.yaml`. This is done by the entrypoint script mounted into the container.
 
 #### How It Works
 
@@ -687,13 +687,13 @@ When the llama-stack container starts, it automatically enriches the `run.yaml` 
 2. **Script runs** `/opt/app-root/.venv/bin/python3 /opt/app-root/llama_stack_configuration.py`
 3. **Enrichment logic** (`src/llama_stack_configuration.py`) reads both configs and merges them
 4. **Output** is written to `/tmp/enriched-run.yaml` inside the container
-5. **Llama Stack starts** with the enriched config
+5. **OGX starts** with the enriched config
 
 #### What Gets Enriched
 
-- **RAG configurations** from `lightspeed-stack.yaml` are injected into llama-stack config
+- **RAG configurations** from `lightspeed-stack.yaml` are injected into ogx config
 - **OKP/Solr settings** are dynamically added
-- **Provider configurations** from LCORE are merged with llama-stack providers
+- **Provider configurations** from LCORE are merged with OGX providers
 
 #### Manual Enrichment (for debugging)
 
@@ -714,7 +714,7 @@ The container uses these volume mounts:
 
 | Host Path | Container Path | Mode | Purpose |
 |-----------|----------------|------|---------|
-| `$(PWD)/run.yaml` | `/opt/app-root/run.yaml` | rw | Llama Stack config (enriched version written here) |
+| `$(PWD)/run.yaml` | `/opt/app-root/run.yaml` | rw | ogx config (enriched version written here) |
 | `$(PWD)/lightspeed-stack.yaml` | `/opt/app-root/lightspeed-stack.yaml` | ro | LCORE config (read for enrichment) |
 | `$(PWD)/scripts/llama-stack-entrypoint.sh` | `/opt/app-root/enrich-entrypoint.sh` | ro | Entrypoint script with enrichment logic |
 | `$(PWD)/src/llama_stack_configuration.py` | `/opt/app-root/llama_stack_configuration.py` | ro | Python enrichment script |
@@ -734,45 +734,45 @@ If you need more control than the Makefile provides, you can manage the containe
 
 #### Build the Image
 ```bash
-podman build -f deploy/llama-stack/test.containerfile -t my-llama-stack:custom .
+podman build -f deploy/OGX/test.containerfile -t my-OGX:custom .
 ```
 
 #### Run the Container
 ```bash
 podman run -d \
-  --name my-llama-stack \
+  --name my-OGX \
   -p 9000:8321 \
   -v $(pwd)/run.yaml:/opt/app-root/run.yaml:z \
   -v $(pwd)/lightspeed-stack.yaml:/opt/app-root/lightspeed-stack.yaml:ro,z \
   -e OPENAI_API_KEY \
-  my-llama-stack:custom
+  my-OGX:custom
 ```
 
 #### Monitor the Container
 ```bash
 # Follow logs
-podman logs -f my-llama-stack
+podman logs -f my-OGX
 
 # Check health
-podman inspect --format='{{.State.Health.Status}}' my-llama-stack
+podman inspect --format='{{.State.Health.Status}}' my-OGX
 
 # Execute commands inside container
-podman exec my-llama-stack curl http://localhost:8321/v1/health
+podman exec my-OGX curl http://localhost:8321/v1/health
 
 # View container stats (CPU, memory)
-podman stats my-llama-stack
+podman stats my-OGX
 ```
 
 #### Stop and Remove
 ```bash
 # Stop gracefully
-podman stop -t 10 my-llama-stack
+podman stop -t 10 my-OGX
 
 # Remove container
-podman rm my-llama-stack
+podman rm my-OGX
 
 # Remove image
-podman rmi my-llama-stack:custom
+podman rmi my-OGX:custom
 ```
 
 #### Connect LCORE to Manual Container

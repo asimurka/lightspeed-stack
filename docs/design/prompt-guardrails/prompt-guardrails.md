@@ -14,7 +14,7 @@
 An optional, config-driven guardrails layer owned by lightspeed-stack.
 Deployers declare **detectors** (guardian-model endpoints reachable through
 OpenAI-compatible APIs — Granite Guardian on vLLM/RHAIIS, any
-`/v1/moderations` service, or, transitionally, Llama Stack shields) and
+`/v1/moderations` service, or, transitionally, ogx shields) and
 **rules** (an out-of-the-box risk id or a custom risk definition, bound to
 one or more guardrail **points**: `input`, `output`, `tool_content`, with a
 blocking or advisory posture). The layer runs the applicable rules in
@@ -24,14 +24,14 @@ requests whose content is flagged.
 ## Why
 
 Prompt injection is OWASP's #1 LLM risk. lightspeed-stack today moderates
-only *input*, only through Llama Stack shields — an API surface upstream
+only *input*, only through ogx shields — an API surface upstream
 has deleted in OGX 1.x — with no lightspeed-stack-side configuration, no
 output or tool-content coverage, no Granite Guardian support, and no custom
 risk definitions. Ask Red Hat's migration to Lightspeed Core
 ([LCORE-2253](https://redhat.atlassian.net/browse/LCORE-2253)) is blocked
 on exactly those capabilities (they run parallel multi-risk Granite
 Guardian screening with custom risks in production today). This feature
-provides them generically, in a form that survives the planned Llama Stack
+provides them generically, in a form that survives the planned OGX
 phase-out.
 
 ## Requirements
@@ -51,7 +51,7 @@ phase-out.
   client sees it), `tool_content` (tool/MCP/RAG content before it enters
   the model context).
 - **R4:** All rules applicable at a point run concurrently (the existing
-  Llama Stack shields path is a sequential loop — `src/utils/shields.py:152`
+  ogx shields path is a sequential loop — `src/utils/shields.py:152`
   — which the Ask Red Hat gap analysis flags as a performance gap); a
   request is blocked iff at least one *blocking* rule flags it. Advisory
   (`blocking: false`) rules record their outcome without altering the
@@ -96,7 +96,7 @@ phase-out.
   deployment.
 - **R10:** Per-rule detection outcomes and latencies are logged and
   exposed as metrics.
-- **R11:** The existing Llama Stack shields input-moderation path continues
+- **R11:** The existing ogx shields input-moderation path continues
   to work unchanged when `guardrails:` is not configured; both may run
   side by side during migration.
 
@@ -148,7 +148,7 @@ phase-out.
 ```
 
 The guardrails layer lives in `src/guardrails/` and is independent of
-Llama Stack: detectors are plain OpenAI-compatible HTTP calls. Rule
+OGX: detectors are plain OpenAI-compatible HTTP calls. Rule
 selection, parallel execution, and verdict aggregation are pure functions
 over the config; endpoints consume a single `GuardrailsVerdict` per point.
 
@@ -297,7 +297,7 @@ metric label; `allow` logs a warning and proceeds. Config errors
 ### Migration / backwards compatibility
 
 No `guardrails:` section ⇒ byte-identical behavior to today (R11). The
-Llama Stack shields path is untouched; its deprecation is deferred to the
+ogx shields path is untouched; its deprecation is deferred to the
 OGX 1.x migration (LCORE-1099). The `llama_stack_shields` backend lets
 deployments move their config to the new schema before the engine
 migrates.
@@ -411,7 +411,7 @@ attaching the section.
   confidence); tune during implementation with real latency data.
 - Cheap classifier tier for `tool_content` (Prompt Guard 2-class) and its
   licensing posture — deferred from spike Decisions S2/S3.
-- Deprecation timeline for the Llama Stack shields path — owned by
+- Deprecation timeline for the ogx shields path — owned by
   LCORE-1099 (spike Decision S5).
 
 ## Changelog

@@ -1,5 +1,5 @@
 services:
-  # Red Hat llama-stack distribution with FAISS
+  # Red Hat ogx distribution with FAISS
   llama-stack:
     build:
       context: .
@@ -7,13 +7,13 @@ services:
     platform: linux/amd64
     container_name: llama-stack
     ports:
-      - "8321:8321"  # Expose llama-stack on 8321 (adjust if needed)
+      - "8321:8321"  # Expose ogx on 8321 (adjust if needed)
     depends_on:
       mock-tls-inference:
         condition: service_healthy
     volumes:
       - ./run.yaml:/opt/app-root/run.yaml:z
-      # Host copies so `docker compose up` picks up script changes without rebuilding llama-stack
+      # Host copies so `docker compose up` picks up script changes without rebuilding ogx
       - ./scripts/llama-stack-entrypoint.sh:/opt/app-root/enrich-entrypoint.sh:ro,z
       - ./src/llama_stack_configuration.py:/opt/app-root/llama_stack_configuration.py:ro,z
       - ${GCP_KEYS_PATH:-./tmp/.gcp-keys-dummy}:/opt/app-root/.gcp-keys:ro
@@ -57,7 +57,7 @@ services:
       - OGX_LOGGING=${OGX_LOGGING:-}
       # FAISS test
       - FAISS_VECTOR_STORE_ID=${FAISS_VECTOR_STORE_ID:-}
-      # Disable OGX ~/.llama → ~/.ogx migration (bind-mount under ~/.llama/storage/rag).
+      # Disable ogx ~/.llama → ~/.ogx migration (bind-mount under ~/.llama/storage/rag).
       - OGX_CONFIG_DIR=/opt/app-root/src/.ogx
       # Prevent HuggingFace Hub update checks (HTTP 429 rate-limiting in CI from parallel jobs).
       - HF_HUB_OFFLINE=1

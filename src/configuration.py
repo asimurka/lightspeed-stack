@@ -5,7 +5,7 @@ from typing import Any, Optional
 import yaml
 
 # We want to support environment variable replacement in the configuration
-# similarly to how it is done in llama-stack, so we use their function directly
+# similarly to how it is done in OGX, so we use their function directly
 from ogx.core.stack import replace_env_vars
 
 import constants
@@ -51,7 +51,7 @@ def replace_env_vars_preserving_native_override(
 
     LCORE resolves environment-variable references throughout
     lightspeed-stack.yaml so typed fields receive concrete values. But
-    ``llama_stack.config.native_override`` is raw Llama Stack schema that Llama
+    ``llama_stack.config.native_override`` is raw ogx schema that Llama
     Stack resolves itself, in memory, at its own startup. Resolving it eagerly
     here would (a) defeat the ${env.*} pattern LCORE recommends for secrets and
     (b) pull resolved secrets into the loaded Configuration model, which is
@@ -174,10 +174,10 @@ class AppConfig:  # pylint: disable=too-many-public-methods
 
     @property
     def llama_stack_configuration(self) -> LlamaStackConfiguration:
-        """Return Llama Stack configuration.
+        """Return ogx configuration.
 
         Returns:
-            LlamaStackConfiguration: The configured Llama Stack settings.
+            LlamaStackConfiguration: The configured OGX settings.
 
         Raises:
             LogicError: If the application configuration has not been loaded.
@@ -566,7 +566,7 @@ class AppConfig:  # pylint: disable=too-many-public-methods
         """Return mapping from vector_db_id to rag_id from BYOK and OKP RAG config.
 
         Returns:
-            dict[str, str]: Mapping where keys are llama-stack vector_store_ids
+            dict[str, str]: Mapping where keys are OGX vector_store_ids
             (old vector_db_id) and values are user-facing rag_ids from configuration.
 
         Raises:
@@ -649,7 +649,7 @@ class AppConfig:  # pylint: disable=too-many-public-methods
 
         Parameters:
         ----------
-            vector_store_id: The llama-stack vector store identifier.
+            vector_store_id: The OGX vector store identifier.
             rag_id_mapping: Optional pre-built mapping to avoid repeated lookups.
 
         Returns:

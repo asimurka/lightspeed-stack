@@ -1,4 +1,4 @@
-"""Helpers for reading and updating Llama Stack run.yaml across environments."""
+"""Helpers for reading and updating ogx run.yaml across environments."""
 
 import os
 import shutil

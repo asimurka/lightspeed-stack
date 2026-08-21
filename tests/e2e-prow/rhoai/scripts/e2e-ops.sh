@@ -9,30 +9,30 @@
 #   is the CI runner, not the application.
 # - E2E_LSC_PORT_FORWARD_PID_FILE coordinates the handoff.
 # - pipeline-konflux.sh (and hooks) forward llama-stack-service-svc to localhost:8321 for
-#   Behave steps that call Llama Stack directly (MCP toolgroups, shields). When the llama
+#   Behave steps that call OGX directly (MCP toolgroups, shields). When the llama
 #   pod is recreated, that forward must be restarted or you get "PodSandbox ... not found" /
 #   APIConnectionError on subsequent scenarios.
 # - E2E_LLAMA_PORT_FORWARD_PID_FILE coordinates killing/restarting the 8321 forward.
 # - restart-lightspeed ensures Llama is running before LCS recreate when needed.
-# - restart-both-services is available explicitly; restart-lightspeed / restart-llama-stack
+# - restart-both-services is available explicitly; restart-lightspeed / restart-OGX
 #   do not auto-trigger a full stack restart on failure.
 #
 # Commands:
 #   restart-lightspeed              - Restart lightspeed-stack pod and port-forward
-#   restart-llama-stack             - Restart/restore llama-stack pod and localhost:8321 forward
-#   restart-both-services           - Full llama-stack then lightspeed-stack restart (explicit only)
+#   restart-OGX             - Restart/restore ogx pod and localhost:8321 forward
+#   restart-both-services           - Full OGX then lightspeed-stack restart (explicit only)
 #   restart-port-forward            - Re-establish port-forward for lightspeed
-#   restart-llama-port-forward      - Re-establish port-forward for Llama Stack (8321)
+#   restart-llama-port-forward      - Re-establish port-forward for OGX (8321)
 #   wait-for-pod <name> [attempts]  - Wait for a pod to be ready
 #   update-configmap <name> <file>  - Update ConfigMap from file
 #   get-configmap-content <name>    - Get ConfigMap content (outputs to stdout)
-#   disrupt-llama-stack             - Delete llama-stack pod to disrupt connection
+#   disrupt-OGX             - Delete ogx pod to disrupt connection
 #   deploy-e2e-tunnel-proxy         - Deploy in-cluster tunnel proxy (proxy.feature step)
 #   deploy-e2e-interception-proxy   - Deploy in-cluster interception proxy (proxy.feature step)
 #   deploy-e2e-mock-tls-inference   - Deploy mock HTTPS inference server (tls-*.feature)
 #   delete-e2e-mock-tls-inference   - Remove mock TLS pod + Service (manual cleanup)
 #   restart-e2e-mock-tls-inference  - Delete then deploy mock TLS (manual / recovery)
-#   sync-mock-tls-certs-secret      - Copy mock /certs into Secret for llama-stack mount
+#   sync-mock-tls-certs-secret      - Copy mock /certs into Secret for OGX mount
 
 set -e
 
@@ -173,7 +173,7 @@ kill_stale_lightspeed_forward() {
     free_local_tcp_port "$port"
 }
 
-# Kill anything likely to hold the Llama Stack local forward (localhost:8321).
+# Kill anything likely to hold the OGX local forward (localhost:8321).
 kill_stale_llama_forward() {
     local port="${1:-8321}"
     local saved_pf
@@ -253,7 +253,7 @@ verify_connectivity() {
 
         if [[ "$http_code" == "200" || "$http_code" == "401" ]]; then
             # Port-forward works; now verify the app is fully initialized by hitting
-            # a real endpoint. /v1/models requires the Llama Stack handshake to complete.
+            # a real endpoint. /v1/models requires the OGX handshake to complete.
             # Accept 200 (no auth) or 401/403 (auth) — both prove the full app stack is up.
             #
             # Proxy/TLS e2e scenarios intentionally misconfigure Llama (e.g. unreachable
@@ -791,7 +791,7 @@ _verify_interception_ca_mounted_in_llama() {
 }
 
 cmd_copy_interception_proxy_ca_to_llama() {
-    # Legacy name: publish CA via Secret (mounted by llama-stack-openai.yaml).
+    # Legacy name: publish CA via Secret (mounted by OGX-openai.yaml).
     cmd_sync_interception_proxy_ca_secret
 }
 

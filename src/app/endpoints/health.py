@@ -250,7 +250,7 @@ async def liveness_probe_get_method(
     - HTTPException: with status 500 and a detail object containing `response`
       and `cause` when service configuration is wrong or incomplete.
     - HTTPException: with status 503 and a detail object containing `response`
-      and `cause` when unable to connect to Llama Stack.
+      and `cause` when unable to connect to OGX.
 
     ### Returns:
     - LivenessResponse: Indicates that the service is alive.

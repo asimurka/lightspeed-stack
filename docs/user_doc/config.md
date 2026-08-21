@@ -235,10 +235,10 @@ Global service configuration.
 |------------------------|--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | name                   | string | Name of the service. That value will be used in REST API endpoints.                                                                                                                                                                                                                                                     |
 | service                |        | This section contains Lightspeed Core Stack service configuration.                                                                                                                                                                                                                                                      |
-| llama_stack            |        | This section contains Llama Stack configuration. Lightspeed Core Stack service can call Llama Stack in library mode or in server mode.                                                                                                                                                                                  |
+| llama_stack            |        | This section contains ogx configuration. Lightspeed Core Stack service can call OGX in library mode or in server mode.                                                                                                                                                                                  |
 | user_data_collection   |        | This section contains configuration for subsystem that collects user data(transcription history and feedbacks).                                                                                                                                                                                                         |
 | database               |        | Configuration for database to store conversation IDs and other runtime data                                                                                                                                                                                                                                             |
-| mcp_servers            | array  | MCP (Model Context Protocol) servers provide tools and capabilities to the AI agents. These are configured in this section. Only MCP servers defined in the lightspeed-stack.yaml configuration are available to the agents. Tools configured in the llama-stack run.yaml are not accessible to lightspeed-core agents. |
+| mcp_servers            | array  | MCP (Model Context Protocol) servers provide tools and capabilities to the AI agents. These are configured in this section. Only MCP servers defined in the lightspeed-stack.yaml configuration are available to the agents. Tools configured in the ogx run.yaml are not accessible to lightspeed-core agents. |
 | authentication         |        | Authentication configuration                                                                                                                                                                                                                                                                                            |
 | authorization          |        | Lightspeed Core Stack implements a modular authentication and authorization system with multiple authentication methods. Authorization is configurable through role-based access control. Authentication is handled through selectable modules configured via the module field in the authentication configuration.     |
 | customization          |        | It is possible to customize Lightspeed Core Stack via this section. System prompt can be customized and also different parts of the service can be replaced by custom Python modules.                                                                                                                                   |
@@ -246,7 +246,7 @@ Global service configuration.
 | conversation_cache     |        |                                                                                                                                                                                                                                                                                                                         |
 | compaction             |        | Controls when conversation history is summarized to keep the model's input below the context window limit. Disabled by default — when disabled, requests that exceed the window continue to surface as HTTP 413.                                                                                                        |
 | approvals              |        | Settings for human-in-the-loop approval of MCP tool invocations                                                                                                                                                                                                                                                         |
-| byok_rag               | array  | BYOK RAG configuration. This configuration can be used to reconfigure Llama Stack through its run.yaml configuration file                                                                                                                                                                                               |
+| byok_rag               | array  | BYOK RAG configuration. This configuration can be used to reconfigure OGX through its run.yaml configuration file                                                                                                                                                                                               |
 | vector_store           |        | Dynamic vector-store provider capacity for runtime POST /v1/vector-stores creates. Not the same as byok_rag (static registered corpora). When providers is non-empty, default_provider is required and must match one of providers[].id. Applied in unified synthesis only.                                          |
 | a2a_state              |        | Configuration for A2A protocol persistent state storage.                                                                                                                                                                                                                                                                |
 | quota_handlers         |        | Quota handlers configuration                                                                                                                                                                                                                                                                                            |
@@ -325,7 +325,7 @@ Dynamic FAISS vector-store provider (runtime create capacity).
 
 | Field               | Type    | Description                                                                                                                                                         |
 |---------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| id                  | string  | Llama Stack vector_io provider_id. Surrounding whitespace is stripped before validation and emission. Must match ``[a-z0-9_-]+`` and must not start with ``byok_``. |
+| id                  | string  | ogx vector_io provider_id. Surrounding whitespace is stripped before validation and emission. Must match ``[a-z0-9_-]+`` and must not start with ``byok_``. |
 | type                | string  | Product type for this dynamic vector-store provider. Must be ``faiss``.                                                                                             |
 | embedding_model     | string  | Embedding model identification used for stores created against this provider. Required.                                                                             |
 | embedding_dimension | integer | Dimensionality of embedding vectors for this provider. Required.                                                                                                    |
@@ -365,7 +365,7 @@ Inference configuration.
 | default_model    | string  | Identification of default model used when no other model is specified.                                                                                                                                                                                                                                                                                                                                                                                                    |
 | default_provider | string  | Identification of default provider used when no other model is specified.                                                                                                                                                                                                                                                                                                                                                                                                 |
 | context_windows  | object  | Map of fully-qualified model identifier (e.g., "openai/gpt-4o-mini") to context window size in tokens. Used by the conversation compaction trigger to decide when older turns must be summarized before the input exceeds the window. Models absent from this map have no registered window — callers fall back to their own default or skip the token-based trigger.                                                                                            |
-| providers        | array   | Unified-mode synthesis input (Decision S5): a high-level, backend-agnostic list of inference providers the synthesizer expands into Llama Stack provider entries. Lives at the configuration root so it survives a future backend change. A non-empty list signals unified mode. Empty (the default) leaves legacy/remote modes unaffected. The sibling default_model / default_provider keep their query-time routing meaning and are independent of this list. |
+| providers        | array   | Unified-mode synthesis input (Decision S5): a high-level, backend-agnostic list of inference providers the synthesizer expands into ogx provider entries. Lives at the configuration root so it survives a future backend change. A non-empty list signals unified mode. Empty (the default) leaves legacy/remote modes unaffected. The sibling default_model / default_provider keep their query-time routing meaning and are independent of this list. |
 | max_infer_iters  | integer | Server-side default for the maximum number of inference iterations a model can perform in a single request. Prevents small models from looping indefinitely on tool calls. Per-request values take precedence over this default. Set to None to disable the limit.                                                                                                                                                                                                       |
 | max_tool_calls   | integer | Server-side default for the maximum number of tool calls allowed in a single response. Prevents small models from exhausting the context window with repeated tool calls. Per-request values take precedence over this default. Set to None to disable the limit.                                                                                                                                                                                                  |
 
@@ -445,31 +445,31 @@ Rule for extracting roles from JWT claims.
 ## LlamaStackConfiguration
 
 
-Llama stack configuration.
+ogx configuration.
 
-Llama Stack is a comprehensive system that provides a uniform set of tools
+OGX is a comprehensive system that provides a uniform set of tools
 for building, scaling, and deploying generative AI applications, enabling
 developers to create, integrate, and orchestrate multiple AI services and
 capabilities into an adaptable setup.
 
 Useful resources:
 
-  - [Llama Stack](https://www.llama.com/products/llama-stack/)
-  - [Python Llama Stack client](https://github.com/llamastack/llama-stack-client-python)
-  - [Build AI Applications with Llama Stack](https://llamastack.github.io/)
+  - [OGX](https://github.com/ogx-ai/ogx)
+  - [Python OGX client](https://github.com/ogx-ai/ogx-client-python)
+  - [Build AI Applications with OGX](https://ogx-ai.github.io/docs)
 
 
 | Field                      | Type    | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 |----------------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| url                        | string  | URL to Llama Stack service; used when library mode is disabled. Must be a valid HTTP or HTTPS URL.                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| api_key                    | string  | API key to access Llama Stack service                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
-| use_as_library_client      | boolean | When set to true Llama Stack will be used in library mode, not in server mode (default)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| url                        | string  | URL to OGX service; used when library mode is disabled. Must be a valid HTTP or HTTPS URL.                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| api_key                    | string  | API key to access OGX service                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| use_as_library_client      | boolean | When set to true OGX will be used in library mode, not in server mode (default)                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 | library_client_config_path | string  | DEPRECATED legacy two-file setup: path to an external run.yaml used in library mode. Logs a startup warning since 0.6; removed in 0.7 — use unified mode instead (the config field below and/or the root-level inference.providers section); migrate with `lightspeed-stack --migrate-config`                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| timeout                    | integer | Timeout in seconds for requests to Llama Stack service. Default is 180 seconds (3 minutes) to accommodate long-running RAG queries.                                                                                                                                                                                                                                                                                                                                                                                             |
-| max_retries                | integer | Maximum number of connection attempts before giving up. Used on startup to connect to Llama Stack and retrieve its version. Connection attempts are retried with a fixed delay to handle the case where Llama Stack is still starting up (e.g., when running as a sidecar in the same pod).                                                                                                                                                                                                                                     |
-| retry_delay                | integer | Delay in seconds between retry attempts. Used on startup to connect to Llama Stack and retrieve its version. Connection attempts are retried with a fixed delay to handle the case where Llama Stack is still starting up (e.g., when running as a sidecar in the same pod).                                                                                                                                                                                                                                                    |
-| allow_degraded_mode        | boolean | If enabled, Lightspeed Core can be started even when Llama Stack is not accessible (valid for server mode only)                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| config                     |         | Backend-specific knobs for unified mode, where LCORE synthesizes the Llama Stack run.yaml instead of reading an external file. Holds the baseline selector, an optional profile path, and a raw native_override escape hatch. Backend-agnostic high-level sections (e.g. inference.providers) live at the configuration root, not here. Mutually exclusive with library_client_config_path; that cross-field check lives on the root Configuration model. When set in library mode, library_client_config_path is not required. |
+| timeout                    | integer | Timeout in seconds for requests to OGX service. Default is 180 seconds (3 minutes) to accommodate long-running RAG queries.                                                                                                                                                                                                                                                                                                                                                                                             |
+| max_retries                | integer | Maximum number of connection attempts before giving up. Used on startup to connect to OGX and retrieve its version. Connection attempts are retried with a fixed delay to handle the case where OGX is still starting up (e.g., when running as a sidecar in the same pod).                                                                                                                                                                                                                                     |
+| retry_delay                | integer | Delay in seconds between retry attempts. Used on startup to connect to OGX and retrieve its version. Connection attempts are retried with a fixed delay to handle the case where OGX is still starting up (e.g., when running as a sidecar in the same pod).                                                                                                                                                                                                                                                    |
+| allow_degraded_mode        | boolean | If enabled, Lightspeed Core can be started even when OGX is not accessible (valid for server mode only)                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| config                     |         | Backend-specific knobs for unified mode, where LCORE synthesizes the ogx run.yaml instead of reading an external file. Holds the baseline selector, an optional profile path, and a raw native_override escape hatch. Backend-agnostic high-level sections (e.g. inference.providers) live at the configuration root, not here. Mutually exclusive with library_client_config_path; that cross-field check lives on the root Configuration model. When set in library mode, library_client_config_path is not required. |
 
 
 ## ModelContextProtocolServer
@@ -480,7 +480,7 @@ Model context protocol server configuration.
 MCP (Model Context Protocol) servers provide tools and capabilities to the
 AI agents. These are configured by this structure. Only MCP servers
 defined in the lightspeed-stack.yaml configuration are available to the
-agents. Tools configured in the llama-stack run.yaml are not accessible to
+agents. Tools configured in the ogx run.yaml are not accessible to
 lightspeed-core agents.
 
 Useful resources:
@@ -498,7 +498,7 @@ Useful resources:
 | authorization_headers | object  | Headers to send to the MCP server. The map contains the header name and the path to a file containing the header value (secret). There are 3 special cases: 1. Usage of the kubernetes token in the header. To specify this use a string 'kubernetes' instead of the file path. 2. Usage of the client-provided token in the header. To specify this use a string 'client' instead of the file path. 3. Usage of the oauth token in the header. To specify this use a string 'oauth' instead of the file path. |
 | headers               | array   | List of HTTP header names to automatically forward from the incoming request to this MCP server. Headers listed here are extracted from the original client request and included when calling the MCP server. This is useful when infrastructure components (e.g. API gateways) inject headers that MCP servers need, such as x-rh-identity in HCC. Header matching is case-insensitive. These headers are additive with authorization_headers and MCP-HEADERS.                                                |
 | require_approval      |         | When to require human approval for tool invocations. 'always' requires approval for all tools, 'never' auto-approves, or use ApprovalFilter for granular control.                                                                                                                                                                                                                                                                                                                                              |
-| timeout               | integer | Timeout in seconds for requests to the MCP server. If not specified, the default timeout from Llama Stack will be used. Note: This field is reserved for future use when Llama Stack adds timeout support.                                                                                                                                                                                                                                                                                                     |
+| timeout               | integer | Timeout in seconds for requests to the MCP server. If not specified, the default timeout from OGX will be used. Note: This field is reserved for future use when OGX adds timeout support.                                                                                                                                                                                                                                                                                                     |
 
 
 ## OkpConfiguration
@@ -525,7 +525,7 @@ Dynamic pgvector vector-store provider (runtime create capacity).
 
 | Field               | Type    | Description                                                                                                                                                         |
 |---------------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| id                  | string  | Llama Stack vector_io provider_id. Surrounding whitespace is stripped before validation and emission. Must match ``[a-z0-9_-]+`` and must not start with ``byok_``. |
+| id                  | string  | ogx vector_io provider_id. Surrounding whitespace is stripped before validation and emission. Must match ``[a-z0-9_-]+`` and must not start with ``byok_``. |
 | type                | string  | Product type for this dynamic vector-store provider. Must be ``pgvector``.                                                                                          |
 | embedding_model     | string  | Embedding model identification used for stores created against this provider. Required.                                                                             |
 | embedding_dimension | integer | Dimensionality of embedding vectors for this provider. Required.                                                                                                    |
@@ -903,7 +903,7 @@ A Kubernetes ServiceAccount identity for trusted-proxy allowlist.
 A high-level inference provider entry for unified-mode synthesis.
 
 Operators describe inference providers at this high level (backend-agnostic
-vocabulary) instead of authoring raw Llama Stack provider blocks. The
+vocabulary) instead of authoring raw ogx provider blocks. The
 synthesizer (`apply_high_level_inference`) expands each entry into a Llama
 Stack `providers.inference` entry, mapping `type` to a `provider_type` and
 emitting `${env.<VAR>}` references for secrets (never literal values).
@@ -912,7 +912,7 @@ Attributes:
     type: Canonical provider identifier. Vendor-neutral so it survives a
         future backend change; each backend-specific synthesizer maps it to
         its own provider vocabulary.
-    id: Optional identifier emitted as the Llama Stack provider_id. When
+    id: Optional identifier emitted as the ogx provider_id. When
         omitted, synthesized as type with underscores hyphenated. If set,
         must be non-empty after stripping whitespace and may contain only
         lowercase letters, digits, underscores, and hyphens.
@@ -928,8 +928,8 @@ Attributes:
 
 | Field          | Type   | Description                                                                                                                                                  |
 |----------------|--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| type           | string | Canonical, backend-agnostic provider identifier mapped to a Llama Stack provider_type by the synthesizer.                                                    |
-| id             | string | Optional identifier emitted as the Llama Stack provider_id. When omitted, synthesized as type with underscores hyphenated. If set, must be non-empty after stripping whitespace and may contain only lowercase letters, digits, underscores, and hyphens. |
+| type           | string | Canonical, backend-agnostic provider identifier mapped to an ogx provider_type by the synthesizer.                                                    |
+| id             | string | Optional identifier emitted as the ogx provider_id. When omitted, synthesized as type with underscores hyphenated. If set, must be non-empty after stripping whitespace and may contain only lowercase letters, digits, underscores, and hyphens. |
 | api_key_env    | string | Name of the environment variable holding the provider API key. Emitted as a ${env.<name>} reference so the secret is never written to disk in resolved form. |
 | allowed_models | array  | Optional allow-list of model identifiers for this provider.                                                                                                  |
 | extra          | object | Additional provider-config keys merged verbatim into the synthesized provider's config block.                                                                |
@@ -938,15 +938,15 @@ Attributes:
 ## UnifiedLlamaStackConfig
 
 
-Backend-specific knobs for unified-mode Llama Stack synthesis.
+Backend-specific knobs for unified-mode OGX synthesis.
 
 Per Decision S5 of the design spike, backend-agnostic high-level sections
 (inference, ...) live at the configuration root, not here. This block holds
-only the Llama-Stack-specific synthesis controls: which baseline to start
+only the ogx-specific synthesis controls: which baseline to start
 from, an optional profile file, and a raw native_override escape hatch.
 
 During synthesis from the default baseline or a profile, LCORE ensures the
-Llama Stack MCP tool_runtime provider (`provider_id: model-context-protocol`,
+OGX MCP tool_runtime provider (`provider_id: model-context-protocol`,
 `provider_type: remote::model-context-protocol`) is present so static
 `mcp_servers` and dynamic MCP registration work. That ensure is skipped when
 `baseline: empty` (migration / blank-slate); supply MCP via `native_override`
@@ -960,7 +960,7 @@ Attributes:
     profile: Optional path to a user-authored run.yaml-shaped file used as
         the synthesis baseline. Relative paths resolve against the directory
         of the loaded lightspeed-stack.yaml.
-    native_override: Raw Llama Stack schema deep-merged last (maps merge
+    native_override: Raw ogx schema deep-merged last (maps merge
         recursively, lists and scalars replace). The escape hatch for
         anything the high-level sections do not express.
 
@@ -969,7 +969,7 @@ Attributes:
 |-----------------|--------|----------------------------------------------------------------------------------------------------------------------------|
 | baseline        | string | Synthesis starting point: 'default' uses LCORE's built-in baseline, 'empty' starts from {}. Ignored when 'profile' is set. |
 | profile         | string | Path to a run.yaml-shaped baseline file. Relative paths resolve against the directory of the loaded lightspeed-stack.yaml. |
-| native_override | object | Raw Llama Stack schema deep-merged last (maps merge recursively; lists and scalars replace).                               |
+| native_override | object | Raw ogx schema deep-merged last (maps merge recursively; lists and scalars replace).                               |
 
 
 ## UserDataCollection
@@ -997,5 +997,5 @@ Mirrors ``InferenceConfiguration``: a providers list plus a sibling
 
 | Field            | Type   | Description                                                                                                                                                                                   |
 |------------------|--------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| default_provider | string | Provider id used for vector_stores.default_* in the synthesized Llama Stack config. Required when providers is non-empty; must match one of providers[].id. Must be omitted when providers is empty. |
+| default_provider | string | Provider id used for vector_stores.default_* in the synthesized ogx config. Required when providers is non-empty; must match one of providers[].id. Must be omitted when providers is empty. |
 | providers        | array  | Dynamic vector-store provider capacity for runtime POST /v1/vector-stores creates. Not the same as byok_rag (static registered corpora).                                                              |

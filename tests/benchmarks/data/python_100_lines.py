@@ -24,7 +24,7 @@ for model in models:
 
 # ---
 #
-# ### Llama Stack je použit jako běžná knihovna
+# ### OGX je použit jako běžná knihovna
 #
 
 # Získání seznamu všech dostupných modelů

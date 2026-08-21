@@ -36,7 +36,7 @@ def map_agent_inference_error(
     exc: AgentInferenceError,
     model_id: str,
 ) -> AbstractErrorResponse:
-    """Map agent run failures from pydantic-ai or Llama Stack to an LCS error response.
+    """Map agent run failures from pydantic-ai or OGX to an LCS error response.
 
     Args:
         exc: Agent, HTTP status, connection, or context-length runtime error.

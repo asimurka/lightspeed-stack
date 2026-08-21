@@ -521,7 +521,7 @@ class TestBuildLlamaStackSnapshot:
 
     @pytest.mark.asyncio
     async def test_valid_config(self, llama_stack_config_file: str) -> None:
-        """Test snapshot from valid llama-stack config."""
+        """Test snapshot from valid ogx config."""
         result = await build_llama_stack_snapshot(llama_stack_config_file)
         assert result["version"] == 2
         assert result["image_name"] == "starter"
@@ -634,7 +634,7 @@ class TestPiiLeakPrevention:
     async def test_no_pii_in_llama_stack_snapshot(
         self, llama_stack_config_file: str
     ) -> None:
-        """Verify no PII leaks in llama-stack snapshot JSON."""
+        """Verify no PII leaks in OGX snapshot JSON."""
         json_str = json.dumps(await build_llama_stack_snapshot(llama_stack_config_file))
         for pii_value in LLAMA_STACK_PII_VALUES:
             assert (
@@ -720,7 +720,7 @@ class TestRegistryValidation:
         ), f"Duplicate paths: {set(p for p in paths if paths.count(p) > 1)}"
 
     def test_no_duplicate_paths_in_llama_stack_registry(self) -> None:
-        """Verify no duplicate paths in llama-stack registry."""
+        """Verify no duplicate paths in OGX registry."""
         paths = [s.path for s in LLAMA_STACK_FIELDS]
         assert len(paths) == len(
             set(paths)

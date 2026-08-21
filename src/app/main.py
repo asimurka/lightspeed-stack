@@ -87,7 +87,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     await AsyncOgxClientHolder().load(llama_stack_config)
     client: AsyncOgxClient = AsyncOgxClientHolder().get_client()
     logger.debug("Llama Stack client initialized, trying to connect to Llama Stack")
-    # Check connectivity to Llama Stack and set degraded mode if unavailable
+    # Check connectivity to OGX and set degraded mode if unavailable
     degraded_tracker = DegradedModeTracker()
     try:
         llama_stack_version = await check_llama_stack_version(

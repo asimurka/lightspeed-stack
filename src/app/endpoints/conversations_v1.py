@@ -195,7 +195,7 @@ async def get_conversation_endpoint_handler(  # pylint: disable=too-many-locals,
 ) -> ConversationResponse:
     """Handle request to retrieve a conversation identified by ID using Conversations API.
 
-    Retrieve a conversation's chat history by its ID using the LlamaStack
+    Retrieve a conversation's chat history by its ID using the OGX
     Conversations API. This endpoint fetches the conversation items from
     the backend, simplifies them to essential chat history, and returns
     them in a structured response. Raises HTTP 400 for invalid IDs, 404
@@ -245,7 +245,7 @@ async def get_conversation_endpoint_handler(  # pylint: disable=too-many-locals,
         try:
             client = AsyncOgxClientHolder().get_client()
 
-            # Convert to llama-stack format (add 'conv_' prefix if needed)
+            # Convert to OGX format (add 'conv_' prefix if needed)
             llama_stack_conv_id = to_llama_stack_conversation_id(normalized_conv_id)
             logger.debug(
                 "Calling llama-stack list_items with conversation_id: %s",
@@ -311,7 +311,7 @@ async def delete_conversation_endpoint_handler(
     """Handle request to delete a conversation by ID using Conversations API.
 
     Validates the conversation ID format and attempts to delete the
-    conversation from the Llama Stack backend using the Conversations API.
+    conversation from the OGX backend using the Conversations API.
     Raises HTTP errors for invalid IDs, not found conversations, connection
     issues, or unexpected failures.
 
@@ -379,10 +379,10 @@ async def delete_conversation_endpoint_handler(
         )
 
         try:
-            # Get Llama Stack client
+            # Get OGX client
             client = AsyncOgxClientHolder().get_client()
 
-            # Convert to llama-stack format (add 'conv_' prefix if needed)
+            # Convert to OGX format (add 'conv_' prefix if needed)
             llama_stack_conv_id = to_llama_stack_conversation_id(normalized_conv_id)
 
             # Use Conversations API to delete the conversation
@@ -427,7 +427,7 @@ async def update_conversation_endpoint_handler(
     """Handle request to update a conversation metadata using Conversations API.
 
     Updates the conversation metadata (including topic summary) in both the
-    LlamaStack backend using the Conversations API and the local database.
+    OGX backend using the Conversations API and the local database.
 
     Args:
         request: The FastAPI request object
@@ -493,10 +493,10 @@ async def update_conversation_endpoint_handler(
         )
 
         try:
-            # Get Llama Stack client
+            # Get OGX client
             client = AsyncOgxClientHolder().get_client()
 
-            # Convert to llama-stack format (add 'conv_' prefix if needed)
+            # Convert to OGX format (add 'conv_' prefix if needed)
             llama_stack_conv_id = to_llama_stack_conversation_id(normalized_conv_id)
 
             # Prepare metadata with topic summary

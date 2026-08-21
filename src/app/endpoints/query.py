@@ -100,7 +100,7 @@ async def query_endpoint_handler(
     Handle request to the /query endpoint using Responses API.
 
     Processes a POST request to a query endpoint, forwarding the
-    user's query to a selected Llama Stack LLM and returning the generated response.
+    user's query to a selected OGX LLM and returning the generated response.
 
     ### Parameters:
     - request: The incoming HTTP request (used by middleware).

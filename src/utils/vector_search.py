@@ -216,7 +216,7 @@ def _format_rag_context(rag_chunks: list[RAGChunk], query: str) -> str:
     """Format RAG chunks for pre-query context injection.
 
     This format is used for both BYOK RAG and Solr RAG chunks.
-    Format is inspired by llama-stack file_search tool implementation.
+    Format is inspired by OGX file_search tool implementation.
 
     Args:
         rag_chunks: List of RAG chunks from pre-query sources (BYOK + Solr)
@@ -490,7 +490,7 @@ async def _fetch_byok_rag(  # pylint: disable=too-many-locals
             if v in set(configuration.rag.retrieval.inline.sources)
         ]
 
-    # Translate user-facing rag_ids to llama-stack ids
+    # Translate user-facing rag_ids to OGX ids
     vector_store_ids_to_query: list[str] = resolve_vector_store_ids(
         rag_ids_to_query, configuration.rag.byok.stores
     )

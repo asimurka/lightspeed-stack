@@ -1,4 +1,4 @@
-"""Llama Stack client retrieval class."""
+"""OGX client retrieval class."""
 
 import json
 import os
@@ -41,7 +41,7 @@ class AsyncOgxClientHolder(metaclass=Singleton):
         return isinstance(self._lsc, AsyncOGXAsLibraryClient)
 
     async def load(self, llama_stack_config: LlamaStackConfiguration) -> None:
-        """Initialize the Llama Stack client based on configuration."""
+        """Initialize the OGX client based on configuration."""
         if self._lsc is not None:  # early stopping - client already initialized
             return
 
@@ -101,7 +101,7 @@ class AsyncOgxClientHolder(metaclass=Singleton):
         config_file = os.environ.get(constants.CONFIG_PATH_ENV_VAR)
         if not config_file:
             raise ValueError(
-                f"Cannot synthesize OGX config: {constants.CONFIG_PATH_ENV_VAR} "
+                f"Cannot synthesize ogx config: {constants.CONFIG_PATH_ENV_VAR} "
                 "is not set"
             )
 
@@ -132,7 +132,7 @@ class AsyncOgxClientHolder(metaclass=Singleton):
         )
 
     def _enrich_library_config(self, input_config_path: str) -> str:
-        """Enrich llama-stack config with BYOK RAG and OKP Solr settings."""
+        """Enrich ogx config with BYOK RAG and OKP Solr settings."""
         try:
             with open(input_config_path, "r", encoding="utf-8") as f:
                 ls_config = yaml.safe_load(f)
@@ -217,7 +217,7 @@ class AsyncOgxClientHolder(metaclass=Singleton):
     async def check_model_available(self, model_id: str) -> tuple[bool, str]:
         """Check if a model is available in the registry, attempting reload if needed.
 
-        Verifies the model can be found in the Llama Stack client's model
+        Verifies the model can be found in the OGX client's model
         list. If the model is missing and the client is running in library
         mode, attempts a client reload to re-register models before
         reporting failure.
@@ -340,7 +340,7 @@ class AsyncOgxClientHolder(metaclass=Singleton):
 
     async def get_azure_base_url(self) -> Optional[str]:
         """
-        Retrieve the Azure base_url endpoint from the remote Llama Stack provider configuration.
+        Retrieve the Azure base_url endpoint from the remote ogx provider configuration.
 
         Returns:
             Optional[str]: The Azure base_url if available, otherwise None.

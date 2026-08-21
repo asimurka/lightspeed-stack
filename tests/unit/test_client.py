@@ -44,7 +44,7 @@ def test_async_client_get_client_method() -> None:
 
 @pytest.mark.asyncio
 async def test_get_async_llama_stack_library_client() -> None:
-    """Test the initialization of asynchronous Llama Stack client in library mode."""
+    """Test the initialization of asynchronous OGX client in library mode."""
     cfg = LlamaStackConfiguration(
         url=None,
         api_key=None,
@@ -65,7 +65,7 @@ async def test_get_async_llama_stack_library_client() -> None:
 
 @pytest.mark.asyncio
 async def test_get_async_llama_stack_remote_client() -> None:
-    """Test the initialization of asynchronous Llama Stack client in server mode."""
+    """Test the initialization of asynchronous OGX client in server mode."""
     cfg = LlamaStackConfiguration(
         url=AnyHttpUrl("http://localhost:8321"),
         api_key=None,
@@ -104,7 +104,7 @@ async def test_get_async_llama_stack_wrong_configuration(
     cfg.library_client_config_path = None
     with pytest.raises(
         ValueError,
-        match="Cannot synthesize OGX config",
+        match="Cannot synthesize ogx config",
     ):
         client = AsyncOgxClientHolder()
         await client.load(cfg)

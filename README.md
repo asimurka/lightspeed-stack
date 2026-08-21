@@ -31,8 +31,8 @@ The service includes comprehensive user data collection capabilities for various
         * [Provider and model selection in REST API request](#provider-and-model-selection-in-rest-api-request)
         * [Default provider and model](#default-provider-and-model)
     * [Supported providers](#supported-providers)
-    * [Integration with Llama Stack](#integration-with-llama-stack)
-    * [Llama Stack as separate server](#llama-stack-as-separate-server)
+    * [Integration with OGX](#integration-with-OGX)
+    * [OGX as separate server](#OGX-as-separate-server)
         * [Degraded mode](#degraded-mode)
         * [MCP Server and Tool Configuration](#mcp-server-and-tool-configuration)
             * [Configuring MCP Servers](#configuring-mcp-servers)
@@ -46,10 +46,10 @@ The service includes comprehensive user data collection capabilities for various
                 * [Combining Authentication Methods](#combining-authentication-methods)
                 * [Authentication Method Comparison](#authentication-method-comparison)
                 * [Important: Automatic Server Skipping](#important-automatic-server-skipping)
-        * [Llama Stack project and configuration](#llama-stack-project-and-configuration)
-        * [Check connection to Llama Stack](#check-connection-to-llama-stack)
-    * [Llama Stack as client library](#llama-stack-as-client-library)
-    * [Llama Stack version check](#llama-stack-version-check)
+        * [OGX project and configuration](#OGX-project-and-configuration)
+        * [Check connection to OGX](#check-connection-to-OGX)
+    * [OGX as client library](#OGX-as-client-library)
+    * [OGX version check](#OGX-version-check)
     * [User data collection](#user-data-collection)
     * [System prompt](#system-prompt)
         * [System Prompt Path](#system-prompt-path)
@@ -71,9 +71,9 @@ The service includes comprehensive user data collection capabilities for various
     * [Make targets](#make-targets)
     * [Running Linux container image](#running-linux-container-image)
     * [Building Container Images](#building-container-images)
-        * [Llama-Stack as Separate Service (Server Mode)](#llama-stack-as-separate-service-server-mode)
+        * [OGX as Separate Service (Server Mode)](#OGX-as-separate-service-server-mode)
             * [macOS (arm64)](#macos-arm64)
-        * [Llama-Stack as Library (Library Mode)](#llama-stack-as-library-library-mode)
+        * [OGX as Library (Library Mode)](#OGX-as-library-library-mode)
             * [macOS](#macos)
         * [Verify it's running properly](#verify-its-running-properly)
     * [Custom Container Image](#custom-container-image)
@@ -192,11 +192,11 @@ To quickly get hands on LCS, we can run it using the default configurations prov
    ```bash
    uv sync --group dev --group llslibdev
    ```
-1. create llama stack `run.yaml`. you can do this by running the local run generation script
+1. create OGX `run.yaml`. you can do this by running the local run generation script
    ```bash
    ./scripts/generate_local_run.sh
    ```
-2. export the LLM token environment variable that Llama stack requires. for OpenAI, we set the env var by
+2. export the LLM token environment variable that OGX requires. for OpenAI, we set the env var by
    ```bash
    export OPENAI_API_KEY=sk-xxxxx
    ```
@@ -206,11 +206,11 @@ To quickly get hands on LCS, we can run it using the default configurations prov
    ```
 4. access LCS web UI at [http://localhost:8080/](http://localhost:8080/)
 
-**Note**: `make run` uses containerized llama-stack (service mode). For details on container lifecycle management, customization, and troubleshooting, see the [Container Orchestration Guide](docs/container_orchestration.md). To run llama-stack manually instead, see the [Llama Stack as separate server](#llama-stack-as-separate-server) section below.
+**Note**: `make run` uses containerized OGX (service mode). For details on container lifecycle management, customization, and troubleshooting, see the [Container Orchestration Guide](docs/container_orchestration.md). To run ogx manually instead, see the [OGX as separate server](#OGX-as-separate-server) section below.
 
 ## Container Runtime Requirements
 
-The Makefile requires either Podman or Docker to launch the Llama Stack container:
+The Makefile requires either Podman or Docker to launch the ogx container:
 
 - **Podman** (recommended for RHEL/Fedora): `sudo dnf install podman`
 - **Docker**: Install from [docker.com](https://docs.docker.com/get-docker/)
@@ -238,7 +238,7 @@ Lightspeed Core Stack supports the following agentic features:
 ## LLM Compatibility
 
 Lightspeed Core Stack (LCS) provides support for Large Language Model providers. The models listed in the table below represent specific examples that have been tested within LCS.
-__Note__: Support for individual models is dependent on the specific inference provider's implementation within the currently supported version of Llama Stack.
+__Note__: Support for individual models is dependent on the specific inference provider's implementation within the currently supported version of OGX.
 
 | Provider       | Model                                                                        | Tool Calling  | provider_type    | Example                                                                    |
 |----------------|------------------------------------------------------------------------------|---------------|------------------|----------------------------------------------------------------------------|
@@ -252,20 +252,20 @@ __Note__: Support for individual models is dependent on the specific inference p
 | WatsonX        | meta-llama/llama-3-3-70b-instruct                                            | Yes           | remote::watsonx  | [1](examples/watsonx-run.yaml)                                             |
 | AWS Bedrock    | deepseek.v3-v1                                                               | Yes           | remote::bedrock  | [1](examples/bedrock-run.yaml)                                             |
 
-[^1]: List of models is limited by design in llama-stack, future versions will probably allow to use more models (see [here](https://github.com/llamastack/llama-stack/blob/release-0.3.x/llama_stack/providers/remote/inference/vertexai/vertexai.py#L54))
+[^1]: List of models is limited by design in OGX, future versions will probably allow to use more models (see [here](https://github.com/llamastack/llama-stack/blob/release-0.3.x/llama_stack/providers/remote/inference/vertexai/vertexai.py#L54))
 
-The "provider_type" is used in the llama stack configuration file when refering to the provider.
+The "provider_type" is used in the ogx configuration file when refering to the provider.
 
 For details of OpenAI model capabilities, please refer to https://platform.openai.com/docs/models/compare
 
 
 ## Set LLM provider and model
 
-The LLM provider and model are set in the configuration file for Llama Stack. This repository has a Llama stack configuration file [run.yaml](examples/run.yaml) that can serve as a good example.
+The LLM provider and model are set in the configuration file for OGX. This repository has an ogx configuration file [run.yaml](examples/run.yaml) that can serve as a good example.
 
-The LLM providers are set in the section `providers.inference`. This example adds a inference provider "openai" to the llama stack. To use environment variables as configuration values, we can use the syntax `${env.ENV_VAR_NAME}`.
+The LLM providers are set in the section `providers.inference`. This example adds a inference provider "openai" to the OGX. To use environment variables as configuration values, we can use the syntax `${env.ENV_VAR_NAME}`.
 
-For more details, please refer to [llama stack documentation](https://llama-stack.readthedocs.io/en/latest/distributions/configuration.html#providers). Here is a list of llamastack supported providers and their configuration details: [llama stack providers](https://llama-stack.readthedocs.io/en/latest/providers/inference/index.html#providers)
+For more details, please refer to [OGX documentation](https://ogx-ai.github.io/docs). Here is a list of OGX supported providers and their configuration details: [OGX providers](https://ogx-ai.github.io/docs/providers)
 
 ```yaml
 inference:
@@ -327,23 +327,23 @@ These settings will be used when no provider or model are specified in REST API 
 
 For a comprehensive list of supported providers, take a look [here](docs/providers.md).
 
-## Integration with Llama Stack
+## Integration with OGX
 
-The Llama Stack can be run as a standalone server and accessed via its the REST
+The OGX can be run as a standalone server and accessed via its the REST
 API. However, instead of direct communication via the REST API (and JSON
 format), there is an even better alternative. It is based on the so-called
-Llama Stack Client. It is a library available for Python, Swift, Node.js or
+OGX Client. It is a library available for Python, Swift, Node.js or
 Kotlin, which "wraps" the REST API stack in a suitable way, which is easier for
 many applications.
 
 
-![Integration with Llama Stack](docs/core2llama-stack_interface.png)
+![Integration with OGX](docs/core2llama-stack_interface.png)
 
 
 
-## Llama Stack as separate server
+## OGX as separate server
 
-If Llama Stack runs as a separate server, the Lightspeed service needs to be configured to be able to access it. For example, if server runs on localhost:8321, the service configuration stored in file `lightspeed-stack.yaml` should look like:
+If OGX runs as a separate server, the Lightspeed service needs to be configured to be able to access it. For example, if server runs on localhost:8321, the service configuration stored in file `lightspeed-stack.yaml` should look like:
 
 ```yaml
 name: foo bar baz
@@ -382,9 +382,9 @@ allow_degraded_mode = true
 
 **Note**: The `run.yaml` configuration is currently an implementation detail. In the future, all configuration will be available directly from the lightspeed-core config.
 
-**Important**: Only MCP servers defined in the `lightspeed-stack.yaml` configuration are available to the agents. Tools configured in the llama-stack `run.yaml` are not accessible to lightspeed-core agents.
+**Important**: Only MCP servers defined in the `lightspeed-stack.yaml` configuration are available to the agents. Tools configured in the OGX `run.yaml` are not accessible to lightspeed-core agents.
 
-Besides configuring the MCP Servers in `lightspeed-stack.yaml` we also need to enable the appropriate tool in llama-stack's `run.yaml` file under the `tool_runtime` section. Here's an example using the default `provider_id` name used by lightspeed-stack for MCPs:
+Besides configuring the MCP Servers in `lightspeed-stack.yaml` we also need to enable the appropriate tool in OGX's `run.yaml` file under the `tool_runtime` section. Here's an example using the default `provider_id` name used by lightspeed-stack for MCPs:
 
 ```yaml
   tool_runtime:
@@ -612,17 +612,17 @@ mcp_servers:
 Skipped servers are logged as warnings. Check Lightspeed Core logs to see which servers were skipped and why.
 
 
-### Llama Stack project and configuration
+### OGX project and configuration
 
 **Note**: The `run.yaml` configuration is currently an implementation detail. In the future, all configuration will be available directly from the lightspeed-core config.
 
-To run Llama Stack in separate process, you need to have all dependencies installed. The easiest way how to do it is to create a separate repository with Llama Stack project file `pyproject.toml` and Llama Stack configuration file `run.yaml`. The project file might look like:
+To run OGX in separate process, you need to have all dependencies installed. The easiest way how to do it is to create a separate repository with OGX project file `pyproject.toml` and ogx configuration file `run.yaml`. The project file might look like:
 
 ```toml
 [project]
 name = "llama-stack-runner"
 version = "0.1.0"
-description = "Llama Stack runner"
+description = "OGX runner"
 authors = []
 dependencies = [
     "llama-stack==0.2.22",
@@ -654,15 +654,15 @@ distribution = false
 
 A simple example of a `run.yaml` file can be found [here](examples/run.yaml)
 
-To run Llama Stack perform these two commands:
+To run OGX perform these two commands:
 
 ```
 export OPENAI_API_KEY="sk-{YOUR-KEY}"
 
-uv run llama stack run run.yaml
+uv run ogx stack run run.yaml
 ```
 
-### Check connection to Llama Stack
+### Check connection to OGX
 
 ```
 curl -X 'GET' localhost:8321/openapi.json | jq .
@@ -670,9 +670,9 @@ curl -X 'GET' localhost:8321/openapi.json | jq .
 
 
 
-## Llama Stack as client library
+## OGX as client library
 
-There are situations in which it is not advisable to run two processors (one with Llama Stack, the other with a service). In these cases, the stack can be run directly within the client application. For such situations, the configuration file could look like:
+There are situations in which it is not advisable to run two processors (one with OGX, the other with a service). In these cases, the stack can be run directly within the client application. For such situations, the configuration file could look like:
 
 ```yaml
 name: foo bar baz
@@ -685,12 +685,12 @@ service:
   access_log: true
 llama_stack:
   use_as_library_client: true
-  # Unified mode (recommended): LCORE synthesizes the Llama Stack run.yaml.
+  # Unified mode (recommended): LCORE synthesizes the ogx run.yaml.
   # Point profile at a run.yaml-shaped file you author, or omit the config
   # block and drive everything from the top-level inference.providers
   # section over the built-in default baseline.
   config:
-    profile: <path-to-llama-stack-run.yaml-file>
+    profile: <path-to-OGX-run.yaml-file>
 user_data_collection:
   feedback_enabled: true
   feedback_storage: "/tmp/data/feedback"
@@ -704,9 +704,9 @@ user_data_collection:
 > warning since 0.6 and is removed in 0.7. See the
 > [migration guide](docs/user_doc/deployment_guide.md#migrating-from-the-legacy-two-file-configuration).
 
-## Llama Stack version check
+## OGX version check
 
-During Lightspeed Core Stack service startup, the Llama Stack version is retrieved. The version is tested against two constants `MINIMAL_SUPPORTED_LLAMA_STACK_VERSION` and `MAXIMAL_SUPPORTED_LLAMA_STACK_VERSION` which are defined in `src/constants.py`. If the actual Llama Stack version is outside the range defined by these two constants, the service won't start and administrator will be informed about this problem.
+During Lightspeed Core Stack service startup, the OGX version is retrieved. The version is tested against two constants `MINIMAL_SUPPORTED_LLAMA_STACK_VERSION` and `MAXIMAL_SUPPORTED_LLAMA_STACK_VERSION` which are defined in `src/constants.py`. If the actual OGX version is outside the range defined by these two constants, the service won't start and administrator will be informed about this problem.
 
 
 
@@ -785,7 +785,7 @@ For the configuration guide, skill authoring instructions, and examples, see the
 
 Safety shields used by `/query`, `/streaming_query`, `/responses`, and `/rlsapi`
 are **owned by Lightspeed Core Stack** and configured in `lightspeed-stack.yaml`
-(not via the Llama Stack / OGX Safety or Moderations APIs).
+(not via the OGX / OGX Safety or Moderations APIs).
 
 Supported shield types (`provider_id`):
 
@@ -857,7 +857,7 @@ The [guide to RAG setup](docs/rag_guide.md) provides guidance on setting up RAG 
 
 ## Example configurations for inference
 
-The following configurations are llama-stack config examples from production deployments:
+The following configurations are ogx config examples from production deployments:
 
 - [Granite on vLLM example](examples/vllm-granite-run.yaml)
 - [Qwen3 on vLLM example](examples/vllm-qwen3-run.yaml)
@@ -885,12 +885,12 @@ options:
   -c, --config CONFIG_FILE
                         path to configuration file (default: lightspeed-stack.yaml)
   --synthesized-config-output SYNTHESIZED_CONFIG_OUTPUT
-                        path where the synthesized Llama Stack run.yaml is written in unified library mode (overwritten each boot,
+                        path where the synthesized ogx run.yaml is written in unified library mode (overwritten each boot,
                         mode 0600; default: ./.generated/run.yaml)
   --migrate-config      migrate a legacy two-file config to a unified single file and exit. Lifts the run.yaml given by --run-yaml
                         into the llama_stack.config.native_override of the -c lightspeed-stack.yaml and writes the result to
                         --migrate-output. Replace literal secrets with ${env.VAR} references before or after migrating.
-  --run-yaml RUN_YAML   path to the legacy Llama Stack run.yaml to migrate (used with --migrate-config)
+  --run-yaml RUN_YAML   path to the legacy ogx run.yaml to migrate (used with --migrate-config)
   --migrate-output MIGRATE_OUTPUT
                         path to write the unified lightspeed-stack.yaml (used with --migrate-config)
 ```
@@ -920,13 +920,13 @@ Available targets are:
 
 run-stack                         Run lightspeed-stack directly, without building dependent service/s
 run                               Run the service locally with dependent services
-build-llama-stack-image           Build llama-stack container image
-stop-llama-stack-container        Gracefully stop llama-stack container
-remove-llama-stack-container      Remove llama-stack container (saves logs first)
-start-llama-stack-container       Start llama-stack container
-wait-for-llama-stack-health       Wait for llama-stack container to be healthy
+build-llama-stack-image           Build ogx container image
+stop-llama-stack-container        Gracefully stop ogx container
+remove-llama-stack-container      Remove ogx container (saves logs first)
+start-llama-stack-container       Start ogx container
+wait-for-llama-stack-health       Wait for ogx container to be healthy
 clean-llama-stack                 Remove container and image
-run-llama-stack                   Start Llama Stack with enriched config (for local service mode)
+run-llama-stack                   Start ogx with enriched config (for local service mode)
 test-unit                         Run the unit tests
 test-integration                  Run integration tests tests
 test-e2e                          Run end to end tests for the service
@@ -1006,15 +1006,15 @@ Container images are built for the following platforms:
 
 The repository includes production-ready container configurations that support two deployment modes:
 
-1. **Server Mode**: lightspeed-core connects to llama-stack as a separate service
-2. **Library Mode**: llama-stack runs as a library within lightspeed-core
+1. **Server Mode**: lightspeed-core connects to OGX as a separate service
+2. **Library Mode**: OGX runs as a library within lightspeed-core
 
-### Llama-Stack as Separate Service (Server Mode)
+### OGX as Separate Service (Server Mode)
 
 > [!IMPORTANT]
-> To pull the downstream llama-stack image, you will need access to the `aipcc` organization in quay.io.
+> To pull the downstream ogx image, you will need access to the `aipcc` organization in quay.io.
 
-When using llama-stack as a separate service, the existing `docker-compose.yaml` provides the complete setup. This builds two containers for lightspeed core and llama stack.
+When using OGX as a separate service, the existing `docker-compose.yaml` provides the complete setup. This builds two containers for lightspeed core and OGX.
 
 **Configuration** (`lightspeed-stack.yaml`):
 ```yaml
@@ -1030,14 +1030,14 @@ In the root of this project simply run:
 # Set your OpenAI API key
 export OPENAI_API_KEY="your-api-key-here"
 
-# Login to quay.io to access the downstream llama-stack image
+# Login to quay.io to access the downstream ogx image
 # podman login quay.io
 
 # Start both services
 podman compose up --build
 
 # Access lightspeed-core at http://localhost:8080
-# Access llama-stack at http://localhost:8321
+# Access OGX at http://localhost:8321
 ```
 
 #### macOS (arm64)
@@ -1051,9 +1051,9 @@ Instead run the docker command:
 docker compose up --build
 ```
 
-### Llama-Stack as Library (Library Mode)
+### OGX as Library (Library Mode)
 
-When embedding llama-stack directly in the container, use the existing `deploy/lightspeed-stack/Containerfile` directly (this will not build the llama stack service in a separate container). First modify the `lightspeed-stack.yaml` config to use llama stack in library mode.
+When embedding OGX directly in the container, use the existing `deploy/lightspeed-stack/Containerfile` directly (this will not build the OGX service in a separate container). First modify the `lightspeed-stack.yaml` config to use OGX in library mode.
 
 **Configuration** (`lightspeed-stack.yaml`):
 ```yaml
@@ -1068,10 +1068,10 @@ llama_stack:
 
 **Build and run**:
 ```bash
-# Build lightspeed-core with embedded llama-stack
+# Build lightspeed-core with embedded ogx
 podman build -f deploy/lightspeed-stack/Containerfile -t my-lightspeed-core:latest .
 
-# Run with embedded llama-stack
+# Run with embedded ogx
 podman run \
   -p 8080:8080 \
   -v ./lightspeed-stack.yaml:/app-root/lightspeed-stack.yaml:Z \
@@ -1101,7 +1101,7 @@ curl -H "Accept: application/json" http://localhost:8080/v1/models
 ## Custom Container Image
 
 The lightspeed-stack container image bundles many Python dependencies for common
-Llama-Stack providers (when using Llama-Stack in library mode).
+OGX providers (when using OGX in library mode).
 
 Follow these instructons when you need to bundle additional configuration
 files or extra dependencies (e.g. `lightspeed-stack-providers`).

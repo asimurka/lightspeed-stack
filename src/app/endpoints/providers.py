@@ -75,7 +75,7 @@ async def providers_endpoint_handler(
     - HTTPException: with status 500 and a detail object containing `response`
       and `cause` when service configuration is wrong or incomplete.
     - HTTPException: with status 503 and a detail object containing `response`
-      and `cause` when unable to connect to Llama Stack.
+      and `cause` when unable to connect to OGX.
 
     ### Returns:
     - ProvidersListResponse: Mapping from API type to list of providers.
@@ -147,7 +147,7 @@ async def get_provider_endpoint_handler(
     - HTTPException: with status 500 and a detail object containing `response`
       and `cause` when service configuration is wrong or incomplete.
     - HTTPException: with status 503 and a detail object containing `response`
-      and `cause` when unable to connect to Llama Stack.
+      and `cause` when unable to connect to OGX.
 
     ### Returns:
     - ProviderResponse: Provider details.

@@ -21,7 +21,7 @@ log() { [ "$QUIET" != "1" ] && echo "$@"; }
 # Always print progress so Konflux UI shows where we are (short one-liners)
 progress() { echo "[e2e] $*"; }
 
-# Lightspeed-stack image (from Konflux SNAPSHOT or default). Llama Stack runs from source in-pod (no image).
+# Lightspeed-stack image (from Konflux SNAPSHOT or default). OGX runs from source in-pod (no image).
 LIGHTSPEED_STACK_IMAGE="${LIGHTSPEED_STACK_IMAGE:-quay.io/lightspeed-core/lightspeed-stack:dev-latest}"
 log "Using lightspeed-stack image: $LIGHTSPEED_STACK_IMAGE"
 export LIGHTSPEED_STACK_IMAGE
@@ -99,7 +99,7 @@ else
   log "⚠️  $REPO_ROOT/tests/e2e/secrets/invalid-mcp-token missing — InvalidMCPFileAuth E2E may fail"
 fi
 
-# Create Quay pull secret for llama-stack images
+# Create Quay pull secret for ogx images
 log "Creating Quay pull secret..."
 oc create secret docker-registry quay-lightspeed-pull-secret \
   --docker-server=quay.io \
@@ -150,11 +150,11 @@ log "✅ Mock servers deployed"
 # (see tests/e2e/features/steps/proxy.py + e2e-ops deploy-e2e-*-proxy).
 
 #========================================
-# 5. DEPLOY LIGHTSPEED STACK AND LLAMA STACK
+# 5. DEPLOY LIGHTSPEED STACK AND OGX
 #========================================
 progress "Deploying lightspeed-stack and llama-stack"
 
-# PVC for llama-stack app-root: caches dnf/uv/git install so TLS per-scenario pod
+# PVC for OGX app-root: caches dnf/uv/git install so TLS per-scenario pod
 # recreates skip the expensive init (~6-15 min → ~1-2 min). Delete first to guarantee
 # a fresh checkout for this pipeline revision; re-create immediately so the pod can bind.
 log "Recreating llama-stack-app-root PVC (fresh per pipeline run)..."
@@ -210,7 +210,7 @@ conn.close()
     
     if [ -n "$FAISS_VECTOR_STORE_ID" ]; then
         log "✅ Extracted FAISS_VECTOR_STORE_ID: $FAISS_VECTOR_STORE_ID"
-        # Create secret for llama-stack to use
+        # Create secret for OGX to use
         create_secret faiss-vector-store-secret --from-literal=id="$FAISS_VECTOR_STORE_ID"
     else
         echo "❌ No vector_store found in $RAG_DB_PATH - FAISS tests will fail!"
@@ -333,7 +333,7 @@ oc port-forward svc/mock-jwks 8000:8000 -n $NAMESPACE &
 PF_JWKS_PID=$!
 
 # Behave runs in this shell; pipeline-services-konflux.sh cannot export here. MCP hooks call
-# Llama Stack directly — mirror LCS and forward llama-stack-service-svc to localhost:8321.
+# OGX directly — mirror LCS and forward llama-stack-service-svc to localhost:8321.
 log "Starting port-forward for llama-stack (MCP / ogx_client hooks)..."
 oc port-forward svc/llama-stack-service-svc 8321:8321 -n $NAMESPACE &
 PF_LLAMA_PID=$!

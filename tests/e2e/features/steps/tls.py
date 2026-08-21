@@ -1,6 +1,6 @@
 """Step definitions for TLS configuration e2e tests.
 
-These tests configure Llama Stack's run.yaml with NetworkConfig TLS settings
+These tests configure OGX's run.yaml with NetworkConfig TLS settings
 and verify the full pipeline works through the Lightspeed Stack.
 
 Config switching uses the same pattern as other e2e tests: overwrite the
@@ -206,7 +206,7 @@ def _ensure_tls_provider(config: dict[str, Any]) -> dict[str, Any]:
 
     Parameters:
     ----------
-        config: The Llama Stack configuration dictionary.
+        config: The ogx configuration dictionary.
 
     Returns:
     -------
@@ -256,7 +256,7 @@ def _configure_tls(tls_config: dict[str, Any], base_url: Optional[str] = None) -
 
 
 # --- Background Steps ---
-# ``The original Llama Stack config is restored if modified`` only restores
+# ``The original ogx config is restored if modified`` only restores
 # run.yaml (see proxy.py). Restart steps are listed in tls-*.feature / proxy.feature.
 
 

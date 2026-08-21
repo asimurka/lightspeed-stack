@@ -53,7 +53,7 @@ async def models_endpoint_handler(
     Handle requests to the /models endpoint.
 
     Process GET requests to the /models endpoint, returning a list of available
-    models from the Llama Stack service. It is possible to specify "model_type"
+    models from the OGX service. It is possible to specify "model_type"
     query parameter that is used as a filter. For example, if model type is set
     to "llm", only LLM models will be returned:
 
@@ -75,7 +75,7 @@ async def models_endpoint_handler(
     - HTTPException: with status 500 and a detail object containing `response`
       and `cause` when service configuration is wrong or incomplete.
     - HTTPException: with status 503 and a detail object containing `response`
-      and `cause` when unable to connect to Llama Stack.
+      and `cause` when unable to connect to OGX.
 
     ### Returns:
     - ModelsResponse: An object containing the list of available models.
@@ -93,7 +93,7 @@ async def models_endpoint_handler(
         logger.info("Llama Stack config: %s", llama_stack_configuration)
 
         try:
-            # try to get Llama Stack client
+            # try to get OGX client
             client = AsyncOgxClientHolder().get_client()
             # retrieve and normalize models across OpenAI/Anthropic/Google list shapes
             parsed_models = parse_model_list_response(await client.models.list())
@@ -109,7 +109,7 @@ async def models_endpoint_handler(
             span.set_attribute("models.count", len(parsed_models))
             return ModelsResponse(models=parsed_models)
 
-        # Connection to Llama Stack server failed
+        # Connection to ogx server failed
         except APIConnectionError as e:
             logger.error("Unable to connect to Llama Stack: %s", e)
             response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))

@@ -14,19 +14,19 @@ ptisnovs@redhat.com
 
 ## Agenda
 
-* Llama Stack
+* OGX
 * Lightspeed Core
 * Evaluation
 
 ---
 
-## Llama Stack
+## OGX
 
 ![LCORE](images/llama_stack_logo.png)
 
 ---
 
-## What is Llama Stack?
+## What is OGX?
 
 * Framework to create applications with AI
     - chat bots
@@ -42,7 +42,7 @@ ptisnovs@redhat.com
 
 ---
 
-### Easiest usage of Llama Stack
+### Easiest usage of OGX
 
 * LLM call
 * Processing answer from LLM
@@ -139,18 +139,18 @@ ptisnovs@redhat.com
 
 ---
 
-### Communication with Llama Stack
+### Communication with OGX
 
 * CLI
 * REST API
 * As a common library (Python etc.)
-* Llama Stack client
+* OGX client
     - supports REST API
     - support running as a library (async)
 
 ---
 
-### Llama Stack client
+### OGX client
 
 * Python
 * Swift
@@ -159,13 +159,13 @@ ptisnovs@redhat.com
 
 ---
 
-### Llama Stack as a library
+### OGX as a library
 
 ![LS1](images/llama_stack_as_library.svg)
 
 ---
 
-### Llama Stack as a service
+### OGX as a service
 
 ![LS1](images/llama_stack_as_service.svg)
 
@@ -177,7 +177,7 @@ ptisnovs@redhat.com
 
 ---
 
-### Llama Stack installation
+### OGX installation
 
 ---
 
@@ -185,7 +185,7 @@ Python ecosystem
 
 ```
 pdm init
-pdm add llama-stack fastapi opentelemetry-sdk \
+pdm add OGX fastapi opentelemetry-sdk \
 opentelemetry-exporter-otlp opentelemetry-instrumentation \
 aiosqlite litellm uvicorn blobfile
 ```
@@ -196,13 +196,13 @@ aiosqlite litellm uvicorn blobfile
 
 ```toml
 [project]
-name = "llama-stack-demo"
+name = "OGX-demo"
 version = "0.1.0"
 description = "Default template for PDM package"
 authors = []
 dependencies = [
     "llama-stack==0.2.20",
-    "llama-stack-client==0.2.20",
+    "OGX-client==0.2.20",
     "opentelemetry-sdk>=1.34.0",
     "opentelemetry-exporter-otlp>=1.34.0",
     "opentelemetry-instrumentation>=0.55b0",
@@ -221,18 +221,18 @@ distribution = false
 
 ---
 
-### Starting Llama Stack
+### Starting ogx
 
 ```bash
-uv run llama stack
+uv run OGX
 ```
 
 ---
 
-### List of Llama Stack API
+### List of OGX API
 
 ```bash
-uv run llama stack list-apis
+uv run OGX list-apis
 ```
 
 ---
@@ -290,7 +290,7 @@ uv run llama stack list-apis
 ### List of providers
 
 ```bash
-uv run llama stack list-providers
+uv run OGX list-providers
 ```
 
 ---
@@ -331,10 +331,10 @@ uv run llama stack list-providers
 ### Lightspeed Core
 
 * It's own REST API (stable, standard)
-* Llama Stack as backed
+* OGX as backed
     - more modules as LC plugins
-    - supports Llama Stack in service mode
-    - supports Llama Stack in library mode
+    - supports OGX in service mode
+    - supports OGX in library mode
 * Implemented as async Python code
 
 ---
@@ -367,7 +367,7 @@ uv run llama stack list-providers
 
 * AI world is similar to JS world 10 years ago
     - every week new framework is created
-    - Llama Stack is a nice fit to this world
+    - OGX is a nice fit to this world
     - Lightspeed Core as stable layer to keep developers sane
 
 ---

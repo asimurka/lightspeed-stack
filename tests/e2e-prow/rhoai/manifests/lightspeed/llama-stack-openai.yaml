@@ -1,7 +1,7 @@
-# Llama Stack from source on UBI: init clones repo + seeds FAISS, main restores seed then uses
+# OGX from source on UBI: init clones repo + seeds FAISS, main restores seed then uses
 # scripts/llama-stack-entrypoint.sh (same enrich/start path as GitHub Actions docker-compose).
 # Needs ConfigMaps: llama-stack-config (run.yaml), rag-data (kv_store.db.gz), lightspeed-stack-config;
-# optional llama-stack-source for repo_url / repo_revision.
+# optional OGX-source for repo_url / repo_revision.
 #
 # RAG fixture lives at KV_RAG_PATH outside ~/.llama, with OGX_CONFIG_DIR set, so
 # migrate_legacy_config_dir() cannot move the fixture away on startup.
@@ -194,7 +194,7 @@ spec:
           RAG_SEED="/opt/app-root/.e2e-rag-seed/kv_store.db"
           RAG_CM_GZ="/opt/app-root/rag-data-cm/kv_store.db.gz"
           RAG_WORK="${KV_RAG_PATH:-/opt/app-root/.e2e-rag-work/kv_store.db}"
-          # Skip OGX ~/.llama → ~/.ogx migration (would steal a fixture under ~/.llama).
+          # Skip ogx ~/.llama → ~/.ogx migration (would steal a fixture under ~/.llama).
           export OGX_CONFIG_DIR="${OGX_CONFIG_DIR:-/opt/app-root/src/.ogx}"
           mkdir -p "$OGX_CONFIG_DIR" "$(dirname "$RAG_WORK")"
           restore_rag_seed() {

@@ -19,7 +19,7 @@ _llama_stack_was_running: dict[str, bool] = {"value": False}
 
 
 def get_llama_stack_was_running() -> bool:
-    """Return whether Llama Stack was running before the disruption step."""
+    """Return whether OGX was running before the disruption step."""
     return _llama_stack_was_running["value"]
 
 
@@ -44,7 +44,7 @@ def _force_lightspeed_restart_after_llama_disrupt(context: Context) -> None:
 def llama_stack_connection_broken(context: Context) -> None:
     """Break llama_stack connection by stopping the container.
 
-    Disrupts the Llama Stack service by stopping its Docker container and
+    Disrupts the OGX service by stopping its Docker container and
     records whether it was running.
 
     The real disruption runs only once per feature until Llama is running again:

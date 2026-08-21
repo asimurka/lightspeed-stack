@@ -2,7 +2,7 @@
 
 This document is the deliverable for LCORE-1314. It presents the design options for conversation history compaction in lightspeed-stack, with a recommendation and a proof-of-concept validation.
 
-**The problem**: When a conversation's token count exceeds the model's context window, Llama Stack's inference provider rejects the request. lightspeed-stack catches this and returns HTTP 413. The conversation is stuck — the user must start over.
+**The problem**: When a conversation's token count exceeds the model's context window, OGX's inference provider rejects the request. lightspeed-stack catches this and returns HTTP 413. The conversation is stuck — the user must start over.
 
 **The recommendation**: Use LLM-based summarization. When estimated tokens approach the context window limit, summarize older turns and keep recent turns verbatim. This is provider-agnostic, proven (Anthropic and LangChain use the same pattern), and can use a domain-specific prompt for Red Hat product support.
 
@@ -80,10 +80,10 @@ Example for a 128K context window at 70% threshold:
 | Option | Description                                      |
 |--------|--------------------------------------------------|
 | A      | In lightspeed-stack (recommended)                |
-| B      | In Llama Stack (upstream contribution)           |
+| B      | In OGX (upstream contribution)           |
 | C      | Split: trigger in lightspeed, summarize in Llama |
 
-**Recommendation**: **A**. lightspeed-stack controls the conversation flow, has the domain knowledge (Red Hat support), and doesn't require upstream coordination. Llama Stack upstream has no active work here — see [Appendix A](#llama-stack-upstream).
+**Recommendation**: **A**. lightspeed-stack controls the conversation flow, has the domain knowledge (Red Hat support), and doesn't require upstream coordination. OGX upstream has no active work here — see [Appendix A](#OGX-upstream).
 
 # Technical decisions — for @ptisnovs
 
@@ -96,8 +96,8 @@ After compaction, the LLM should see the summary + recent turns, not the full or
 | Option | Description                                                            |
 |--------|------------------------------------------------------------------------|
 | A      | Stop using `conversation` param; build full input explicitly           |
-| B      | Inject summary as a message into the existing Llama Stack conversation |
-| C      | Create a new Llama Stack conversation with summary as first message    |
+| B      | Inject summary as a message into the existing OGX conversation |
+| C      | Create a new OGX conversation with summary as first message    |
 
 **Recommendation**: **B**. Inject summary as a marked item into the existing conversation, then select from the marker onward when building context. This preserves a single continuous conversation identity — the user sees one conversation, the Conversations API returns complete history, and the audit trail is unbroken. lightspeed-stack still controls what the LLM sees by filtering items at the marker boundary. The PoC used C (new conversation), which validated the summarization mechanism but breaks conversation identity.
 
@@ -119,7 +119,7 @@ The `truncated` field in `QueryResponse` is currently deprecated and hardcoded t
 |--------|------------------------------------------------------|
 | A      | Extend lightspeed conversation cache (`CacheEntry`)  |
 | B      | New dedicated table                                  |
-| C      | Store in Llama Stack (as conversation item metadata) |
+| C      | Store in OGX (as conversation item metadata) |
 
 **Recommendation**: **A**. Co-locates summary with existing conversation metadata. All cache backends (SQLite, Postgres, memory) would need the schema extension.
 
@@ -385,7 +385,7 @@ Follow existing cache backend patterns (test_sqlite_cache.py, test_postgres_cach
 
 - Modify `prepare_responses_params()` in `src/utils/responses.py`.
 - Add trigger logic: estimate tokens, check threshold, invoke summarization if needed.
-- After compaction: inject summary as a marked item into the Llama Stack conversation, then select from the marker onward when building context.
+- After compaction: inject summary as a marked item into the OGX conversation, then select from the marker onward when building context.
 - Implement per-conversation blocking lock to prevent concurrent compaction races.
 - Emit compaction streaming event before the summarization LLM call.
 
@@ -393,7 +393,7 @@ Follow existing cache backend patterns (test_sqlite_cache.py, test_postgres_cach
 
 - A conversation exceeding the token threshold triggers compaction automatically.
 - Both `/v1/query` and `/v1/streaming_query` endpoints trigger compaction correctly.
-- Summary is injected into the existing Llama Stack conversation as a marked item.
+- Summary is injected into the existing OGX conversation as a marked item.
 - Subsequent requests select items from the last summary marker onward.
 - Conversation identity is preserved (same `conversation_id` throughout).
 - Full conversation history (including pre-compaction turns) remains accessible via the Conversations API.
@@ -436,18 +436,18 @@ Key files: src/models/responses.py (around line 410, the existing truncated fiel
 
 ### LCORE-1574: Integration tests for conversation compaction
 
-**Description**: Integration tests covering the compaction flow with mocked Llama Stack.
+**Description**: Integration tests covering the compaction flow with mocked OGX.
 
 **Scope**:
 
-- Test compaction trigger logic with mocked Llama Stack client.
+- Test compaction trigger logic with mocked OGX client.
 - Test summary injection as marked conversation item.
 - Test additive summarization (multiple compaction cycles).
 - Test per-conversation blocking lock behavior.
 
 **Acceptance criteria**:
 
-- Full compaction flow exercised end-to-end with mocked Llama Stack.
+- Full compaction flow exercised end-to-end with mocked OGX.
 - Tests cover trigger, partitioning, summarization, marker injection, and context selection.
 
 **Agentic tool instruction**:
@@ -501,16 +501,16 @@ To verify: check that the docs site renders correctly and OpenAPI spec validates
 
 # PoC results
 
-A proof-of-concept was built in lightspeed-stack and tested against a real Llama Stack + OpenAI (gpt-4o-mini) setup.
+A proof-of-concept was built in lightspeed-stack and tested against a real OGX + OpenAI (gpt-4o-mini) setup.
 
 ## What the PoC does
 
 The PoC hooks into `prepare_responses_params()` in `src/utils/responses.py`. When `message_count` (from the lightspeed DB) exceeds a threshold, it:
 
-1.  Fetches full conversation history from Llama Stack.
+1.  Fetches full conversation history from OGX.
 2.  Splits into "old" (to summarize) and "recent" (to keep verbatim).
 3.  Calls the LLM with a summarization prompt to produce a summary.
-4.  Creates a new Llama Stack conversation seeded with \[summary + recent turns\].
+4.  Creates a new OGX conversation seeded with \[summary + recent turns\].
 5.  Uses the new conversation for the current query.
 
 **Important**: The PoC diverges from the production design in several ways:
@@ -579,9 +579,9 @@ All linters pass (black, pylint, pyright, ruff, pydocstyle, mypy).
 User Query → lightspeed-stack
   1. Resolve model, system prompt, tools
   2. Build input (query + inline RAG + attachments)
-  3. Pass =conversation_id= to Llama Stack
+  3. Pass =conversation_id= to OGX
   ↓
-Llama Stack Responses API
+OGX Responses API
   4. Retrieve full conversation history from storage
   5. Build prompt: [system] + [full history] + [user query]
   6. Call LLM inference provider
@@ -599,13 +599,13 @@ lightspeed-stack
 | Component               | Role                                | Code                                                  |
 |-------------------------|-------------------------------------|-------------------------------------------------------|
 | lightspeed-stack        | FastAPI wrapper; delegates to Llama | `src/utils/responses.py:322-331`                      |
-| Llama Stack             | Conversation storage + LLM calls    | `openai_responses.py:206-278`, `streaming.py:399-413` |
+| OGX             | Conversation storage + LLM calls    | `openai_responses.py:206-278`, `streaming.py:399-413` |
 | `conversation_items`    | Rich items (tool calls, MCP) for UI | `conversations.py:81-98`                              |
 | `conversation_messages` | Chat messages for LLM context       | `responses_store.py:71-77`                            |
 
 ## What happens when context is exceeded
 
-1.  Llama Stack sends the full prompt to the inference provider.
+1.  OGX sends the full prompt to the inference provider.
 2.  Provider rejects (HTTP 400/413 with "`context_length`" in error message).
 3.  lightspeed-stack catches `RuntimeError` (library mode) or `APIStatusError`.
 4.  Returns `PromptTooLongResponse` (HTTP 413) to the user.
@@ -623,7 +623,7 @@ The `truncated` field exists in `QueryResponse` but is:
 
 It was added anticipating future truncation support, then deprecated when that work didn't happen.
 
-## Llama Stack's truncation support
+## OGX's truncation support
 
 The `truncation` parameter exists in the Responses API:
 
@@ -634,7 +634,7 @@ The TODO at `streaming.py:400` says: *"Implement actual truncation logic when 'a
 
 ## Token estimation
 
-| Capability               | lightspeed-stack | Llama Stack    |
+| Capability               | lightspeed-stack | OGX    |
 |--------------------------|------------------|----------------|
 | Pre-inference estimation | None             | None           |
 | Post-inference (`usage`) | Yes              | Yes            |
@@ -764,7 +764,7 @@ There are four approaches to handling long conversation history (excluding simpl
 
 # Design alternatives for lightspeed-stack
 
-Given our architecture (lightspeed-stack wraps Llama Stack) and the constraint that we implement in lightspeed-stack (see [Appendix A](#llama-stack-upstream) for why not upstream):
+Given our architecture (lightspeed-stack wraps OGX) and the constraint that we implement in lightspeed-stack (see [Appendix A](#OGX-upstream) for why not upstream):
 
 ## Alternative A: LLM-based summarization (recommended)
 
@@ -839,12 +839,12 @@ User Query → lightspeed-stack
   5. If over threshold:
      a. Emit compaction event (streaming)
      b. Summarize old turns
-     c. Inject summary as marked item into Llama Stack conversation
+     c. Inject summary as marked item into OGX conversation
      d. Store summary chunk in cache
   6. Build context: select items from last summary marker onward
-  7. Call Llama Stack with conversation parameter (marker-based selection)
+  7. Call OGX with conversation parameter (marker-based selection)
   ↓
-Llama Stack
+OGX
   8. Processes conversation (marker + recent turns + new query)
   ↓
 lightspeed-stack
@@ -942,13 +942,13 @@ Summarization adds latency only on the trigger turn. In our PoC, compaction turn
 |------------------------------|----------------|----------|
 | tiktoken library             | New dependency | No       |
 | Model context window sizes   | Configuration  | No       |
-| Llama Stack conversation API | Already exists | No       |
+| OGX conversation API | Already exists | No       |
 | Conversation cache schema    | Schema change  | No       |
-| Upstream Llama Stack changes | None needed    | No       |
+| Upstream OGX changes | None needed    | No       |
 
 No external dependencies or cross-team coordination needed. The feature is fully self-contained within lightspeed-stack (except the UI indicator).
 
-# Appendix A: Llama Stack upstream status
+# Appendix A: OGX upstream status
 
 As of 2026-03-16:
 

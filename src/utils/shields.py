@@ -157,7 +157,7 @@ async def run_shield_moderation(
 
     Parameters:
     ----------
-        client: The Llama Stack client.
+        client: The OGX client.
         input_text: The text to moderate.
         endpoint_path: The API endpoint path for metric labeling.
         shield_ids: Optional list of shield IDs to use. If None, uses all shields.

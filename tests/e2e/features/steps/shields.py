@@ -1,4 +1,4 @@
-"""Behave steps for temporarily disabling Llama Stack shields in e2e (server mode)."""
+"""Behave steps for temporarily disabling ogx shields in e2e (server mode)."""
 
 from behave import given  # pyright: ignore[reportAttributeAccessIssue]
 from behave.runner import Context
@@ -12,7 +12,7 @@ def shields_are_disabled_for_scenario(context: Context) -> None:
 
     Sets ``context.shields_disabled_for_scenario`` so ``environment.after_scenario``
     re-registers the shield. **Server mode only**; in library mode the scenario is skipped
-    (no separate Llama Stack to call).
+    (no separate ogx to call).
 
     Parameters:
     ----------

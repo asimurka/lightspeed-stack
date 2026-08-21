@@ -48,7 +48,7 @@ async def info_endpoint_handler(
     Handle request to the /info endpoint.
 
     Process GET requests to the /info endpoint, returning the
-    service name, version and Llama-stack version.
+    service name, version and OGX version.
 
     ### Parameters:
     - request: The incoming HTTP request (used by middleware).
@@ -58,7 +58,7 @@ async def info_endpoint_handler(
     - HTTPException: with status 401 for unauthorized access.
     - HTTPException: with status 403 if permission is denied.
     - HTTPException: with status 503 and a detail object containing `response`
-      and `cause` when unable to connect to Llama Stack.
+      and `cause` when unable to connect to OGX.
 
     ### Returns:
     - InfoResponse: An object containing the service's name and version.
@@ -73,7 +73,7 @@ async def info_endpoint_handler(
         logger.info("Response to /v1/info endpoint")
 
         try:
-            # try to get Llama Stack client
+            # try to get OGX client
             client = AsyncOgxClientHolder().get_client()
             # retrieve version
             llama_stack_version_object = await client.inspect.version()
@@ -93,7 +93,7 @@ async def info_endpoint_handler(
                 service_version=__version__,
                 llama_stack_version=llama_stack_version,
             )
-        # connection to Llama Stack server
+        # connection to ogx server
         except APIConnectionError as e:
             logger.error("Unable to connect to Llama Stack: %s", e)
             response = ServiceUnavailableResponse(backend_name="OGX", cause=str(e))

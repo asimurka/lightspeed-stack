@@ -1,4 +1,4 @@
-"""Check if the Llama Stack version is supported by the LCS."""
+"""Check if the OGX version is supported by the LCS."""
 
 import asyncio
 import re
@@ -19,7 +19,7 @@ logger = get_logger(__name__)
 
 
 class InvalidLlamaStackVersionException(Exception):
-    """Llama Stack version is not valid."""
+    """OGX version is not valid."""
 
 
 async def check_llama_stack_version(
@@ -28,21 +28,21 @@ async def check_llama_stack_version(
     retry_delay: int = DEFAULT_RETRY_DELAY,
 ) -> Optional[str]:
     """
-    Verify the connected Llama Stack's version is within the supported range.
+    Verify the connected OGX's version is within the supported range.
 
-    This coroutine fetches the Llama Stack version from the provided client
+    This coroutine fetches the OGX version from the provided client
     and validates it against the configured minimal and maximal supported
     versions. Connection attempts are retried with a fixed delay to handle
-    the case where Llama Stack is still starting up (e.g., when running as
+    the case where OGX is still starting up (e.g., when running as
     a sidecar in the same pod).
 
     Args:
-        client: The async Llama Stack client.
+        client: The async OGX client.
         max_retries: Maximum number of connection attempts before giving up.
         retry_delay: Delay in seconds between retry attempts.
 
     Raises:
-        APIConnectionError: If Llama Stack is unreachable after all retries.
+        APIConnectionError: If OGX is unreachable after all retries.
         InvalidLlamaStackVersionException: If the detected version is outside
         the supported range or cannot be parsed.
     """

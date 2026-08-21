@@ -41,7 +41,7 @@ The A2A protocol is an open standard for agent-to-agent communication that allow
 │                          │                                      │
 │                          ▼                                      │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                  Llama Stack Client                      │   │
+│  │                  OGX Client                      │   │
 │  │  - Responses API (streaming responses)                   │   │
 │  │  - Tools, RAG integration                                │   │
 │  └──────────────────────────────────────────────────────────┘   │
@@ -250,7 +250,7 @@ PostgreSQL is recommended for:
 The A2A state storage persists:
 
 1. **Task Store**: All A2A task objects, enabling task state queries and resumption
-2. **Context-to-Conversation Mappings**: Maps A2A `contextId` to Llama Stack `conversation_id` for multi-turn conversations
+2. **Context-to-Conversation Mappings**: Maps A2A `contextId` to OGX `conversation_id` for multi-turn conversations
 
 This ensures that:
 - Multi-turn conversations work correctly across workers
@@ -310,7 +310,7 @@ The `A2AAgentExecutor` class implements the A2A `AgentExecutor` interface:
 
 1. **Receives A2A Request**: Extracts user input from the A2A message
 2. **Creates Query Request**: Builds an internal `QueryRequest` with conversation context
-3. **Calls Llama Stack**: Uses the Responses API to get streaming responses
+3. **Calls OGX**: Uses the Responses API to get streaming responses
 4. **Converts Events**: Transforms Responses API streaming chunks to A2A events
 5. **Manages State**: Tracks task state and publishes status updates
 
@@ -331,7 +331,7 @@ A2A Request
     │
     ▼
 ┌─────────────────────┐
-│ Call Llama Stack    │──► TaskStatusUpdateEvent (working)
+│ Call OGX    │──► TaskStatusUpdateEvent (working)
 │ Responses API       │
 └─────────────────────┘
     │
@@ -367,7 +367,7 @@ A2A Request
 
 The A2A implementation supports multi-turn conversations:
 
-1. Each A2A `contextId` maps to a Llama Stack `conversation_id`
+1. Each A2A `contextId` maps to an OGX `conversation_id`
 2. The mapping is stored in the configured A2A context store (memory, SQLite, or PostgreSQL)
 3. Subsequent messages with the same `contextId` continue the conversation
 4. Conversation history is preserved across turns
@@ -756,10 +756,10 @@ Each SSE event is wrapped in a JSON-RPC response with `id`, `jsonrpc`, and `resu
 
 4. **Connection Timeout**
    - Streaming responses have a 300-second timeout
-   - Check network connectivity to Llama Stack
+   - Check network connectivity to OGX
 
 5. **No Response from Agent**
-   - Verify Llama Stack is running and accessible
+   - Verify OGX is running and accessible
    - Check logs for errors in the executor
 
 ### Debug Logging
@@ -789,5 +789,5 @@ The protocol version is included in the agent card response and indicates which 
 ## References
 
 - [A2A Protocol Specification](https://github.com/google/A2A)
-- [Llama Stack Documentation](https://llama-stack.readthedocs.io/)
+- [OGX Documentation](https://ogx-ai.github.io/docs)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
