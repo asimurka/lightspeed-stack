@@ -1984,7 +1984,7 @@ class TestPrepareResponsesParams:
         mocker.patch("utils.responses.prepare_tools", return_value=None)
         mocker.patch("utils.responses.prepare_input", return_value="test")
         mocker.patch(
-            "utils.responses.to_llama_stack_conversation_id", return_value="llama_conv1"
+            "utils.responses.to_ogx_conversation_id", return_value="llama_conv1"
         )
 
         result = await prepare_responses_params(

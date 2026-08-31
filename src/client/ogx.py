@@ -158,9 +158,7 @@ class AsyncOgxClientHolder(metaclass=Singleton):
         )
         enrich_azure_entra_id_inference(ls_config, entra_id_config)
 
-        enriched_path = os.path.join(
-            tempfile.gettempdir(), "llama_stack_enriched_config.yaml"
-        )
+        enriched_path = os.path.join(tempfile.gettempdir(), "ogx_enriched_config.yaml")
 
         try:
             with open(enriched_path, "w", encoding="utf-8") as f:

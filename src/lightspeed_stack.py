@@ -32,7 +32,7 @@ def create_argument_parser() -> ArgumentParser:
                       error_responses,common,agents,common_responses}
                       dump schemas for selected models group into OpenAPI-compatible file and quit
     - -c / --config: path to the configuration file (default "lightspeed-stack.yaml")
-    - -g / --generate-llama-stack-configuration: generate an OGX
+    - -g / --generate-ogx-configuration: generate an OGX
                                                  configuration from the service configuration
     - -i / --input-config-file: OGX input configuration filename (default "run.yaml")
     - -o / --output-config-file: OGX output configuration filename (default "run_.yaml")
