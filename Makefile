@@ -48,7 +48,7 @@ build-ogx-image: remove-ogx-container ## Build OGX container image
 		echo "ERROR: No container runtime found. Install podman or docker."; \
 		exit 1; \
 	fi
-	$(CONTAINER_RUNTIME) build -f deploy/llama-stack/test.containerfile -t $(OGX_IMAGE) .
+	$(CONTAINER_RUNTIME) build -f deploy/ogx/test.containerfile -t $(OGX_IMAGE) .
 
 stop-ogx-container: ## Gracefully stop OGX container
 	@if [ -n "$(CONTAINER_RUNTIME)" ] && $(CONTAINER_RUNTIME) inspect $(OGX_CONTAINER_NAME) >/dev/null 2>&1; then \
@@ -84,8 +84,8 @@ start-ogx-container: build-ogx-image ## Start OGX container
 		--health-start-period 20s \
 		-v $(PWD)/$(OGX_CONFIG):/opt/app-root/run.yaml:z \
 		-v $(PWD)/$(CONFIG):/opt/app-root/lightspeed-stack.yaml:ro,z \
-		-v $(PWD)/scripts/llama-stack-entrypoint.sh:/opt/app-root/enrich-entrypoint.sh:ro,z \
-		-v $(PWD)/src/llama_stack_configuration.py:/opt/app-root/llama_stack_configuration.py:ro,z \
+		-v $(PWD)/scripts/ogx-entrypoint.sh:/opt/app-root/enrich-entrypoint.sh:ro,z \
+		-v $(PWD)/src/ogx_configuration.py:/opt/app-root/ogx_configuration.py:ro,z \
 		-e OPENAI_API_KEY \
 		-e BRAVE_SEARCH_API_KEY \
 		-e TAVILY_SEARCH_API_KEY \
@@ -143,7 +143,7 @@ clean-ogx: remove-ogx-container ## Remove container and image
 	fi
 
 run-ogx-local: ## Start OGX with enriched config (for local service mode)
-	uv run src/llama_stack_configuration.py -c $(CONFIG) -i $(OGX_CONFIG) -o $(OGX_CONFIG) && \
+	uv run src/ogx_configuration.py -c $(CONFIG) -i $(OGX_CONFIG) -o $(OGX_CONFIG) && \
 	uv run ogx stack run $(OGX_CONFIG)
 
 test-unit: ## Run the unit tests

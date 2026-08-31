@@ -83,7 +83,7 @@ When you run `make run`, the following happens:
 make build-llama-stack-image
 ```
 
-- Builds from `deploy/llama-stack/test.containerfile`
+- Builds from `deploy/ogx/test.containerfile`
 - Tags as `lightspeed-llama-stack:local` (customizable via `LLAMA_STACK_IMAGE`)
 - Only rebuilds if the image doesn't exist or source files changed
 - Removes any existing container before building (ensures clean build)
@@ -459,7 +459,7 @@ Container logs:
 3. **Test config enrichment:**
    ```bash
    # Run enrichment script manually to check for errors
-   uv run src/llama_stack_configuration.py \
+   uv run src/ogx_configuration.py \
      -c lightspeed-stack.yaml \
      -i run.yaml \
      -o /tmp/enriched-run.yaml
@@ -649,7 +649,7 @@ This grants read-only access to UID 1001 (container user) without changing base 
 **macOS note:** macOS uses BSD ACLs and cannot assign numeric UID-based ACLs to non-existent host users. If you are testing locally on macOS, you must temporarily use `chmod 644` to allow the container access, but **be aware that this makes the credentials file world-readable on your host machine.** Alternately, ensure your local user matches the container's execution environment.
 
 **Why this happens:**
-This is expected container behavior. The container runs as a non-root user (UID 1001) for security - see `USER 1001` in `deploy/llama-stack/test.containerfile`. Files with `600` permissions are only accessible to their owner, and the container's UID differs from your host UID.
+This is expected container behavior. The container runs as a non-root user (UID 1001) for security - see `USER 1001` in `deploy/ogx/test.containerfile`. Files with `600` permissions are only accessible to their owner, and the container's UID differs from your host UID.
 
 **Production recommendation:**
 For production deployments, avoid mounting credential files entirely. Instead use:
@@ -683,9 +683,9 @@ When the OGX container starts, it automatically enriches the `run.yaml` file wit
 
 #### How It Works
 
-1. **Entrypoint script** (`scripts/llama-stack-entrypoint.sh`) is mounted at `/opt/app-root/enrich-entrypoint.sh`
-2. **Script runs** `/opt/app-root/.venv/bin/python3 /opt/app-root/llama_stack_configuration.py`
-3. **Enrichment logic** (`src/llama_stack_configuration.py`) reads both configs and merges them
+1. **Entrypoint script** (`scripts/ogx-entrypoint.sh`) is mounted at `/opt/app-root/enrich-entrypoint.sh`
+2. **Script runs** `/opt/app-root/.venv/bin/python3 /opt/app-root/ogx_configuration.py`
+3. **Enrichment logic** (`src/ogx_configuration.py`) reads both configs and merges them
 4. **Output** is written to `/tmp/enriched-run.yaml` inside the container
 5. **OGX starts** with the enriched config
 
@@ -699,7 +699,7 @@ When the OGX container starts, it automatically enriches the `run.yaml` file wit
 
 ```bash
 # Run enrichment locally to see output
-uv run src/llama_stack_configuration.py \
+uv run src/ogx_configuration.py \
   -c lightspeed-stack.yaml \
   -i run.yaml \
   -o enriched-run.yaml
@@ -716,8 +716,8 @@ The container uses these volume mounts:
 |-----------|----------------|------|---------|
 | `$(PWD)/run.yaml` | `/opt/app-root/run.yaml` | rw | OGX config (enriched version written here) |
 | `$(PWD)/lightspeed-stack.yaml` | `/opt/app-root/lightspeed-stack.yaml` | ro | LCORE config (read for enrichment) |
-| `$(PWD)/scripts/llama-stack-entrypoint.sh` | `/opt/app-root/enrich-entrypoint.sh` | ro | Entrypoint script with enrichment logic |
-| `$(PWD)/src/llama_stack_configuration.py` | `/opt/app-root/llama_stack_configuration.py` | ro | Python enrichment script |
+| `$(PWD)/scripts/ogx-entrypoint.sh` | `/opt/app-root/enrich-entrypoint.sh` | ro | Entrypoint script with enrichment logic |
+| `$(PWD)/src/ogx_configuration.py` | `/opt/app-root/ogx_configuration.py` | ro | Python enrichment script |
 
 **SELinux labels:**
 - `:z`: Relabels for sharing between host and container (read-write)
@@ -734,7 +734,7 @@ If you need more control than the Makefile provides, you can manage the containe
 
 #### Build the Image
 ```bash
-podman build -f deploy/llama-stack/test.containerfile -t my-llama-stack:custom .
+podman build -f deploy/ogx/test.containerfile -t my-llama-stack:custom .
 ```
 
 #### Run the Container

@@ -1,8 +1,8 @@
 """OGX configuration enrichment and synthesis.
 
 This module can be used in two ways:
-1. As a script: `python llama_stack_configuration.py -c config.yaml`
-2. As a module: `from llama_stack_configuration import generate_configuration`
+1. As a script: `python ogx_configuration.py -c config.yaml`
+2. As a module: `from ogx_configuration import generate_configuration`
 
 Two related responsibilities live here:
 

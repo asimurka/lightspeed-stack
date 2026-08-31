@@ -10,8 +10,8 @@ from argparse import ArgumentParser
 import constants
 from configuration import configuration
 from constants import LIGHTSPEED_STACK_LOG_LEVEL_ENV_VAR
-from llama_stack_configuration import migrate_config_dumb
 from log import get_logger, setup_logging
+from ogx_configuration import migrate_config_dumb
 from runners.quota_scheduler import start_quota_scheduler
 from runners.uvicorn import start_uvicorn
 from utils.dumpers import config_dumper, models_dumper
