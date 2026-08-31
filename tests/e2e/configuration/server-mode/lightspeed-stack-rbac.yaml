@@ -98,7 +98,7 @@ authorization:
         - "info"
 
 # Same e2e FAISS BYOK as default/authorized. Required so llama enrichment after
-# llama_stack_disrupted (which ends on this config) still registers e2e-test-docs.
+# ogx_disrupted (which ends on this config) still registers e2e-test-docs.
 rag:
   byok:
     stores:

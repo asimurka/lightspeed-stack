@@ -42,7 +42,7 @@ spec:
 PVCEOF
 
 timeout 120 oc delete pod llama-stack-service -n "$NAMESPACE" --ignore-not-found=true --wait=true 2>/dev/null || true
-oc apply -n "$NAMESPACE" -f "$BASE_DIR/manifests/lightspeed/llama-stack-openai.yaml"
+oc apply -n "$NAMESPACE" -f "$BASE_DIR/manifests/lightspeed/ogx-openai.yaml"
 # First boot runs the full init (dnf + git clone + uv sync ≈ 6-15 min); use a generous timeout.
 oc wait pod/llama-stack-service -n "$NAMESPACE" --for=condition=Ready --timeout=900s
 oc label pod llama-stack-service pod=llama-stack-service -n "$NAMESPACE"

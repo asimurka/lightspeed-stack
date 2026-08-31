@@ -6,7 +6,7 @@ features/rest_api.feature
 features/smoketests.feature
 features/inline_rag.feature
 features/proxy.feature
-features/llama_stack_disrupted.feature
+features/ogx_disrupted.feature
 features/authorized_noop_token.feature
 features/conversations.feature
 features/faiss.feature
