@@ -1,16 +1,20 @@
-"""Unit tests for ObservabilityConfiguration model."""
+"""Unit tests for ObservabilityConfiguration and OtelConfiguration models."""
 
 import os
 
 import pytest
 
-from models.config import ObservabilityConfiguration
+from models.config import ObservabilityConfiguration, OtelConfiguration
 
 
-def test_default_values() -> None:
-    """Test default ObservabilityConfiguration has expected values."""
+def test_default_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test default ObservabilityConfiguration loads empty OTEL env when unset."""
+    for key in list(os.environ.keys()):
+        if key.startswith("OTEL_"):
+            monkeypatch.delenv(key, raising=False)
+
     cfg = ObservabilityConfiguration()
-    assert cfg.otel == {}
+    assert cfg.otel.environment == {}
 
 
 def test_from_environment_no_otel_vars(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -25,8 +29,8 @@ def test_from_environment_no_otel_vars(monkeypatch: pytest.MonkeyPatch) -> None:
         if key.startswith("OTEL_"):
             monkeypatch.delenv(key, raising=False)
 
-    cfg = ObservabilityConfiguration.from_environment()
-    assert cfg.otel == {}
+    cfg = OtelConfiguration.from_environment()
+    assert cfg.environment == {}
 
 
 def test_from_environment_with_otel_vars(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -47,12 +51,12 @@ def test_from_environment_with_otel_vars(monkeypatch: pytest.MonkeyPatch) -> Non
     for key, value in otel_vars.items():
         monkeypatch.setenv(key, value)
 
-    cfg = ObservabilityConfiguration.from_environment()
+    cfg = OtelConfiguration.from_environment()
 
     # Verify all OTEL_ vars are collected
     for key, value in otel_vars.items():
-        assert key in cfg.otel
-        assert cfg.otel[key] == value
+        assert key in cfg.environment
+        assert cfg.environment[key] == value
 
 
 def test_from_environment_ignores_non_otel_vars(
@@ -69,13 +73,13 @@ def test_from_environment_ignores_non_otel_vars(
     monkeypatch.setenv("HOME", "/home/user")
     monkeypatch.setenv("OTEL_SDK_DISABLED", "true")
 
-    cfg = ObservabilityConfiguration.from_environment()
+    cfg = OtelConfiguration.from_environment()
 
     # Only OTEL_ vars should be collected
-    assert "PATH" not in cfg.otel
-    assert "HOME" not in cfg.otel
-    assert "OTEL_SDK_DISABLED" in cfg.otel
-    assert cfg.otel["OTEL_SDK_DISABLED"] == "true"
+    assert "PATH" not in cfg.environment
+    assert "HOME" not in cfg.environment
+    assert "OTEL_SDK_DISABLED" in cfg.environment
+    assert cfg.environment["OTEL_SDK_DISABLED"] == "true"
 
 
 def test_manual_construction() -> None:
@@ -85,11 +89,11 @@ def test_manual_construction() -> None:
         "OTEL_SERVICE_NAME": "test-service",
     }
 
-    cfg = ObservabilityConfiguration(otel=otel_dict)
+    cfg = ObservabilityConfiguration(otel=OtelConfiguration(environment=otel_dict))
 
-    assert cfg.otel == otel_dict
-    assert cfg.otel["OTEL_SDK_DISABLED"] == "false"
-    assert cfg.otel["OTEL_SERVICE_NAME"] == "test-service"
+    assert cfg.otel.environment == otel_dict
+    assert cfg.otel.environment["OTEL_SDK_DISABLED"] == "false"
+    assert cfg.otel.environment["OTEL_SERVICE_NAME"] == "test-service"
 
 
 @pytest.mark.parametrize(
@@ -113,35 +117,35 @@ def test_manual_construction() -> None:
     ],
 )
 def test_otel_dict_sizes(otel_dict: dict[str, str], expected_count: int) -> None:
-    """Test ObservabilityConfiguration with various otel dict sizes.
+    """Test OtelConfiguration with various environment dict sizes.
 
     Parameters:
     ----------
         otel_dict (dict[str, str]): Dictionary of OTEL environment variables to test.
-        expected_count (int): Expected number of items in the resulting otel dict.
+        expected_count (int): Expected number of items in the resulting environment dict.
     """
-    cfg = ObservabilityConfiguration(otel=otel_dict)
-    assert len(cfg.otel) == expected_count
+    cfg = OtelConfiguration(environment=otel_dict)
+    assert len(cfg.environment) == expected_count
 
 
 def test_otel_empty_string_values() -> None:
-    """Test ObservabilityConfiguration handles empty string values."""
+    """Test OtelConfiguration handles empty string values."""
     otel_dict = {
         "OTEL_EXPORTER_OTLP_ENDPOINT": "",
         "OTEL_SERVICE_NAME": "",
     }
 
-    cfg = ObservabilityConfiguration(otel=otel_dict)
+    cfg = OtelConfiguration(environment=otel_dict)
 
-    assert cfg.otel["OTEL_EXPORTER_OTLP_ENDPOINT"] == ""
-    assert cfg.otel["OTEL_SERVICE_NAME"] == ""
+    assert cfg.environment["OTEL_EXPORTER_OTLP_ENDPOINT"] == ""
+    assert cfg.environment["OTEL_SERVICE_NAME"] == ""
 
 
 def test_model_config_extra_forbid() -> None:
     """Test that extra fields are forbidden (inherited from ConfigurationBase)."""
     with pytest.raises(ValueError, match="Extra inputs are not permitted"):
         ObservabilityConfiguration(
-            otel={},
+            otel=OtelConfiguration(environment={}),
             unexpected_field="value",  # type: ignore[call-arg]
         )
 
@@ -160,18 +164,18 @@ def test_from_environment_redacts_secret_headers(
     )
     monkeypatch.setenv("OTEL_SERVICE_NAME", "test-service")
 
-    cfg = ObservabilityConfiguration.from_environment()
+    cfg = OtelConfiguration.from_environment()
 
     # Header values should be redacted but keys preserved
-    assert "OTEL_EXPORTER_OTLP_HEADERS" in cfg.otel
+    assert "OTEL_EXPORTER_OTLP_HEADERS" in cfg.environment
     assert (
-        cfg.otel["OTEL_EXPORTER_OTLP_HEADERS"]
+        cfg.environment["OTEL_EXPORTER_OTLP_HEADERS"]
         == "api-key=[REDACTED],tenant-id=[REDACTED]"
     )
 
     # Non-secret vars should not be redacted
-    assert "OTEL_SERVICE_NAME" in cfg.otel
-    assert cfg.otel["OTEL_SERVICE_NAME"] == "test-service"
+    assert "OTEL_SERVICE_NAME" in cfg.environment
+    assert cfg.environment["OTEL_SERVICE_NAME"] == "test-service"
 
 
 def test_from_environment_redacts_mtls_credentials(
@@ -187,14 +191,14 @@ def test_from_environment_redacts_mtls_credentials(
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_CLIENT_KEY", "/path/to/key.pem")
     monkeypatch.setenv("OTEL_SDK_DISABLED", "false")
 
-    cfg = ObservabilityConfiguration.from_environment()
+    cfg = OtelConfiguration.from_environment()
 
     # All mTLS-related vars should be redacted
-    assert cfg.otel["OTEL_EXPORTER_OTLP_CERTIFICATE"] == "[REDACTED]"
-    assert cfg.otel["OTEL_EXPORTER_OTLP_CLIENT_KEY"] == "[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_CERTIFICATE"] == "[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_CLIENT_KEY"] == "[REDACTED]"
 
     # Non-secret var should not be redacted
-    assert cfg.otel["OTEL_SDK_DISABLED"] == "false"
+    assert cfg.environment["OTEL_SDK_DISABLED"] == "false"
 
 
 def test_from_environment_redacts_all_secret_vars(
@@ -218,19 +222,21 @@ def test_from_environment_redacts_all_secret_vars(
     monkeypatch.setenv("OTEL_SERVICE_NAME", "test-service")
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 
-    cfg = ObservabilityConfiguration.from_environment()
+    cfg = OtelConfiguration.from_environment()
 
     # Headers should have values redacted but keys preserved
-    assert cfg.otel["OTEL_EXPORTER_OTLP_HEADERS"] == "api-key=[REDACTED]"
-    assert cfg.otel["OTEL_EXPORTER_OTLP_TRACES_HEADERS"] == "trace-key=[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_HEADERS"] == "api-key=[REDACTED]"
+    assert (
+        cfg.environment["OTEL_EXPORTER_OTLP_TRACES_HEADERS"] == "trace-key=[REDACTED]"
+    )
 
     # Certificates and keys should be fully redacted
-    assert cfg.otel["OTEL_EXPORTER_OTLP_CERTIFICATE"] == "[REDACTED]"
-    assert cfg.otel["OTEL_EXPORTER_OTLP_CLIENT_KEY"] == "[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_CERTIFICATE"] == "[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_CLIENT_KEY"] == "[REDACTED]"
 
     # Non-secret vars should not be redacted
-    assert cfg.otel["OTEL_SERVICE_NAME"] == "test-service"
-    assert cfg.otel["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:4317"
+    assert cfg.environment["OTEL_SERVICE_NAME"] == "test-service"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://localhost:4317"
 
 
 def test_direct_construction_redacts_secrets() -> None:
@@ -243,21 +249,21 @@ def test_direct_construction_redacts_secrets() -> None:
         "OTEL_SDK_DISABLED": "false",
     }
 
-    cfg = ObservabilityConfiguration(otel=otel_dict)
+    cfg = OtelConfiguration(environment=otel_dict)
 
     # Header values should be redacted but keys preserved
     assert (
-        cfg.otel["OTEL_EXPORTER_OTLP_HEADERS"]
+        cfg.environment["OTEL_EXPORTER_OTLP_HEADERS"]
         == "Authorization=[REDACTED],x-api-key=[REDACTED]"
     )
 
     # Certificates and keys should be fully redacted
-    assert cfg.otel["OTEL_EXPORTER_OTLP_CERTIFICATE"] == "[REDACTED]"
-    assert cfg.otel["OTEL_EXPORTER_OTLP_CLIENT_KEY"] == "[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_CERTIFICATE"] == "[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_CLIENT_KEY"] == "[REDACTED]"
 
     # Non-secrets should not be redacted
-    assert cfg.otel["OTEL_SERVICE_NAME"] == "my-service"
-    assert cfg.otel["OTEL_SDK_DISABLED"] == "false"
+    assert cfg.environment["OTEL_SERVICE_NAME"] == "my-service"
+    assert cfg.environment["OTEL_SDK_DISABLED"] == "false"
 
 
 def test_signal_specific_headers_redacted() -> None:
@@ -269,18 +275,21 @@ def test_signal_specific_headers_redacted() -> None:
         "OTEL_EXPORTER_OTLP_ENDPOINT": "http://collector:4317",
     }
 
-    cfg = ObservabilityConfiguration(otel=otel_dict)
+    cfg = OtelConfiguration(environment=otel_dict)
 
     # All signal-specific header values should be redacted but keys preserved
-    assert cfg.otel["OTEL_EXPORTER_OTLP_TRACES_HEADERS"] == "Authorization=[REDACTED]"
     assert (
-        cfg.otel["OTEL_EXPORTER_OTLP_METRICS_HEADERS"]
+        cfg.environment["OTEL_EXPORTER_OTLP_TRACES_HEADERS"]
+        == "Authorization=[REDACTED]"
+    )
+    assert (
+        cfg.environment["OTEL_EXPORTER_OTLP_METRICS_HEADERS"]
         == "x-api-key=[REDACTED],tenant=[REDACTED]"
     )
-    assert cfg.otel["OTEL_EXPORTER_OTLP_LOGS_HEADERS"] == "api-key=[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_LOGS_HEADERS"] == "api-key=[REDACTED]"
 
     # Non-secret should not be redacted
-    assert cfg.otel["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://collector:4317"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_ENDPOINT"] == "http://collector:4317"
 
 
 def test_signal_specific_certificates_redacted() -> None:
@@ -293,16 +302,16 @@ def test_signal_specific_certificates_redacted() -> None:
         "OTEL_SERVICE_NAME": "test-service",
     }
 
-    cfg = ObservabilityConfiguration(otel=otel_dict)
+    cfg = OtelConfiguration(environment=otel_dict)
 
     # All signal-specific certificates and keys should be redacted
-    assert cfg.otel["OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE"] == "[REDACTED]"
-    assert cfg.otel["OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE"] == "[REDACTED]"
-    assert cfg.otel["OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY"] == "[REDACTED]"
-    assert cfg.otel["OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY"] == "[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_TRACES_CERTIFICATE"] == "[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE"] == "[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_TRACES_CLIENT_KEY"] == "[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_METRICS_CLIENT_KEY"] == "[REDACTED]"
 
     # Non-secret should not be redacted
-    assert cfg.otel["OTEL_SERVICE_NAME"] == "test-service"
+    assert cfg.environment["OTEL_SERVICE_NAME"] == "test-service"
 
 
 def test_validator_does_not_mutate_input() -> None:
@@ -315,14 +324,14 @@ def test_validator_does_not_mutate_input() -> None:
     # Create a copy to verify original isn't mutated
     original_copy = original_dict.copy()
 
-    cfg = ObservabilityConfiguration(otel=original_dict)
+    cfg = OtelConfiguration(environment=original_dict)
 
     # Original dict should be unchanged
     assert original_dict == original_copy
     assert original_dict["OTEL_EXPORTER_OTLP_HEADERS"] == "api-key=secret-token"
 
     # But the config should have redacted value
-    assert cfg.otel["OTEL_EXPORTER_OTLP_HEADERS"] == "api-key=[REDACTED]"
+    assert cfg.environment["OTEL_EXPORTER_OTLP_HEADERS"] == "api-key=[REDACTED]"
 
 
 def test_header_redaction_edge_cases() -> None:
@@ -331,36 +340,36 @@ def test_header_redaction_edge_cases() -> None:
     otel_dict = {
         "OTEL_EXPORTER_OTLP_HEADERS": "api-key=secret1,tenant-id=acme,x-trace-id=12345",
     }
-    cfg = ObservabilityConfiguration(otel=otel_dict)
+    cfg = OtelConfiguration(environment=otel_dict)
     assert (
-        cfg.otel["OTEL_EXPORTER_OTLP_HEADERS"]
+        cfg.environment["OTEL_EXPORTER_OTLP_HEADERS"]
         == "api-key=[REDACTED],tenant-id=[REDACTED],x-trace-id=[REDACTED]"
     )
 
     # Single key=value pair
     otel_dict2 = {"OTEL_EXPORTER_OTLP_HEADERS": "Authorization=Bearer token123"}
-    cfg2 = ObservabilityConfiguration(otel=otel_dict2)
-    assert cfg2.otel["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=[REDACTED]"
+    cfg2 = OtelConfiguration(environment=otel_dict2)
+    assert cfg2.environment["OTEL_EXPORTER_OTLP_HEADERS"] == "Authorization=[REDACTED]"
 
     # No equals sign (malformed, redact entirely)
     otel_dict3 = {"OTEL_EXPORTER_OTLP_HEADERS": "just-a-token"}
-    cfg3 = ObservabilityConfiguration(otel=otel_dict3)
-    assert cfg3.otel["OTEL_EXPORTER_OTLP_HEADERS"] == "[REDACTED]"
+    cfg3 = OtelConfiguration(environment=otel_dict3)
+    assert cfg3.environment["OTEL_EXPORTER_OTLP_HEADERS"] == "[REDACTED]"
 
     # Empty string
     otel_dict4 = {"OTEL_EXPORTER_OTLP_HEADERS": ""}
-    cfg4 = ObservabilityConfiguration(otel=otel_dict4)
-    assert cfg4.otel["OTEL_EXPORTER_OTLP_HEADERS"] == "[REDACTED]"
+    cfg4 = OtelConfiguration(environment=otel_dict4)
+    assert cfg4.environment["OTEL_EXPORTER_OTLP_HEADERS"] == "[REDACTED]"
 
 
 def test_validator_handles_invalid_input_types() -> None:
     """Test that validator allows Pydantic to handle non-dict inputs."""
     # Non-dict inputs should raise Pydantic validation errors, not AttributeError
     with pytest.raises(ValueError, match="Input should be a valid dictionary"):
-        ObservabilityConfiguration(otel="not-a-dict")  # type: ignore[arg-type]
+        OtelConfiguration(environment="not-a-dict")  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match="Input should be a valid dictionary"):
-        ObservabilityConfiguration(otel=123)  # type: ignore[arg-type]
+        OtelConfiguration(environment=123)  # type: ignore[arg-type]
 
     with pytest.raises(ValueError, match="Input should be a valid dictionary"):
-        ObservabilityConfiguration(otel=["list", "of", "values"])  # type: ignore[arg-type]
+        OtelConfiguration(environment=["list", "of", "values"])  # type: ignore[arg-type]

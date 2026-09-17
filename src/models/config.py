@@ -2974,23 +2974,20 @@ class RedactionConfig(ConfigurationBase):
         return list(self._compiled_patterns)
 
 
-class ObservabilityConfiguration(ConfigurationBase):
-    """OpenTelemetry observability configuration.
-
-    This configuration is automatically populated from OTEL_* environment variables
-    to provide visibility into the active tracing setup.
+class OtelConfiguration(ConfigurationBase):
+    """OpenTelemetry (OTEL) configuration surface under observability.
 
     Attributes:
-        otel: Dictionary of OTEL_* environment variables with secrets redacted.
+        environment: Dictionary of OTEL_* environment variables with secrets redacted.
     """
 
-    otel: dict[str, str] = Field(
+    environment: dict[str, str] = Field(
         default_factory=dict,
-        title="OpenTelemetry configuration",
-        description="Active OpenTelemetry configuration from OTEL_* environment variables",
+        title="OpenTelemetry environment variables",
+        description="Active OTEL_* environment variables with secrets redacted",
     )
 
-    @field_validator("otel", mode="before")
+    @field_validator("environment", mode="before")
     @classmethod
     def redact_secrets(cls, value: dict[str, str]) -> dict[str, str]:
         """Redact sensitive OTEL environment variables.
@@ -3070,20 +3067,37 @@ class ObservabilityConfiguration(ConfigurationBase):
         return ",".join(redacted_pairs)
 
     @classmethod
-    def from_environment(cls) -> "ObservabilityConfiguration":
+    def from_environment(cls) -> "OtelConfiguration":
         """Collect all OTEL_* environment variables from the environment.
 
         Sensitive variables (headers, certificates, keys) are automatically redacted
         by the field validator.
 
         Returns:
-            ObservabilityConfiguration with otel dict populated from environment.
+            OtelConfiguration with environment dict populated from environment.
         """
         otel_vars = {}
         for key, value in os.environ.items():
             if key.startswith("OTEL_"):
                 otel_vars[key] = value
-        return cls(otel=otel_vars)
+        return cls(environment=otel_vars)
+
+
+class ObservabilityConfiguration(ConfigurationBase):
+    """OpenTelemetry observability configuration.
+
+    This configuration is automatically populated from OTEL_* environment variables
+    to provide visibility into the active tracing setup.
+
+    Attributes:
+        otel: Nested OpenTelemetry configuration (environment variables, etc.).
+    """
+
+    otel: OtelConfiguration = Field(
+        default_factory=OtelConfiguration.from_environment,
+        title="OpenTelemetry configuration",
+        description="OpenTelemetry configuration including active OTEL_* environment variables",
+    )
 
 
 class QuestionValidityShieldConfiguration(ConfigurationBase):
@@ -3486,7 +3500,7 @@ class Configuration(ConfigurationBase):
     )
 
     observability: ObservabilityConfiguration = Field(
-        default_factory=ObservabilityConfiguration.from_environment,
+        default_factory=ObservabilityConfiguration,
         title="Observability configuration",
         description="OpenTelemetry and observability configuration collected "
         "from OTEL_* environment variables.",

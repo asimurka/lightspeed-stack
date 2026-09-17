@@ -112,11 +112,13 @@ class ConfigurationResponse(AbstractSuccessfulResponse):
                         },
                         "observability": {
                             "otel": {
-                                "OTEL_SDK_DISABLED": "true",
-                                "OTEL_EXPORTER_OTLP_ENDPOINT": "",
-                                "OTEL_EXPORTER_OTLP_PROTOCOL": "",
-                                "OTEL_SERVICE_NAME": "",
-                                "OTEL_EXPORTER_OTLP_HEADERS": "api-key=[REDACTED]",
+                                "environment": {
+                                    "OTEL_SDK_DISABLED": "true",
+                                    "OTEL_EXPORTER_OTLP_ENDPOINT": "",
+                                    "OTEL_EXPORTER_OTLP_PROTOCOL": "",
+                                    "OTEL_SERVICE_NAME": "",
+                                    "OTEL_EXPORTER_OTLP_HEADERS": "api-key=[REDACTED]",
+                                }
                             }
                         },
                     }

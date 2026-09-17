@@ -117,7 +117,8 @@ async def test_config_endpoint_includes_observability(
 
     # Verify otel field exists
     assert hasattr(response.configuration.observability, "otel")
-    assert isinstance(response.configuration.observability.otel, dict)
+    assert hasattr(response.configuration.observability.otel, "environment")
+    assert isinstance(response.configuration.observability.otel.environment, dict)
 
 
 @pytest.mark.asyncio
@@ -150,7 +151,8 @@ async def test_config_endpoint_observability_collects_otel_vars(
     monkeypatch.setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4317")
 
     # Reload configuration to pick up new env vars
-    # The observability field is populated via from_environment() during config load
+    # The observability.otel field is populated via OtelConfiguration.from_environment()
+    # during config load (default_factory on ObservabilityConfiguration.otel).
     config_path = Path(__file__).parent.parent.parent.parent / "lightspeed-stack.yaml"
     current_config.load_configuration(str(config_path))
 
@@ -163,7 +165,7 @@ async def test_config_endpoint_observability_collects_otel_vars(
     assert hasattr(response.configuration.observability, "otel")
 
     # Verify OTEL vars are present in the endpoint response
-    otel_config = response.configuration.observability.otel
+    otel_config = response.configuration.observability.otel.environment
     assert "OTEL_SDK_DISABLED" in otel_config
     assert otel_config["OTEL_SDK_DISABLED"] == "true"
     assert "OTEL_SERVICE_NAME" in otel_config
