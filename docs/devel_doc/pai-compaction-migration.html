@@ -1,0 +1,852 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PAI migration — Conversation compaction</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" />
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #222;
+      max-width: 800px;
+      margin: 24px auto;
+      padding: 0 16px 48px;
+    }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    h2 { font-size: 17px; margin-top: 28px; margin-bottom: 8px; }
+    h3 { font-size: 15px; margin-top: 18px; margin-bottom: 6px; }
+    h4 { font-size: 14px; margin-top: 14px; margin-bottom: 6px; }
+    p, li { margin: 8px 0; }
+    .meta { color: #555; margin-bottom: 16px; }
+    .pref { background: #f3f7f3; border-left: 3px solid #2d6a4f; padding: 8px 10px; margin: 12px 0; }
+    .avoid { background: #faf6f0; border-left: 3px solid #a65d00; padding: 8px 10px; margin: 12px 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 10px 0 14px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eee; }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+    pre {
+      margin: 12px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    pre code.hljs {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 12px 14px;
+      background: #f6f8fa;
+    }
+    a { color: #0b57d0; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 24px 0; }
+    .ok { color: #1b7a3d; font-weight: bold; }
+    .bad { color: #a12622; font-weight: bold; }
+    .er {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      white-space: pre;
+      line-height: 1.35;
+      background: #f6f8fa;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      margin: 10px 0 14px;
+    }
+    ol.stages > li { margin: 12px 0; }
+  </style>
+</head>
+<body>
+
+<h1>PAI migration — Conversation compaction</h1>
+<p class="meta">Lightspeed Core Stack (LCORE) · two designs compared · Oct 2026</p>
+
+<p>
+  After OGX removal, long conversations still have to stay inside the
+  model’s context window. This note first states the problem and the
+  stages any compaction pass must run (independent of implementation).
+  It then records how LCORE does that today, describes two PAI-era
+  designs, and chooses one.
+</p>
+<ul>
+  <li>
+    <b>Design A</b> — rewrite the current additive engine as a
+    pydantic-ai capability.
+  </li>
+  <li>
+    <b>Design B</b> — use harness
+    <code>TieredCompaction</code>
+    (clamp → clear tool results → summarize).
+  </li>
+</ul>
+<p>
+  Both designs sit on the same PAI-era split (one
+  <code>conversation_id</code>, two stores). That split is assumed,
+  not compared:
+</p>
+<ul>
+  <li>
+    <b>Display store</b> — LCORE’s own SQL conversation (turns as
+    <code>items[]</code>). Used only by
+    <code>/v3/conversations</code> so clients can list, get, and
+    show the full thread. After each run LCORE maps the agent result
+    into this format and <b>appends the turn as spoken</b>. Compaction
+    does not rewrite it, so the UI still shows every original user
+    and assistant message.
+  </li>
+  <li>
+    <b>Agent context</b> — pydantic-ai
+    <code>message_history</code> in harness
+    <code>StepPersistence</code>. Used only to prompt the next
+    <code>Agent.run</code>. Continue loads the latest snapshot
+    (<code>continue_run</code>); a branch from an older turn uses
+    <code>fork_run</code> plus new LCORE ids. This list is what
+    compaction shrinks. The next continue already sees the shrunk
+    snapshot — it does not rebuild model context from the display
+    store.
+  </li>
+</ul>
+<p>
+  The two records are the same conversation in different formats.
+  Design A vs B is only <i>how</i> the agent list is shrunk. The
+  comparison and the choice are at the end.
+</p>
+
+<hr />
+
+<h2>1. What compaction is</h2>
+
+<p>
+  Each model request carries prior conversation plus the new user
+  input (and tools, instructions, and so on). If that payload exceeds
+  the model’s context window, the provider rejects the call (today:
+  HTTP 413). Compaction <b>shrinks the agent-facing history</b> so
+  the next request still fits, while keeping enough recent context to
+  continue the task.
+</p>
+<p>
+  Compaction is not the UI transcript. Clients still list the full
+  conversation from LCORE’s own store. Only the list handed to the
+  model is rewritten.
+</p>
+
+<h3>1.1 How it is triggered</h3>
+<p>
+  Before (or as) the model is called, estimate how many tokens the
+  <b>upcoming request</b> will use — prior context <b>and</b> the
+  current input, not prior context alone. Compare that to the model’s
+  context window:
+</p>
+<ul>
+  <li>
+    Typical rule: compact when estimated tokens ≥
+    <code>threshold_ratio × context_window</code> and above a
+    <code>token_floor</code> (avoids firing on tiny windows).
+  </li>
+  <li>
+    The window comes from configuration or the model profile. If no
+    window is known, a design may skip the token trigger or use a
+    fallback.
+  </li>
+  <li>
+    How tokens are counted varies (local tokenizer, provider-reported
+    usage plus a guess for new text, or a provider
+    <code>count_tokens</code> API). The trigger idea is the same:
+    used vs window.
+  </li>
+</ul>
+
+<h3>1.2 General stages (any implementation)</h3>
+<ol class="stages">
+  <li>
+    <h4>Load agent history</h4>
+    <p>
+      Take the message list the next model call would see (previous
+      turns already in agent storage). A new thread has an empty
+      list. A continue loads the latest snapshot. A fork loads
+      history from a chosen earlier point, then starts a new thread
+      id.
+    </p>
+  </li>
+  <li>
+    <h4>Estimate</h4>
+    <p>
+      Measure that list plus the new user input (and instructions /
+      tools if the estimator includes them). If under the threshold,
+      skip rewrite.
+    </p>
+  </li>
+  <li>
+    <h4>Shrink (only if over threshold)</h4>
+    <p>
+      Reduce older context. Concrete tactics differ: drop oldest
+      messages, blank old tool results, clamp one huge part,
+      summarize a prefix and keep a recent tail, or a sequence of
+      those. Preserve enough structure that the provider still
+      accepts the list (especially tool-call / tool-return pairing).
+    </p>
+  </li>
+  <li>
+    <h4>Write back, then run</h4>
+    <p>
+      The rewritten list becomes the run’s live history. The model
+      loop appends this turn. Agent storage snapshots that list.
+      Display storage appends the verbatim turn. The next continue
+      loads the snapshot — already shrunk — and does not rebuild
+      agent context from the UI store.
+    </p>
+  </li>
+</ol>
+
+<div class="er">Load history → estimate (history + this input)
+  → if over threshold: shrink older context
+  → snapshot rewritten history for the agent
+  → append full turn for display
+Next continue → load latest agent snapshot (already shrunk)</div>
+
+<h3>1.3 After OGX: two stores, one id</h3>
+<p>
+  Same split as in the opening: display store for
+  <code>/v3/conversations</code>, StepPersistence for the model.
+  Compaction mutates only the agent snapshot. Linear continue never
+  concatenates original runs from SQL.
+</p>
+
+<hr />
+
+<h2>2. Current state (OGX-era LCORE)</h2>
+
+<p>
+  Two layers:
+  <code>src/utils/compaction.py</code> (partition, summarize, fold,
+  Red Hat prompts) and
+  <code>src/utils/conversation_compaction.py</code> (request-path
+  integration).
+</p>
+
+<h3>2.1 Policy</h3>
+<ul>
+  <li>
+    <b>Additive summaries</b> (spike decision 2): each old chunk is
+    summarized once and kept. Recursive fold only when the summaries
+    themselves approach the limit. PoC: a single rolling summary
+    lost early topics after several cycles.
+  </li>
+  <li>
+    Same model as the user query for the summarize call.
+  </li>
+  <li>
+    Recent verbatim buffer: <code>buffer_turns</code> user/assistant
+    <b>pairs</b>, shrinking until the buffer fits
+    <code>buffer_max_ratio</code> of the window (degrading guard).
+  </li>
+  <li>
+    YAML <code>CompactionConfiguration</code>:
+    <code>enabled</code> (default false),
+    <code>threshold_ratio</code> 0.7,
+    <code>token_floor</code> 4096,
+    <code>buffer_turns</code> 4,
+    <code>buffer_max_ratio</code> 0.3.
+  </li>
+</ul>
+
+<h3>2.2 Integration (Option A)</h3>
+<p>
+  Once any summary exists, LCORE stops passing
+  <code>conversation</code> to OGX inference (OGX would reload the
+  full item list). It builds explicit input: summaries + recent
+  items + this query, sets <code>omit_conversation=True</code>,
+  writes marker messages
+  (<code>[lightspeed:compaction-summary]</code> /
+  <code>[covers:N]</code>), and may persist
+  <code>ConversationSummary</code> rows in the conversation cache
+  (fold needs that cache; A2A is marker-only). After the turn,
+  <code>store_compacted_turn</code> appends the original user input
+  to OGX items for UI.
+</p>
+<p>
+  Trigger estimate includes instructions, summaries, recent items,
+  <b>and</b> <code>params.input</code> (current query). Tokens are
+  tiktoken <code>cl100k_base</code> on <code>type == "message"</code>
+  text only — tool items are skipped. Window from
+  <code>inference.context_windows</code>; missing key → no token
+  trigger. Every compacting request re-fetches OGX items and
+  retokenizes; there is no usage-odometer.
+</p>
+
+<h3>2.3 Call sites and UX</h3>
+<table>
+  <tr>
+    <th>Surface</th>
+    <th>Behavior</th>
+  </tr>
+  <tr>
+    <td><code>/v1/query</code></td>
+    <td>Blocking apply; <code>context_status</code> on the response</td>
+  </tr>
+  <tr>
+    <td><code>/v1/streaming_query</code></td>
+    <td>
+      SSE <code>compaction</code> / <code>started</code> before
+      summarize; <code>context_status</code> on <code>end</code>
+    </td>
+  </tr>
+  <tr>
+    <td><code>/v1/responses</code></td>
+    <td>Silent when enabled + conversation (no previous_response_id)</td>
+  </tr>
+  <tr>
+    <td>A2A</td>
+    <td>Blocking, no cache/fold</td>
+  </tr>
+</table>
+
+<p>
+  Per-conversation lock around evaluate/summarize. Images in
+  compacted mode → 422. Markers filtered on conversation GET.
+</p>
+
+<p>
+  After PAI cutover, both designs <b>drop</b> Option A I/O: OGX
+  item fetch, markers, <code>omit_conversation</code>, summary cache
+  as agent SoT, <code>apply_compaction</code> on
+  <code>ResponsesApiParams</code>. Display stays. Config knobs and
+  query SSE / <code>context_status</code> can stay as product
+  surfaces.
+</p>
+
+<hr />
+
+<h2>3. Design A — rewrite the current engine as a capability</h2>
+
+<p>
+  Keep additive policy, prompts, partition math, and
+  <code>CompactionConfiguration</code>. Move the runtime from OGX
+  request rewriting into a PAI capability that edits
+  <code>message_history</code> already loaded for
+  <code>Agent.run</code>. StepPersistence snapshots the rewritten
+  list; the next <code>continue_run</code> sees compacted history
+  with no extra LCORE summary store.
+</p>
+
+<h3>3.1 Shape</h3>
+<p>
+  One capability (e.g. <code>AdditiveCompaction</code>) on
+  <code>wrap_run</code>, once per user turn, before
+  <code>handler()</code>. At that point
+  <code>ctx.messages</code> is prior history only — the estimate
+  must also add <code>ctx.prompt</code> / incoming input to match
+  today’s “include this query.”
+  <code>ctx.messages[:] = …</code> writes the shared
+  <code>state.message_history</code> list in place.
+</p>
+<p>
+  Summarize with a bare PAI model call (or a tiny agent
+  <b>without</b> this capability). Represent summaries as ordinary
+  readable messages plus metadata — not provider
+  <code>CompactionPart</code>. Fold by scanning those messages in
+  the list. Compact only on the first step of the run if the hook
+  were <code>before_model_request</code> instead (tool loops).
+</p>
+
+<pre><code class="language-python">@dataclass
+class AdditiveCompaction(AbstractCapability):
+    enabled: bool = False
+    threshold_ratio: float = 0.7
+    token_floor: int = 4096
+    buffer_turns: int = 4
+    buffer_max_ratio: float = 0.3
+    context_windows: dict[str, int] = field(default_factory=dict)
+    encoding_name: str = "cl100k_base"
+
+    async def wrap_run(self, ctx, *, handler):
+        if not self.enabled:
+            return await handler()
+        history = list(ctx.messages)
+        used = estimate_used_tokens(history, ctx.prompt, tokenizer=estimate_tokens)
+        window = resolve_window(ctx.model, self.context_windows)
+        if window is None or not should_compact(used, window, self):
+            return await handler()
+        old, recent = partition_model_messages(
+            history,
+            available_budget_tokens=int(window * self.buffer_max_ratio),
+            buffer_turns=self.buffer_turns,
+            encoding_name=self.encoding_name,
+        )
+        if old:
+            summary = await summarize_chunk_pai(model=ctx.model, old_messages=old, ...)
+            history = inject_summary_messages(summary, recent)
+            history = maybe_fold_summaries(history, window, self.threshold_ratio, ctx.model)
+            ctx.messages[:] = history
+        return await handler()</code></pre>
+
+<h3>3.2 What must be adapted</h3>
+<ul>
+  <li>
+    Partition: OGX user/assistant pairs → PAI
+    <code>ModelRequest</code> / <code>ModelResponse</code>, preferably
+    grouped by <code>run_id</code> (one agent turn including tools).
+  </li>
+  <li>
+    Transcript / token estimate: walk parts, not
+    <code>type == "message"</code>. Optionally replicate a usage
+    anchor (last <code>ModelResponse.usage</code> + tiktoken on the
+    suffix) so later turns do not retokenize the whole list.
+  </li>
+  <li>
+    Replace <code>client.responses.create(..., store=False)</code>.
+  </li>
+  <li>
+    Tool pairing and oversized parts are <b>not</b> in the current
+    engine; A does not gain them unless we add them.
+  </li>
+</ul>
+
+<h3>3.3 Effort</h3>
+<p>
+  Medium: capability shell is small; main work is the PAI message
+  adapter, tests, and deleting Option A call sites. Persistence
+  after that is automatic. Config maps 1:1. Product parity with
+  spike decision 2 is the reason to pick A.
+</p>
+
+<hr />
+
+<h2>4. Design B — harness TieredCompaction</h2>
+
+<p>
+  Docs:
+  <a href="https://pydantic.dev/docs/ai/harness/compaction/">Harness compaction</a>.
+  Not in LCORE deps today (<code>pydantic-ai==2.27.1</code>). Latest
+  harness implies a PAI version bump.
+</p>
+<p>
+  Do not attach <code>SummarizingCompaction</code> alone. Use
+  <code>TieredCompaction</code>: run cheap edits first, re-measure,
+  stop when under <code>target_fraction</code> /
+  <code>target_tokens</code>. Inner tier <code>max_*</code> is
+  ignored inside the ladder (must still be a valid value). Shrink
+  happens in <code>before_model_request</code> (every model call in
+  the run, including after tools, if still over).
+</p>
+<p>
+  Estimation is built in: last response with
+  <code>usage.input_tokens</code> as an odometer, plus local estimate
+  of newer text (<code>tokenizer=</code> or ~4 chars/token). Pass
+  LCORE <code>estimate_tokens</code> as <code>tokenizer</code>.
+  Explicit <code>context_window</code> for WatsonX / vLLM ids that
+  genai-prices will not know. Chat Completions models are fine;
+  this is not OpenAI Responses server compaction.
+</p>
+
+<h3>4.1 Tiers</h3>
+<p>
+  Order is intentional — clamp, then clear tools, then summarize —
+  not interchangeable. Harness documents clamp as the
+  <b>first</b> tier of
+  <code>TieredCompaction</code>, before
+  <code>ClearToolResults</code>
+  (<a href="https://pydantic.dev/docs/ai/harness/compaction/#clampoversizedmessages-surviving-a-runaway-generation">docs</a>;
+  rationale in
+  <a href="https://github.com/pydantic/pydantic-ai-harness/pull/286">pydantic-ai-harness#286</a>):
+  clamp only rewrites oversized assistant text / tool-call args;
+  tool <em>returns</em> are out of its scope. Clear tools cannot
+  fix a runaway <code>ModelResponse</code>, and summarize would
+  feed that blob into another LLM call and hit the same cap. The
+  ladder stops as soon as history fits the target, so if clear ran
+  first and reclaimed enough, clamp would never run and a huge
+  assistant part could remain. Summarize stays last (only LLM
+  cost).
+</p>
+<ol>
+  <li>
+    <code>ClampOversizedMessages</code> — zero LLM. Head/tail
+    truncates one runaway part (assistant text / tool-call args).
+    LCORE has no equivalent.
+  </li>
+  <li>
+    <code>ClearToolResults</code> — zero LLM. Blanks old tool
+    <em>returns</em> in place; last <code>keep_pairs</code> cycles
+    stay full. Does not delete messages (pairing stays valid).
+  </li>
+  <li>
+    <code>SummarizingCompaction</code> — LLM only if still over.
+    Verbatim tail is <code>keep_messages</code> (message count,
+    tool-safe), not LCORE turn pairs. Default
+    <code>incremental=True</code>: one living summary, prefix
+    dropped from live history.
+  </li>
+</ol>
+
+<pre><code class="language-python">from pydantic_ai import Agent
+from pydantic_ai_harness import (
+    ClampOversizedMessages,
+    ClearToolResults,
+    SummarizingCompaction,
+    TieredCompaction,
+)
+from utils.token_estimator import estimate_tokens
+
+CONTEXT_WINDOW = 128_000
+THRESHOLD = 0.7
+tokenizer = estimate_tokens
+
+compaction = TieredCompaction(
+    tiers=[
+        ClampOversizedMessages(
+            max_part_tokens=50_000,
+            keep_head_chars=2_000,
+            keep_tail_chars=2_000,
+            tokenizer=tokenizer,
+        ),
+        ClearToolResults(
+            max_tokens=1,
+            keep_pairs=3,
+            min_clear_tokens=500,
+            tokenizer=tokenizer,
+        ),
+        SummarizingCompaction(
+            max_messages=1,
+            keep_messages=20,
+            tokenizer=tokenizer,
+            context_window=CONTEXT_WINDOW,
+            incremental=True,
+            preserve_first_user_message=True,
+            keep_user_messages=True,
+        ),
+    ],
+    target_fraction=THRESHOLD,
+    context_window=CONTEXT_WINDOW,
+    fallback_context_window=CONTEXT_WINDOW,
+    tokenizer=tokenizer,
+)
+
+agent = Agent(
+    chat_model,
+    capabilities=[
+        compaction,
+        # StepPersistence(...), shields
+    ],
+)</code></pre>
+
+<h3>4.2 YAML mapping</h3>
+<table>
+  <tr>
+    <th>LCORE today</th>
+    <th>Design B</th>
+  </tr>
+  <tr>
+    <td><code>enabled</code></td>
+    <td>Attach or omit the capability</td>
+  </tr>
+  <tr>
+    <td><code>threshold_ratio</code></td>
+    <td><code>target_fraction</code></td>
+  </tr>
+  <tr>
+    <td><code>token_floor</code></td>
+    <td>No 1:1</td>
+  </tr>
+  <tr>
+    <td><code>buffer_turns</code> / <code>buffer_max_ratio</code></td>
+    <td>
+      <code>keep_messages</code> / <code>keep_tokens</code> —
+      different unit
+    </td>
+  </tr>
+  <tr>
+    <td><code>inference.context_windows</code></td>
+    <td>
+      <code>context_window</code> /
+      <code>fallback_context_window</code>
+    </td>
+  </tr>
+  <tr>
+    <td>tiktoken</td>
+    <td><code>tokenizer=estimate_tokens</code></td>
+  </tr>
+  <tr>
+    <td>Current input in the estimate</td>
+    <td>
+      Included: <code>before_model_request</code> sees the pending
+      request on the list
+    </td>
+  </tr>
+</table>
+
+<p>
+  Optional Red Hat text via <code>summary_prompt</code> (must
+  contain <code>{messages}</code>). Persistence and display split
+  are the same as Design A.
+</p>
+
+<hr />
+
+<h2>5. Comparison</h2>
+
+<table>
+  <tr>
+    <th></th>
+    <th>A — LCORE engine as capability</th>
+    <th>B — harness TieredCompaction</th>
+  </tr>
+  <tr>
+    <td>Summary model</td>
+    <td>
+      Additive chunks; fold when summaries grow. Matches spike
+      decision 2 / PoC.
+    </td>
+    <td>
+      One living summary (<code>incremental=True</code>). Closer to
+      the recursive family the PoC rejected, though not naive
+      summary-of-summary.
+    </td>
+  </tr>
+  <tr>
+    <td>How it shrinks</td>
+    <td>
+      Partition + summarize (+ fold). No clamp, no tool-result
+      blanking unless added.
+    </td>
+    <td>
+      Clamp, then blank old tool returns, then summarize only if
+      still over. Cheap tiers may skip the LLM call.
+    </td>
+  </tr>
+  <tr>
+    <td>Tools / MCP</td>
+    <td>
+      Current engine skips non-message items in estimates and
+      transcripts.
+    </td>
+    <td>
+      Tool pairing in cutoffs; <code>ClearToolResults</code> targets
+      tool bloat.
+    </td>
+  </tr>
+  <tr>
+    <td>When</td>
+    <td>
+      Once per user turn (<code>wrap_run</code>), if we count the
+      new prompt.
+    </td>
+    <td>
+      Each <code>before_model_request</code>; can run mid tool-loop.
+    </td>
+  </tr>
+  <tr>
+    <td>Tail kept verbatim</td>
+    <td>
+      <code>buffer_turns</code> pairs / run groups + degrading
+      guard
+    </td>
+    <td>
+      <code>keep_messages</code> (and optional
+      <code>keep_tokens</code>)
+    </td>
+  </tr>
+  <tr>
+    <td>Config</td>
+    <td>Existing YAML 1:1</td>
+    <td>
+      Map ratio → fraction; buffer knobs do not map cleanly
+    </td>
+  </tr>
+  <tr>
+    <td>Estimation</td>
+    <td>
+      Implement usage-anchor + tiktoken (or keep full retokenize)
+    </td>
+    <td>Built in; pass our tokenizer</td>
+  </tr>
+  <tr>
+    <td>Engineering</td>
+    <td>
+      Medium adapter + delete Option A + tests
+    </td>
+    <td>
+      Harness + PAI bump, wire capability, map config, SSE bridge,
+      delete Option A
+    </td>
+  </tr>
+  <tr>
+    <td>Persistence / display</td>
+    <td colspan="2">
+      Same StepPersistence + local verbatim store
+    </td>
+  </tr>
+  <tr>
+    <td>Custom Chat Completions</td>
+    <td colspan="2">
+      Both work with explicit windows; usage anchor needs the
+      server to return usage
+    </td>
+  </tr>
+  <tr>
+    <td>Domain prompt</td>
+    <td>Already in-tree</td>
+    <td>Must be passed in; default is harness sections</td>
+  </tr>
+  <tr>
+    <td>One huge newest part</td>
+    <td>Not handled today</td>
+    <td>First tier clamps it</td>
+  </tr>
+</table>
+
+<p>
+  Neither design is a silent swap for today’s product. A keeps
+  additive chunks and buffer-turns policy. B keeps “stay under the
+  window” with a different shrink menu and a different summary
+  shape.
+</p>
+
+<hr />
+
+<h2>6. Choice — Design B</h2>
+
+<div class="pref">
+  <b>Choose Design B</b> (harness
+  <code>TieredCompaction</code> with the three tiers in §4) for the
+  PAI / OGX-removal milestone.
+</div>
+
+<p>
+  The facts that decide it, after the comparison:
+</p>
+<ol>
+  <li>
+    Agent persistence is no longer a reason to keep the LCORE
+    engine: both designs snapshot rewritten PAI history. Markers,
+    omit_conversation, and the summary cache go away either way.
+  </li>
+  <li>
+    The PAI agent loop is tool-heavy. Today’s engine does not
+    count or shrink tool payloads. B’s first two tiers are built
+    for that; A would have to grow them in the same milestone as
+    providers, Responses, and conversations.
+  </li>
+  <li>
+    Remaining A work is still a medium message/turn adapter. B is
+    wiring plus a version bump, with tiktoken, window, and optional
+    Red Hat prompt still injectable.
+  </li>
+  <li>
+    Additive chunks are still generally better for fidelity than
+    what <code>SummarizingCompaction</code> does by default —
+    an <b>incremental (rolling) summary</b>: one living document
+    updated in place, earlier topics diluted across cycles (the
+    PoC’s recursive failure mode). That gap is real on paper, but
+    in practice almost empty for LCORE: modern context windows mean
+    a conversation rarely hits the summarize tier at all, and with
+    clamp + <code>ClearToolResults</code> ahead of it the expensive
+    LLM step is rarer still. Reaching several summarize cycles in
+    the <i>same</i> conversation — where the PoC’s topic loss
+    showed up — is an edge case; doing that twice is rarer.
+    Functional debt from shipping B without additive is therefore
+    near zero for the cutover. Keep A as a later
+    <code>CompactionStrategy</code> tier only if quality evidence
+    appears.
+  </li>
+</ol>
+
+<div class="avoid">
+  <b>B is not “current LCORE compaction in another package.”</b>
+  Do not claim <code>keep_messages</code> equals
+  <code>buffer_turns</code>, or that an incremental summary equals
+  additive chunks. The delivery call is still B; treat additive as
+  optional follow-up, not a silent assumption of B.
+</div>
+
+<hr />
+
+<h2>7. Delivery checklist (Design B)</h2>
+<ol>
+  <li>
+    Shared agent run, LCORE-owned ids, StepPersistence
+    (<code>continue_run</code> / <code>fork_run</code>).
+  </li>
+  <li>
+    Add harness (compatible PAI). Wire §4.1 tiers from
+    <code>CompactionConfiguration</code> +
+    <code>context_windows</code>.
+  </li>
+  <li>
+    <code>tokenizer=estimate_tokens</code>, explicit windows for
+    WatsonX / vLLM, optional LCORE summarization prompt.
+  </li>
+  <li>
+    Remove Option A from query / streaming / responses / a2a.
+  </li>
+  <li>
+    Drop summary cache and marker writes; keep display verbatim;
+    optional <code>context_status</code> on display.
+  </li>
+  <li>
+    Bridge streaming <code>compaction</code> SSE from harness
+    compact events where the LCORE API still exposes it.
+  </li>
+  <li>
+    Tests: under/over fraction; cheap tiers skip summarize; clamp
+    oversized part; continue sees rewritten history; fork from
+    pre-compaction <code>run_id</code>; missing usage; custom
+    provider window.
+  </li>
+  <li>
+    Follow-up only if quality requires additive chunks: Design A
+    as last tier or as replacement of
+    <code>SummarizingCompaction</code>.
+  </li>
+</ol>
+
+<hr />
+
+<h2>8. References</h2>
+<ul>
+  <li>
+    <a href="../design/conversation-compaction/conversation-compaction.md">Current compaction design</a>
+  </li>
+  <li>
+    <a href="../design/conversation-compaction/conversation-compaction-spike.md">Spike (additive decision)</a>
+  </li>
+  <li>
+    <a href="https://pydantic.dev/docs/ai/harness/compaction/">PAI Harness compaction</a>
+  </li>
+  <li>
+    <a href="https://pydantic.dev/docs/ai/harness/step-persistence/">PAI Step Persistence</a>
+  </li>
+  <li>
+    <a href="https://pydantic.dev/docs/ai/core-concepts/message-history/">PAI messages and chat history</a>
+  </li>
+</ul>
+
+<p class="meta">
+  Related code:
+  <code>src/utils/compaction.py</code>,
+  <code>src/utils/conversation_compaction.py</code>,
+  <code>src/utils/token_estimator.py</code>,
+  <code>src/models/compaction.py</code>,
+  <code>src/models/config.py</code> (<code>CompactionConfiguration</code>),
+  query / streaming_query / responses / a2a call sites.
+</p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

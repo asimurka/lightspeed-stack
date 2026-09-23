@@ -1,0 +1,1282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PAI migration — providers registry</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" />
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 13pt;
+      font-weight: normal;
+      line-height: 1.5;
+      color: #222;
+      max-width: 800px;
+      margin: 24px auto;
+      padding: 0 16px 48px;
+    }
+    h1 {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 26pt;
+      font-weight: bold;
+      margin-bottom: 8px;
+    }
+    h2 {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 20pt;
+      font-weight: bold;
+      margin-top: 28px;
+      margin-bottom: 8px;
+    }
+    h3, h4 {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 16pt;
+      font-weight: bold;
+      margin-top: 18px;
+      margin-bottom: 6px;
+    }
+    p, li { margin: 8px 0; }
+    .meta { color: #555; margin-bottom: 16px; }
+    .pref { background: #f3f7f3; border-left: 3px solid #2d6a4f; padding: 8px 10px; margin: 12px 0; }
+    .avoid { background: #faf6f0; border-left: 3px solid #a65d00; padding: 8px 10px; margin: 12px 0; }
+    .open { background: #f0f4fa; border-left: 3px solid #3b5bdb; padding: 8px 10px; margin: 12px 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 10px 0 14px;
+      font-size: 13pt;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eee; }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13pt;
+    }
+    pre {
+      margin: 12px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    pre code.hljs {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13pt;
+      line-height: 1.4;
+      padding: 12px 14px;
+      background: #f6f8fa;
+    }
+    a { color: #0b57d0; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 24px 0; }
+    .er {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13pt;
+      white-space: pre;
+      line-height: 1.35;
+      background: #f6f8fa;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      margin: 10px 0 14px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>PAI migration — providers registry</h1>
+<p class="meta">Lightspeed Core Stack (LCORE) · OGX removal notes · Oct 2026</p>
+
+<p>
+  After OGX removal, LCORE owns inference routing: which configured
+  backend to use, which models it may serve, and how to build an
+  authenticated client plus a pydantic-ai <code>Model</code> for
+  Query / Responses / A2A. This note is the design for that
+  registry. Backends in scope are the six in
+  <a href="providers.md">providers.md</a>.
+</p>
+<hr />
+
+<h2 id="s1">1. Decision</h2>
+<p>
+  Replace <code>OgxProvider</code> / <code>OgxResponsesModel</code>
+  with a process-wide <b>ProviderRegistry</b> keyed by
+  <code>provider_id</code>. At boot, each
+  <code>inference.providers</code> entry becomes one
+  <code>InferenceProvider</code> instance (SDK client + cached
+  model list). A request resolves to
+  <code>(provider_id, bare_model_name) → Model</code>. Env / ADC /
+  SigV4 stay with the SDK where a first-class client already
+  exists. LCORE owns auth glue only where the SDK does not: Azure
+  Entra client construction, WatsonX IAM + <code>project_id</code>,
+  optional Vertex credentials file.
+</p>
+
+<div class="pref">
+  <b>Baseline:</b>
+  <ul style="margin: 8px 0 0; padding-left: 20px;">
+    <li>One instance per config entry; client and catalog are
+      <code>Final</code> / cached — no per-request rebuild</li>
+    <li>Key by <code>provider_id</code> (not only <code>type</code>)
+      so several vLLM URLs can coexist</li>
+    <li>Public ids stay LCORE names (<code>openai</code>,
+      <code>azure</code>, <code>vertexai</code>, …) even when the
+      SDK’s internal name differs</li>
+    <li>Pass only what config sets; omitted fields leave SDK
+      defaults</li>
+  </ul>
+</div>
+<div class="avoid">
+  <b>Avoid:</b> LiteLLM as a universal hop · renaming public ids to
+  SDK names (<code>google-cloud</code>, <code>litellm</code>) ·
+  re-implementing boto3 / ADC chains in LCORE ·
+  <code>X-OGX-Provider-Data</code> after cutover.
+</div>
+
+<hr />
+
+<h2 id="s2">2. Request contract</h2>
+<p>
+  Unchanged. Both APIs resolve to the same registry lookup.
+</p>
+<table>
+  <tr>
+    <th>API</th>
+    <th>How provider + model are chosen</th>
+  </tr>
+  <tr>
+    <td>Query / streaming query</td>
+    <td>
+      Optional <code>provider</code> + <code>model</code>; else
+      <code>inference.default_*</code>
+    </td>
+  </tr>
+  <tr>
+    <td>Responses / A2A</td>
+    <td>
+      Composite <code>model</code> =
+      <code>provider/model</code> via
+      <code>extract_provider_and_model_from_model_id</code>
+      (split on the <b>first</b> <code>/</code>)
+    </td>
+  </tr>
+</table>
+<p>
+  WatsonX ids often contain slashes
+  (<code>meta-llama/…</code>); Bedrock foundation ids use dots
+  (<code>anthropic.claude-…</code>). The first-slash split is
+  intentional and must stay.
+</p>
+
+<hr />
+
+<h2 id="s3">3. Layers</h2>
+<p>
+  Three objects, do not conflate them:
+</p>
+<table>
+  <tr>
+    <th>Layer</th>
+    <th>Lives in</th>
+    <th>Job</th>
+  </tr>
+  <tr>
+    <td><code>InferenceProviderEntry</code></td>
+    <td>config (Pydantic)</td>
+    <td>
+      Operator intent: <code>type</code>, <code>id</code>,
+      <code>allowed_models</code>, nested <code>config</code>
+    </td>
+  </tr>
+  <tr>
+    <td><code>InferenceProvider</code></td>
+    <td>LCORE runtime</td>
+    <td>
+      One instance per entry. Owns the SDK client, the cached
+      catalog, <code>build_model</code>,
+      <code>get_model_profile</code>
+    </td>
+  </tr>
+  <tr>
+    <td>SDK client + wire <code>Model</code></td>
+    <td>pydantic-ai / vendor SDK</td>
+    <td>
+      Auth + HTTP; request shaping
+      (Responses vs Chat vs Converse vs Gemini)
+    </td>
+  </tr>
+</table>
+<p>
+  pydantic-ai itself splits <b>Provider</b> (authenticated client)
+  from <b>Model</b> (wire protocol). LCORE’s
+  <code>InferenceProvider</code> wraps both: it builds the client
+  once, then constructs a Model per allowed name.
+</p>
+<table>
+  <tr>
+    <th>LCORE <code>type</code></th>
+    <th>SDK client</th>
+    <th>Wire Model</th>
+    <th>LCORE extra</th>
+  </tr>
+  <tr>
+    <td><code>openai</code></td>
+    <td><code>OpenAIProvider</code></td>
+    <td><code>OpenAIResponsesModel</code></td>
+    <td>—</td>
+  </tr>
+  <tr>
+    <td><code>azure</code></td>
+    <td><code>AzureProvider(openai_client=…)</code></td>
+    <td><code>OpenAIResponsesModel</code></td>
+    <td>Always build the client (key or Entra)</td>
+  </tr>
+  <tr>
+    <td><code>vertexai</code></td>
+    <td><code>GoogleCloudProvider</code> (<code>name="google-cloud"</code>)</td>
+    <td><code>GoogleModel</code></td>
+    <td>Optional credentials file</td>
+  </tr>
+  <tr>
+    <td><code>bedrock</code></td>
+    <td><code>BedrockProvider</code></td>
+    <td><code>BedrockConverseModel</code></td>
+    <td>Discover via control-plane sibling</td>
+  </tr>
+  <tr>
+    <td><code>watsonx</code></td>
+    <td>Thin <code>WatsonxProvider</code> (no native PAI type)</td>
+    <td><code>OpenAIChatModel</code></td>
+    <td>IAM header inject + <code>project_id</code></td>
+  </tr>
+  <tr>
+    <td><code>vllm</code></td>
+    <td>Thin <code>VllmProvider</code></td>
+    <td><code>OpenAIChatModel</code></td>
+    <td>OpenAI-compat; several ids, one class</td>
+  </tr>
+</table>
+
+<hr />
+
+<h2 id="s4">4. Config</h2>
+<p>
+  Replace flat <code>UnifiedInferenceProvider</code> +
+  <code>extra</code> with a shields-style envelope: shared fields
+  on the entry, type-specific knobs in nested <code>config:</code>,
+  discriminated on <code>type</code>.
+</p>
+<p>Root routing (already exists):</p>
+<pre><code class="language-yaml">inference:
+  default_provider: openai
+  default_model: gpt-4o-mini
+  providers: [...]
+  context_windows: { "openai/gpt-4o-mini": 128000 }
+  max_infer_iters: 10
+  max_tool_calls: 30</code></pre>
+
+<h3>4.1 Envelope</h3>
+<pre><code class="language-yaml">inference:
+  providers:
+    - type: openai              # discriminator
+      id: openai                # optional; default = type
+      allowed_models: [gpt-4o-mini]
+      config:
+        api_key_env: OPENAI_API_KEY
+        # base_url: optional
+
+    - type: azure
+      id: azure
+      allowed_models: [gpt-4o]
+      config:
+        base_url: https://….openai.azure.com/openai/v1
+        api_key_env: AZURE_OPENAI_API_KEY   # when no entra_id
+        entra_id:                           # preferred
+          tenant_id: ${env.TENANT_ID}
+          client_id: ${env.CLIENT_ID}
+          client_secret: ${env.CLIENT_SECRET}
+
+    - type: vertexai
+      id: vertexai
+      config:
+        project: ${env.VERTEX_AI_PROJECT}
+        location: global
+        credentials_path: /var/secrets/gcp/sa.json   # optional
+
+    - type: bedrock
+      id: bedrock
+      config:
+        region: us-east-2
+        # api_key_env: AWS_BEARER_TOKEN_BEDROCK   # omit for SigV4
+
+    - type: watsonx
+      id: watsonx
+      # model_profiles_path: /etc/lcore/profiles/watsonx.json  # optional
+      config:
+        api_key_env: WATSONX_API_KEY
+        project_id: ${env.WATSONX_PROJECT_ID}
+        base_url: https://us-south.ml.cloud.ibm.com
+
+    - type: vllm
+      id: vllm
+      allowed_models: [granite-3.3-8b-instruct]
+      model_profiles_path: /etc/lcore/profiles/vllm.json  # optional; §7.2
+      config:
+        base_url: ${env.KSVC_URL}/v1/
+        api_key_env: VLLM_API_KEY
+        tls_verify: false</code></pre>
+<p>
+  Secrets are env-var <b>names</b> (<code>api_key_env</code>), never
+  literals. Drop untyped <code>extra:</code> for these six —
+  knobs belong on the matching <code>*ProviderConfig</code>.
+  Azure <code>config.entra_id</code> is preferred; legacy root
+  <code>azure_entra_id:</code> is a deprecated fallback when the
+  nested block is omitted.
+</p>
+
+<h3>4.2 Entry models</h3>
+<p>
+  Config types only. Runtime classes are §5
+  (<code>*Entry</code> vs <code>*InferenceProvider</code>).
+  YAML may omit <code>id</code>; it defaults to
+  <code>type</code> so the registry never sees
+  <code>None</code>. Set <code>id</code> only when two entries
+  share a type (e.g. two vLLM URLs).
+  <code>InferenceConfiguration</code> rejects duplicate ids
+  (same pattern as shields / vector-store providers) — the
+  registry does not re-check.
+</p>
+<pre><code class="language-python">class InferenceProviderEntryBase(ConfigurationBase):
+    id: ProviderId
+    allowed_models: list[str] | None = None  # None → allow all discovered
+    # Optional operator overlay for ModelProfile flags (§7.2). One JSON
+    # file per provider entry — not a global profiles file.
+    model_profiles_path: FilePath | None = None
+
+
+class OpenAIProviderEntry(InferenceProviderEntryBase):
+    type: Literal["openai"]
+    config: OpenAIProviderConfig
+
+
+class AzureProviderEntry(InferenceProviderEntryBase):
+    type: Literal["azure"]
+    config: AzureProviderConfig  # base_url, api_version?, api_key_env?, entra_id?
+
+
+class VertexAIProviderEntry(InferenceProviderEntryBase):
+    type: Literal["vertexai"]
+    config: VertexAIProviderConfig  # project?, location?, credentials_path?
+
+
+class BedrockProviderEntry(InferenceProviderEntryBase):
+    type: Literal["bedrock"]
+    config: BedrockProviderConfig  # region?, api_key_env?, profile_name?
+
+
+class WatsonxProviderEntry(InferenceProviderEntryBase):
+    type: Literal["watsonx"]
+    config: WatsonxProviderConfig  # api_key_env, project_id, base_url?, timeout?
+
+
+class VllmProviderEntry(InferenceProviderEntryBase):
+    type: Literal["vllm"]
+    config: VllmProviderConfig  # base_url, api_key_env?, tls_verify?, max_tokens?
+
+
+InferenceProviderEntry = Annotated[
+    OpenAIProviderEntry
+    | AzureProviderEntry
+    | VertexAIProviderEntry
+    | BedrockProviderEntry
+    | WatsonxProviderEntry
+    | VllmProviderEntry,
+    Field(discriminator="type"),
+]</code></pre>
+<div class="open">
+  <b>Schema work:</b> replace <code>UnifiedInferenceProvider</code>
+  with this union (include <code>bedrock</code>).
+</div>
+
+<hr />
+
+<h2 id="s5">5. Runtime architecture</h2>
+<p>
+  Config describes intent. The runtime builds one authenticated
+  client per entry, discovers models once, and hands a wire Model
+  to the agent. Backend SDK details are §6.
+</p>
+<div class="er">inference.providers[]  (InferenceProviderEntry)
+        │  startup (once)
+        ▼
+ProviderRegistry  (Singleton)
+  provider_id → InferenceProvider
+        │
+        ▼
+InferenceProvider[E]          # one instance for the process lifetime
+  provider_type : ClassVar[ProviderType]
+  provider_id   : Final[ProviderId]
+  client        : Final        # SDK client, built once
+  models        : tuple[…]     # catalog after discover ∩ filter
+  build_model()                # wire Model for an allowed name
+        │  six @final subclasses
+        ▼
+OpenAI / Azure / VertexAI / Bedrock / Watsonx / Vllm</div>
+<p>
+  Call sites are in-process.
+  <code>get</code> / <code>get_model</code> return
+  <code>None</code> when the id is unknown (bad query
+  <code>provider</code> / model); the HTTP adapter maps that to
+  404. Do not rely on <code>KeyError</code> for request traffic.
+  <code>initialize</code> runs once at startup; config changes mean a
+  process restart. Do not mutate <code>models</code> in place.
+</p>
+
+<h3>5.1 Closed types</h3>
+<p>
+  <code>type</code> is a Literal shared by the Pydantic
+  discriminator and the runtime class map. No open
+  <code>str</code>.
+</p>
+<pre><code class="language-python">ProviderType: TypeAlias = Literal[
+    "openai", "azure", "vertexai", "bedrock", "watsonx", "vllm",
+]
+CatalogModelType: TypeAlias = Literal["llm"]  # embeddings later
+ProviderId: TypeAlias = str  # operator-chosen; unique at boot</code></pre>
+<pre><code>src/providers/
+  types.py      # ProviderType, CatalogModelType, PROVIDER_CLASSES
+  base.py       # InferenceProvider[E]
+  registry.py   # ProviderRegistry (Singleton)
+  openai.py / azure.py / vertexai.py / bedrock.py
+  watsonx.py    # optional models.json
+  vllm.py
+  _profiles.py</code></pre>
+
+<h3>5.2 Unified interface</h3>
+<p>
+  Generic <code>E</code> so each final class sees its own entry +
+  config type (no cast from the wide union). Subclasses implement
+  client construction, discovery, profile, and
+  <code>_create_model</code>. Catalog policy and
+  <code>build_model</code> stay on the ABC.
+</p>
+<p>
+  Discovery is async (vendor HTTP), so it cannot run inside sync
+  <code>__init__</code>. Use an async factory:
+  <code>create</code> builds the client, then discovers and caches
+  models. Callers never see a half-ready provider.
+</p>
+<pre><code class="language-python">E = TypeVar("E", bound=InferenceProviderEntryBase)
+
+
+class InferenceProvider(ABC, Generic[E]):
+    provider_type: ClassVar[ProviderType]
+
+    def __init__(self, entry: E) -&gt; None:
+        self._entry: Final[E] = entry
+        self.provider_id: Final[ProviderId] = entry.id  # always set by config
+        self._client: Final[Any] = self._build_client()
+        self._models: tuple[CatalogModel, ...] = ()
+        self._model_ids: frozenset[str] = frozenset()
+
+    @classmethod
+    async def create(cls, entry: E) -&gt; Self:
+        """Startup path: build client, then load the model catalog once."""
+        provider = cls(entry)
+        await provider._load_model_catalog()
+        return provider
+
+    async def _load_model_catalog(self) -&gt; None:
+        """Discover vendor models, apply allowed_models, cache the result (§8.2)."""
+        discovered = await self._discover_models_or_fallback()
+        selected = self._apply_allowed_models_filter(discovered)
+        catalog = self._to_catalog_models(selected)
+        self._models = tuple(catalog)
+        self._model_ids = frozenset(model.provider_resource_id for model in catalog)
+
+    async def _discover_models_or_fallback(self) -&gt; list[DiscoveredModel]:
+        try:
+            return await self.discover_models()
+        except Exception:
+            logger.exception(
+                "discovery failed for provider %r; catalog will be empty",
+                self.provider_id,
+            )
+            return []
+
+    def _apply_allowed_models_filter(
+        self, discovered: list[DiscoveredModel]
+    ) -&gt; list[DiscoveredModel]:
+        if self.allowed_models is None:
+            return list(discovered)  # allow all fetched
+        discovered_by_id = {model.id: model for model in discovered}
+        selected: list[DiscoveredModel] = []
+        for model_name in self.allowed_models:
+            if model_name in discovered_by_id:
+                selected.append(discovered_by_id[model_name])
+            else:
+                logger.warning(
+                    "allowed model %r not found in provider %r discovery; "
+                    "omitting from catalog",
+                    model_name, self.provider_id,
+                )
+        return selected
+
+    def _to_catalog_models(
+        self, selected: list[DiscoveredModel]
+    ) -&gt; list[CatalogModel]:
+        return [
+            CatalogModel(
+                identifier=f"{self.provider_id}/{model.id}",
+                metadata=model.metadata,
+                api_model_type="llm",
+                provider_id=self.provider_id,
+                type="model",
+                provider_resource_id=model.id,
+                model_type="llm",
+            )
+            for model in selected
+        ]
+
+    @property
+    def entry(self) -&gt; E: ...
+    @property
+    def allowed_models(self) -&gt; list[str] | None: ...  # None → all discovered
+    @property
+    def client(self) -&gt; Any: ...
+    @property
+    def models(self) -&gt; Sequence[CatalogModel]: ...
+
+    @abstractmethod
+    def _build_client(self) -&gt; Any: ...
+    @abstractmethod
+    def get_model_profile(self, model_name: str) -&gt; ModelProfile: ...
+    @abstractmethod
+    async def discover_models(self) -&gt; list[DiscoveredModel]: ...
+    @abstractmethod
+    def _create_model(self, model_name: str) -&gt; Model: ...
+
+    def accepts_model(self, model_name: str) -&gt; bool:
+        return model_name in self._model_ids
+
+    def build_model(self, model_name: str) -&gt; Model:
+        if model_name not in self._model_ids:
+            raise KeyError(model_name)
+        return self._create_model(model_name)</code></pre>
+
+<h3>5.3 Final classes + exhaustive map</h3>
+<p>
+  One <code>@final</code> class per backend. Construction kwargs =
+  what config sets; omitted fields leave SDK defaults (ADC, SigV4).
+  Adding a <code>ProviderType</code> member without updating the
+  map is a type error.
+</p>
+<pre><code class="language-python">@final
+class OpenAIInferenceProvider(InferenceProvider[OpenAIProviderEntry]):
+    provider_type: ClassVar[ProviderType] = "openai"
+
+    def _build_client(self) -&gt; Any:
+        cfg = self.entry.config  # OpenAIProviderConfig
+        return build_openai_client(api_key=read_env(cfg.api_key_env), base_url=cfg.base_url)
+
+    def get_model_profile(self, model_name: str) -&gt; ModelProfile:
+        return merge_profile(DEFAULT_PROFILE, native_profile("openai", model_name))
+
+    async def discover_models(self) -&gt; list[DiscoveredModel]:
+        return await openai_compat_list(self.client)
+
+    def _create_model(self, model_name: str) -&gt; Model:
+        return create_openai_model(model_name, client=self.client,
+                                   profile=self.get_model_profile(model_name))
+
+
+@final
+class AzureInferenceProvider(InferenceProvider[AzureProviderEntry]): ...
+@final
+class VertexAIInferenceProvider(InferenceProvider[VertexAIProviderEntry]): ...
+@final
+class BedrockInferenceProvider(InferenceProvider[BedrockProviderEntry]): ...
+@final
+class WatsonxInferenceProvider(InferenceProvider[WatsonxProviderEntry]): ...
+@final
+class VllmInferenceProvider(InferenceProvider[VllmProviderEntry]): ...
+
+
+PROVIDER_CLASSES: Final[Mapping[ProviderType, type[InferenceProvider[Any]]]] = {
+    "openai": OpenAIInferenceProvider,
+    "azure": AzureInferenceProvider,
+    "vertexai": VertexAIInferenceProvider,
+    "bedrock": BedrockInferenceProvider,
+    "watsonx": WatsonxInferenceProvider,
+    "vllm": VllmInferenceProvider,
+}
+
+assert set(PROVIDER_CLASSES) == set(get_args(ProviderType))  # test / boot</code></pre>
+<p>
+  Native backends wrap the SDK capability table; WatsonX / vLLM
+  load optional <code>models.json</code> else a conservative
+  OpenAI-compat default (§7.2). No second factory hierarchy.
+</p>
+
+<h3>5.4 Singleton holder</h3>
+<pre><code class="language-python">class ProviderRegistry(metaclass=Singleton):
+    def __init__(self) -&gt; None:
+        self._providers: dict[ProviderId, InferenceProvider[Any]] = {}
+
+    async def initialize(self, inference: InferenceConfiguration) -&gt; None:
+        """Startup only: create each provider (client + catalog) from config.
+
+        Duplicate ids are already rejected by InferenceConfiguration.
+        Sequential create is enough at boot (few providers); parallel
+        gather is optional if discovery latency matters.
+        """
+        providers: dict[ProviderId, InferenceProvider[Any]] = {}
+        for entry in inference.providers:
+            providers[entry.id] = await PROVIDER_CLASSES[entry.type].create(entry)
+        self._providers = providers
+
+    def get(self, provider_id: ProviderId) -&gt; InferenceProvider[Any] | None:
+        return self._providers.get(provider_id)
+
+    def get_model(
+        self, provider_id: ProviderId, model_name: str
+    ) -&gt; Model | None:
+        provider = self.get(provider_id)
+        if provider is None or not provider.accepts_model(model_name):
+            return None
+        return provider.build_model(model_name)
+
+    def list_provider_ids(self) -&gt; list[ProviderId]: ...
+    def list_providers(self) -&gt; Sequence[InferenceProvider[Any]]: ...
+    def list_models(self, *, model_type: CatalogModelType | None = None) -&gt; list[CatalogModel]: ...
+    def list_providers_catalog(self) -&gt; ProvidersListResponse: ...  # §8.5</code></pre>
+<pre><code class="language-python">registry = ProviderRegistry()
+provider_id, model_name = resolve_provider_and_model(request)  # defaults applied
+model = registry.get_model(provider_id, model_name)
+if model is None:
+    raise HTTPException(status.HTTP_404_NOT_FOUND, detail="…")</code></pre>
+<div class="avoid">
+  <b>Avoid:</b> rebuilding clients per request · discovering inside
+  <code>GET /v1/models</code> · open <code>str</code> for provider
+  type · bare <code>_providers[id]</code> / <code>KeyError</code> for
+  request lookups · a factory type tree beside these classes.
+</div>
+
+<hr />
+
+<h2 id="s6">6. Per-backend construction</h2>
+<p>
+  What each <code>_build_client</code> / <code>_create_model</code>
+  actually does. Pass only configured kwargs.
+</p>
+
+<h3>6.1 OpenAI</h3>
+<pre><code class="language-python">OpenAIProvider(api_key=..., base_url=optional)
+OpenAIResponsesModel(model_name, provider=provider)</code></pre>
+
+<h3>6.2 Azure</h3>
+<p>
+  PAI’s <code>AzureProvider</code> takes <code>api_key</code> or a
+  prebuilt <code>openai_client</code> — no native Entra
+  constructor. <b>Always build the client in LCORE</b>, then wrap.
+  Drop OGX-era <code>X-OGX-Provider-Data</code> /
+  <code>azure_api_key</code> injection. Nested name is
+  <code>entra_id</code> (Microsoft branding). Keep
+  <code>AzureEntraIDManager</code> (or slim it to a
+  <code>token_provider</code>).
+</p>
+<p>Auth resolution:</p>
+<ol>
+  <li><code>providers[].config.entra_id</code> — preferred</li>
+  <li>Legacy root <code>azure_entra_id:</code> — deprecated fallback</li>
+  <li>Else <code>config.api_key_env</code></li>
+</ol>
+<pre><code class="language-python">entra = entry.config.entra_id or legacy_azure_entra_id
+
+# API key (no entra)
+client = AsyncAzureOpenAI(azure_endpoint=..., api_version=..., api_key=...)
+# or AsyncOpenAI for /v1 Foundry endpoints
+
+# Entra
+token_provider = get_bearer_token_provider(
+    ClientSecretCredential(tenant_id=..., client_id=..., client_secret=...),
+    entra.scope,  # default https://cognitiveservices.azure.com/.default
+)
+client = AsyncAzureOpenAI(..., azure_ad_token_provider=token_provider)
+AzureProvider(openai_client=client)</code></pre>
+
+<h3>6.3 Vertex AI</h3>
+<p>
+  Pass <code>project</code> / <code>location</code>. If
+  <code>credentials_path</code> is set, load the file and pass
+  <code>credentials=</code> (SDK applies scopes); fill
+  <code>project</code> from the JSON only when config omitted it.
+  When the path is omitted, ADC
+  (<code>GOOGLE_APPLICATION_CREDENTIALS</code>, …) stays with the
+  SDK. Prefer ADC / file over Express API key unless product asks
+  otherwise. Public id stays <code>vertexai</code> even though PAI
+  <code>Provider.name</code> is <code>google-cloud</code>.
+</p>
+<pre><code class="language-python">kwargs = {}
+if config.project:
+    kwargs["project"] = config.project
+if config.location:
+    kwargs["location"] = config.location
+if config.credentials_path:
+    credentials, project_from_file = load_credentials_from_file(config.credentials_path)
+    kwargs["credentials"] = credentials
+    if "project" not in kwargs and project_from_file:
+        kwargs["project"] = project_from_file
+GoogleCloudProvider(**kwargs)
+GoogleModel(model_name, provider=provider)</code></pre>
+
+<h3>6.4 Bedrock</h3>
+<p>
+  boto3 <code>bedrock-runtime</code> +
+  <code>BedrockConverseModel</code> (Converse, not OpenAI-compat).
+  No <code>api_key</code> → SigV4 via boto3 (env keys, profile,
+  IRSA). <code>api_key</code> /
+  <code>AWS_BEARER_TOKEN_BEDROCK</code> → bearer. Do not
+  reimplement OGX <code>BedrockSigV4Auth</code>. Region: config or
+  <code>AWS_DEFAULT_REGION</code> (document or default
+  <code>us-east-2</code> if both missing — PAI does not).
+</p>
+<pre><code class="language-python">kwargs = {}
+if config.region:
+    kwargs["region_name"] = config.region
+if config.profile_name:
+    kwargs["profile_name"] = config.profile_name
+if config.api_key_env:
+    token = os.environ.get(config.api_key_env)
+    if token:
+        kwargs["api_key"] = token
+BedrockProvider(**kwargs)
+BedrockConverseModel(model_name, provider=provider)</code></pre>
+<p>
+  Discovery uses a sibling <code>boto3.client("bedrock")</code>
+  (<code>ListFoundationModels</code> in the configured region
+  only — no inference profiles), not the runtime client — §8.3.
+</p>
+
+<h3>6.5 WatsonX</h3>
+<p>
+  No native PAI type. Talk to watsonx.ai OpenAI-compat at
+  <code>{base_url}/ml/v1</code>. LCORE owns three pieces:
+</p>
+<ol>
+  <li>IBM Cloud API key → IAM bearer (not usable as
+    <code>Authorization</code> as-is)</li>
+  <li><code>default_query={"version": "…"}</code> on the client</li>
+  <li><code>project_id</code> on every chat request (extra body)</li>
+</ol>
+<p>
+  Thin <code>WatsonxProvider</code> (<code>name="watsonx"</code>)
+  wrapping a prepared <code>AsyncOpenAI</code> — not LiteLLM.
+  Conservative profile via <code>get_model_profile</code> (§7.2);
+  watsonx ids are not GPT names.
+</p>
+<p>
+  IAM tokens last ~1h. Cache by API key, refresh ~60s before
+  expiry, share one exchange across concurrent requests. This is
+  the only backend where LCORE must manage short-lived tokens
+  (Azure Entra / Vertex ADC / Bedrock SigV4 refresh inside their
+  SDKs).
+</p>
+<pre><code class="language-python">IAM_TOKEN_URL = "https://iam.cloud.ibm.com/identity/token"
+IAM_GRANT = "urn:ibm:params:oauth:grant-type:apikey"
+SKEW_SECONDS = 60
+
+async def exchange_iam_token(api_key: str) -&gt; tuple[str, float]:
+    async with httpx.AsyncClient() as http:
+        resp = await http.post(
+            IAM_TOKEN_URL,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            content=f"grant_type={IAM_GRANT}&amp;apikey={api_key}",
+            timeout=30,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return data["access_token"], float(data.get("expiration", time.time() + 3600))
+
+
+async def get_iam_token(api_key: str, cache: dict) -&gt; str:
+    cached = cache.get(api_key)
+    if cached and time.time() &lt; cached[1] - SKEW_SECONDS:
+        return cached[0]
+    token, expires_at = await exchange_iam_token(api_key)
+    cache[api_key] = (token, expires_at)
+    return token
+
+
+class WatsonxIAMAuth(httpx.Auth):
+    def __init__(self, api_key: str, iam_cache: dict) -&gt; None:
+        self.api_key, self.iam_cache = api_key, iam_cache
+
+    async def async_auth_flow(self, request: httpx.Request):
+        token = await get_iam_token(self.api_key, self.iam_cache)
+        request.headers["Authorization"] = f"Bearer {token}"
+        yield request</code></pre>
+<div class="pref">
+  <b>Preferred:</b> build the client once in
+  <code>_build_client</code> (<code>Final[_client]</code>). Inject
+  Bearer per request via <code>WatsonxIAMAuth</code> — same idea
+  as Azure’s token-provider. Do not rebuild the client on IAM
+  refresh.
+</div>
+<pre><code class="language-python"># WatsonxInferenceProvider._build_client — once at boot
+http_client = httpx.AsyncClient(auth=WatsonxIAMAuth(api_key, iam_cache))
+return AsyncOpenAI(
+    api_key="unused",
+    base_url=f"{config.base_url.rstrip('/')}/ml/v1",
+    default_query={"version": "2023-10-25"},
+    http_client=http_client,
+)</code></pre>
+
+<h3>6.6 vLLM</h3>
+<p>
+  OpenAI-compat remote (RHOAI, RHEL AI, RHAIIS, or any other vLLM
+  host). Product names are <code>id</code>s, not extra
+  <code>type</code>s — one class, one config shape. Separate
+  deployments (different URLs) get separate <code>id</code>s.
+  Conservative profile so Granite / Llama ids do not pick up the
+  GPT capability table (§7.2). Out of default scope: Anthropic
+  <code>/v1/messages</code>, <code>/rerank</code>, llm-d fairness
+  header, OGX <code>/health</code> probe.
+</p>
+<pre><code class="language-yaml">- type: vllm
+  id: vllm
+  allowed_models: [granite-3.3-8b-instruct, llama-3.1-8b-instruct]
+  config:
+    base_url: ${env.KSVC_URL}/v1/
+    api_key_env: VLLM_API_KEY    # optional
+    tls_verify: false
+
+- type: vllm
+  id: rhaiis
+  config:
+    base_url: http://${env.RHAIIS_URL}:8000/v1/
+    api_key_env: RHAIIS_API_KEY
+    tls_verify: false</code></pre>
+<pre><code class="language-python">http_client = httpx.AsyncClient(verify=tls_verify)
+client = AsyncOpenAI(
+    base_url=base_url,
+    api_key=api_key or "api-key-not-set",
+    http_client=http_client,
+)
+provider = VllmProvider(openai_client=client)  # name = provider_id, not "openai"
+OpenAIChatModel(model_name, provider=provider,
+                profile=lcore.get_model_profile(model_name))</code></pre>
+
+<hr />
+
+<h2 id="s7">7. Profiles and settings</h2>
+<p>
+  Single place for “what can this model do?” and “what do we
+  actually send?”. HTTP adapters echo the resolver; they do not
+  keep a second capability table.
+</p>
+
+<h3>7.1 Every Model has a profile</h3>
+<p>
+  PAI <code>Model.profile</code> is never missing. Construction
+  merges (later wins):
+</p>
+<ol>
+  <li><code>DEFAULT_PROFILE</code> (PAI conservative baseline)</li>
+  <li><code>provider.model_profile(model_name)</code> when implemented</li>
+  <li>optional constructor <code>profile=</code> (LCORE overlay)</li>
+</ol>
+<p>
+  OpenAI / Azure use <code>openai_model_profile</code> — a GPT
+  table, not a probe; unrecognized names still get
+  <code>supports_json_schema_output=True</code>. Vertex and
+  Bedrock ship native tables. Do not fork those tables into LCORE.
+</p>
+
+<h3>7.2 <code>get_model_profile</code></h3>
+<p>
+  One method on every <code>InferenceProvider</code>, always a
+  concrete <code>ModelProfile</code>. Callers do not branch native
+  vs custom after this. <code>build_model</code> passes the same
+  dict as constructor <code>profile=</code>.
+</p>
+<div class="er">profile = provider.get_model_profile(model_name)
+        │
+        ├── base
+        │     native: merge(DEFAULT_PROFILE, SDK.model_profile(name))
+        │     watsonx/vllm: bundled models.json[name]
+        │                   else CONSERVATIVE_OPENAI_COMPAT
+        │
+        └── operator overlay (optional)
+              entry.model_profiles_path JSON [name]  # one file per provider
+        │
+        ▼
+resolve_model_settings(profile, requested) → applied + warnings | 400
+        │
+        ▼
+Agent.run(..., model_settings=applied)</div>
+<p>
+  Lookup is exact <code>model_name</code> (optional longest-prefix
+  later). Miss in JSON is not a 400 —
+  <code>allowed_models</code> already gated the catalog. JSON is
+  booleans and small strings only (no Python classes), validated
+  against a fixed schema. Conservative OpenAI-compat default: tools
+  on if the backend exposes them; JSON schema / object / image /
+  parallel / hosted native tools <b>off</b> unless an entry enables
+  them.
+</p>
+<p>
+  <b>Operator file — one per provider entry.</b>
+  Optional <code>model_profiles_path</code> on the entry points at
+  a JSON object keyed by model id. Loaded once at provider
+  <code>create()</code>. Same schema as bundled
+  <code>models.json</code>. Merged <b>on top of</b> the base
+  profile so deployers can override defaults without a code change.
+  Prefer this over a single global profiles file (keeps each
+  provider’s overrides next to that deployment). Native backends
+  may use the same knob; usually unnecessary when PAI’s table is
+  enough.
+</p>
+<pre><code class="language-json">{
+  "granite-3.3-8b-instruct": {
+    "supports_tools": true,
+    "openai_chat_thinking_field": "reasoning",
+    "openai_chat_supports_multiple_system_messages": false
+  },
+  "meta-llama/llama-3-3-70b-instruct": {
+    "supports_tools": true,
+    "supports_json_object_output": true
+  }
+}</code></pre>
+<div class="pref">
+  <b>WatsonxProvider / VllmProvider</b> subclass
+  <code>Provider[AsyncOpenAI]</code> (or override
+  <code>model_profile</code> to <code>None</code>). Do not inherit
+  <code>OpenAIProvider.model_profile</code> — that would still run
+  the GPT table in merge step 2 and claim JSON schema for Granite /
+  Llama ids. Ship optional bundled defaults next to the module;
+  operator overlays live only via
+  <code>model_profiles_path</code>.
+</div>
+
+<h3>7.3 Resolve-then-echo</h3>
+<p>
+  After §7.2 the helper turns profile + request settings into
+  <code>ModelSettings</code> for <code>Agent.run</code>. It does
+  not look up JSON or call the SDK again.
+</p>
+<ol>
+  <li><b>Accept</b> schema-valid settings — do not 400 because a
+    backend “usually ignores” a field.</li>
+  <li><b>Resolve</b> against the profile: drop or coerce so the
+    call can start (drop <code>parallel_tool_calls</code> when
+    unsupported; map OpenAI <code>thinking</code> to Vertex
+    <code>thinking_config</code> or drop; do not send JSON-schema
+    <code>output_type</code> when the flag is false).</li>
+  <li><b>Echo</b> the applied dict, not the raw request.</li>
+  <li><b>Warn</b> on every drop or coercion (log + structured
+    warning for the adapter).</li>
+  <li><b>400</b> only for <b>output contract</b> (client required
+    JSON schema the profile cannot honor) or <b>cannot start</b>
+    (missing credentials, unknown model, empty messages).</li>
+</ol>
+<div class="avoid">
+  <b>Avoid:</b> catching PAI <code>UserError</code> / vendor 400s
+  as a capability probe. Read profile flags first; do not send the
+  option. Host 4xx after a conservative profile are then real
+  transport errors.
+</div>
+<p>
+  Maps that are not profile booleans live here:
+  <code>parallel_tool_calls</code> (OpenAI/Azure; omit on
+  Bedrock/Vertex unless the profile says otherwise); thinking /
+  reasoning effort (OpenAI vs Vertex
+  <code>thinking_config</code> vs Bedrock extras); extra body
+  (WatsonX <code>project_id</code>, vLLM passthrough). Native
+  tool-choice is a profile flag the agent path reads — not an HTTP
+  adapter special case.
+</p>
+<pre><code class="language-python">provider = registry.get(provider_id)
+profile = provider.get_model_profile(model_name)
+model = provider.build_model(model_name)
+resolved = resolve_model_settings(profile, requested)
+# resolved.applied → Agent.run; resolved.warnings → echo (Responses)
+# resolved.error → 400 output-contract | cannot-start</code></pre>
+<p>
+  Query, streaming query, and Responses all use this path. Only
+  Responses must echo <code>applied</code> on the public object.
+</p>
+
+<hr />
+
+<h2 id="s8">8. Catalog endpoints</h2>
+<p>
+  Today <code>GET /v1/models</code> and
+  <code>GET /v1/providers</code> ask OGX. After cutover LCORE does
+  the same job: discover from each configured provider, filter
+  with <code>allowed_models</code>, cache, serve. Keep the public
+  <code>ModelsResponse</code> / <code>CatalogModel</code> shape.
+</p>
+<div class="pref">
+  <b>Policy:</b>
+  <ul style="margin: 8px 0 0; padding-left: 20px;">
+    <li>Catalog filled once inside each provider’s
+      <code>create()</code> at startup — not on every GET</li>
+    <li><code>allowed_models is None</code> → keep <b>all</b>
+      discovered ids</li>
+    <li>list → keep <b>discovered ∩ allowed</b> only</li>
+    <li>allowed id missing from discovery → <b>warn and omit</b>
+      (not listed on <code>GET /v1/models</code>, not accepted by
+      <code>get_model</code>); do not fail boot</li>
+    <li>Cloud invoke permissions are out of scope. Operators own
+      IAM / Bedrock model access / project quotas</li>
+  </ul>
+</div>
+
+<h3>8.1 When to apply <code>allowed_models</code></h3>
+<p>
+  Vendor discovery and the allow-list are separate ideas. Two
+  places we could enforce the list:
+</p>
+<ul>
+  <li>
+    <b>A — List all discovered; gate only at request time.</b>
+    <code>GET /v1/models</code> shows every id the vendor returned.
+    <code>allowed_models</code> is checked only when building a
+    model for Query / Responses. Good for operators copying ids
+    into config; bad for clients, who treat the models endpoint as
+    a picker and would see options that later fail.
+  </li>
+  <li>
+    <b>B — Filter the catalog at startup (preferred).</b>
+    Cache = discovered ∩ allowed (or all discovered when allowed
+    is <code>None</code>). Same cache for
+    <code>GET /v1/models</code> and <code>get_model</code>. The
+    public list means “what this deployment will serve,” not
+    “what the vendor knows about.”
+  </li>
+</ul>
+<div class="pref">
+  <b>Choose B.</b> LCORE’s models endpoint is the usable catalog
+  for UIs and callers. One cache avoids “listed but forbidden.”
+  Operators who need a raw inventory can set
+  <code>allowed_models: null</code> temporarily, or use vendor
+  consoles / logs — not the public contract.
+</div>
+
+<h3>8.2 Discover, then filter</h3>
+<p>
+  Done inside <code>InferenceProvider._load_model_catalog</code>
+  during <code>create()</code> (§5.2):
+</p>
+<ol>
+  <li><code>_discover_models_or_fallback</code> — vendor list, or
+    empty list on failure (log error; do not invent ids from
+    config)</li>
+  <li><code>_apply_allowed_models_filter</code> —
+    <code>None</code> keeps all discovered; a list keeps only
+    ids present in both. Missing allowed ids → warn and
+    <b>omit</b> (not in catalog / models endpoint)</li>
+  <li><code>_to_catalog_models</code> — map to public
+    <code>CatalogModel</code> rows and cache on
+    <code>_models</code> / <code>_model_ids</code></li>
+</ol>
+<pre><code class="language-python">@dataclass
+class DiscoveredModel:
+    id: str
+    metadata: dict[str, Any] = field(default_factory=dict)</code></pre>
+<p>
+  After <code>create()</code>, that cache is the only source for
+  <code>accepts_model</code>, <code>build_model</code>, and
+  <code>list_models</code>. Configured-but-unresolved models never
+  appear there. Discovery failure still does not crash the process.
+</p>
+
+<h3>8.3 Per-provider discover</h3>
+<p>
+  No unified SDK <code>list_models</code>. Each subclass uses its
+  cached client (Bedrock: control-plane sibling).
+</p>
+<table>
+  <tr>
+    <th>type</th>
+    <th>Discover via</th>
+  </tr>
+  <tr>
+    <td><code>openai</code></td>
+    <td>
+      <code>client.models.list()</code> (optionally drop
+      whisper/tts/realtime/audio)
+    </td>
+  </tr>
+  <tr>
+    <td><code>azure</code></td>
+    <td>
+      <code>client.models.list()</code> — ids must match
+      <code>allowed_models</code> / query <code>model=</code>
+      (often deployment names)
+    </td>
+  </tr>
+  <tr>
+    <td><code>vllm</code></td>
+    <td><code>client.models.list()</code></td>
+  </tr>
+  <tr>
+    <td><code>watsonx</code></td>
+    <td>
+      OpenAI-compat list with <code>project_id</code>, and/or
+      foundation-model specs
+    </td>
+  </tr>
+  <tr>
+    <td><code>vertexai</code></td>
+    <td>
+      <code>client.aio.models.list()</code>; normalize resource
+      paths to the bare id used in requests
+    </td>
+  </tr>
+  <tr>
+    <td><code>bedrock</code></td>
+    <td>
+      Sibling <code>boto3.client("bedrock")</code>:
+      <code>ListFoundationModels</code> in the configured
+      <code>region</code> only (not runtime, no inference
+      profiles). Catalog ids are <code>modelId</code> values.
+    </td>
+  </tr>
+</table>
+<div class="er">Startup (once)
+  → await ProviderRegistry.initialize(inference)
+       for entry: await PROVIDER_CLASSES[type].create(entry)
+         # each create: _build_client + discover ∩ filter
+GET /v1/models
+  → registry.list_models()                       # flatten p.models
+get_model(provider, name)
+  → registry.get_model(provider, name)           # None → adapter 404
+  → else provider.build_model(name)              # in p._model_ids</div>
+
+<h3>8.4 <code>GET /v1/models</code></h3>
+<p>
+  Replace the OGX call in
+  <code>src/app/endpoints/models.py</code> with
+  <code>ProviderRegistry().list_models()</code>. Keep auth,
+  <code>Action.GET_MODELS</code>, and optional
+  <code>model_type</code>. Drop 503 “unable to connect to OGX”
+  (discovery already ran). Drop
+  <code>utils/model_list.parse_model_list_response</code> once
+  nothing consumes OGX list unions.
+  <code>model_type=llm</code> returns the chat catalog; other
+  types empty until embeddings land (§10).
+</p>
+
+<h3>8.5 <code>GET /v1/providers</code></h3>
+<p>
+  Project from the registry / config, not a vendor list. Return
+  configured <code>provider_id</code>, <code>type</code>, API
+  family (<code>inference</code>), redacted config (env-var names
+  only). Optional: last discover status (ok / warn missing
+  allowed / discover failed) without a live ping.
+</p>
+<p>
+  This is not a permission check, not the profile /
+  <code>models.json</code> tables (§7), and not MCP / shield / RAG
+  catalogs.
+</p>
+
+<hr />
+
+<h2 id="s9">9. Who owns what</h2>
+<table>
+  <tr>
+    <th>Concern</th>
+    <th>LCORE</th>
+    <th>PAI / SDK</th>
+  </tr>
+  <tr>
+    <td>provider_id / type catalog / allow-lists</td>
+    <td>✓</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>OpenAI / Azure client from config</td>
+    <td>✓</td>
+    <td>chat / responses protocol</td>
+  </tr>
+  <tr>
+    <td>Azure <code>config.entra_id</code> (legacy root fallback)</td>
+    <td>✓</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Vertex project/location (+ optional credentials file)</td>
+    <td>✓</td>
+    <td>ADC / scopes / refresh</td>
+  </tr>
+  <tr>
+    <td>Bedrock region / optional bearer</td>
+    <td>✓</td>
+    <td>SigV4 chain, Converse API</td>
+  </tr>
+  <tr>
+    <td>WatsonX IAM exchange + project_id</td>
+    <td>✓</td>
+    <td>OpenAIChatModel over prepared client</td>
+  </tr>
+  <tr>
+    <td>vLLM base_url / TLS / placeholder key</td>
+    <td>✓</td>
+    <td>OpenAIChatModel</td>
+  </tr>
+  <tr>
+    <td>Conservative profile + optional models.json (WatsonX / vLLM)</td>
+    <td>✓</td>
+    <td>native profiles for OpenAI / Azure / Vertex / Bedrock</td>
+  </tr>
+  <tr>
+    <td>ModelSettings resolve / warn / 400</td>
+    <td>✓</td>
+    <td>honors applied settings</td>
+  </tr>
+  <tr>
+    <td>Agent loop, tools, streaming</td>
+    <td>wiring</td>
+    <td>✓</td>
+  </tr>
+</table>
+
+<hr />
+
+<h2 id="s10">10. Out of scope / follow-ups</h2>
+<ul>
+  <li>Provider-hosted MCP / native file_search</li>
+  <li>Responses HTTP adapter / projectors</li>
+  <li>Per-request OGX <code>X-OGX-Provider-Data</code> credential overrides</li>
+  <li>Removing root <code>azure_entra_id</code> before callers migrate to <code>config.entra_id</code></li>
+  <li>Fail-closed boot (abort startup) when allowed ids are missing from discovery — today we only warn and omit</li>
+  <li>Probing Bedrock invoke permissions beyond list APIs</li>
+  <li>Sentence-transformers / ollama / embeddings-only providers (on Literal; not in the six chat backends; would add non-<code>llm</code> <code>model_type</code> later)</li>
+  <li>Bedrock Mantle / OpenAI-on-Bedrock Converse limitations</li>
+</ul>
+
+<hr />
+
+<h2 id="s11">11. Doc links</h2>
+<ul>
+  <li><a href="providers.md">LCORE supported providers</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/models/openai">PAI OpenAI / Azure models</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/api/pydantic-ai/providers/">PAI Provider API</a></li>
+  <li><a href="../devel_doc/openapi.md#get-v1models">OpenAPI — GET /v1/models</a></li>
+</ul>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/yaml.min.js"></script>
+<script>hljs.highlightAll();</script>
+
+</body>
+</html>

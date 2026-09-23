@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PAI migration — prompts API (local store)</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" />
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #222;
+      max-width: 800px;
+      margin: 24px auto;
+      padding: 0 16px 48px;
+    }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    h2 { font-size: 17px; margin-top: 28px; margin-bottom: 8px; }
+    h3 { font-size: 15px; margin-top: 18px; margin-bottom: 6px; }
+    p, li { margin: 8px 0; }
+    .meta { color: #555; margin-bottom: 16px; }
+    .pref { background: #f3f7f3; border-left: 3px solid #2d6a4f; padding: 8px 10px; margin: 12px 0; }
+    .avoid { background: #faf6f0; border-left: 3px solid #a65d00; padding: 8px 10px; margin: 12px 0; }
+    .open { background: #f0f4fa; border-left: 3px solid #3b5bdb; padding: 8px 10px; margin: 12px 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 10px 0 14px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eee; }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+    pre {
+      margin: 12px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    pre code.hljs {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 12px 14px;
+      background: #f6f8fa;
+    }
+    a { color: #0b57d0; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 24px 0; }
+    .ok { color: #1b7a3d; font-weight: bold; }
+    .bad { color: #a12622; font-weight: bold; }
+    .er {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      white-space: pre;
+      line-height: 1.35;
+      background: #f6f8fa;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      margin: 10px 0 14px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>PAI migration — prompts API (local store)</h1>
+<p class="meta">Lightspeed Core Stack (LCORE) · OGX removal notes · Sep 2026</p>
+
+<p>
+  This document covers moving the OpenAI-compatible <b>Prompts API</b>
+  (<code>/v1/prompts</code> + <code>responses.prompt</code>) off OGX into LCORE:
+  resource shape, template syntax, validation, local DB schema, and injection
+  into pydantic-ai agents.
+</p>
+
+<hr />
+
+<h2>1. Decision in one sentence</h2>
+<p>
+  After OGX removal, LCORE owns a local versioned prompt store behind
+  <code>/v1/prompts</code>; when <code>/v1/responses</code> references
+  <code>prompt: { id, version?, variables? }</code>, LCORE renders the template
+  and passes it to the agent as <b>runtime instructions</b> — never as
+  <code>output_type</code>, and never forwarded to a backend prompt store.
+</p>
+
+<div class="pref">
+  <b>Preferred baseline:</b> local DB (<code>prompt</code> +
+  <code>prompt_version</code> + <code>prompt_version_variable</code>) ·
+  Mustache-style <code>{{var}}</code> substitution with create-time validation ·
+  inject via <code>agent.run(..., instructions=rendered)</code> while keeping LCORE
+  defaults as static <code>Agent(instructions=...)</code>.
+</div>
+
+<hr />
+
+<h2>2. Prompt resource</h2>
+
+<p>
+  A <b>prompt</b> is a stored, versioned system-instruction template managed by
+  <code>/v1/prompts</code> and referenced on <code>/v1/responses</code> as
+  <code>prompt: { id, version?, variables? }</code>. Versus
+  <code>instructions</code>: same system channel after render, but
+  <code>instructions</code> is inline for one request; <code>prompt</code> is a
+  reusable id + optional <code>{{placeholders}}</code>. (Not
+  <code>output_type</code> / <code>PromptedOutput</code> — those shape the
+  return value.)
+</p>
+
+<table>
+  <tr>
+    <th>Attribute</th>
+    <th>Type</th>
+    <th>Notes</th>
+  </tr>
+  <tr>
+    <td><code>prompt_id</code></td>
+    <td>string</td>
+    <td><code>pmpt_</code> + 48 lowercase hex</td>
+  </tr>
+  <tr>
+    <td><code>version</code></td>
+    <td>int (≥ 1)</td>
+    <td>Immutable history; bumps on update</td>
+  </tr>
+  <tr>
+    <td><code>is_default</code></td>
+    <td>bool</td>
+    <td>Whether this version is the current default</td>
+  </tr>
+  <tr>
+    <td><code>prompt</code></td>
+    <td>string</td>
+    <td>Template text with <code>{{placeholders}}</code></td>
+  </tr>
+  <tr>
+    <td><code>variables</code></td>
+    <td>list[string]</td>
+    <td>Declared placeholder names</td>
+  </tr>
+</table>
+
+<pre><code class="language-json">{
+  "prompt": {
+    "id": "pmpt_…",
+    "version": "1",
+    "variables": {
+      "role": { "type": "input_text", "text": "Kubernetes expert" },
+      "topic": { "type": "input_text", "text": "OpenShift" }
+    }
+  }
+}</code></pre>
+
+<p>
+  Substitution values may be strings or Responses content objects
+  (<code>input_text</code> / <code>input_image</code> / <code>input_file</code>).
+  Initial LCORE render can require text-only.
+</p>
+
+<hr />
+
+<h2>3. What changes when removing OGX</h2>
+
+<table>
+  <tr>
+    <th>Today (with OGX)</th>
+    <th>After (LCORE-owned)</th>
+  </tr>
+  <tr>
+    <td><code>prompts.py</code> → <code>client.prompts.*</code></td>
+    <td><code>prompts.py</code> → local <code>PromptStore</code> (SQLAlchemy)</td>
+  </tr>
+  <tr>
+    <td>Create/update validation inside OGX</td>
+    <td>Same rules reimplemented in LCORE (see §5)</td>
+  </tr>
+  <tr>
+    <td><code>responses.prompt</code> may be forwarded for server-side expansion</td>
+    <td>LCORE resolves + renders; strip <code>prompt</code> from outbound model params</td>
+  </tr>
+  <tr>
+    <td>HTTP response can still echo <code>prompt</code></td>
+    <td>Keep echoing the client’s <code>prompt</code> object for API compatibility</td>
+  </tr>
+  <tr>
+    <td>Agent gets instructions somehow via OGX path</td>
+    <td>Rendered string → pydantic-ai runtime <code>instructions</code> (see §7)</td>
+  </tr>
+</table>
+
+<div class="open">
+  <b>Keep the public API shape</b> (<code>/v1/prompts</code> CRUD +
+  <code>responses.prompt</code>) so existing clients stay compatible; only the
+  storage and resolution owner changes.
+</div>
+
+<hr />
+
+<h2>4. Database schema</h2>
+
+<p>
+  Reasonable normal form: identity, immutable versions, declared variables as
+  child rows. Default version is a column on <code>prompt</code>, not a
+  denormalized <code>is_default</code> flag on every version row.
+</p>
+
+<div class="er">prompt
+├── id (PK)  pmpt_ + 48 hex
+├── default_version (NOT NULL)
+├── created_by, created_at, updated_at
+│
+└──&lt;1:N&gt;── prompt_version
+            ├── (prompt_id, version) (PK)
+            ├── prompt_id (FK → prompt.id) ON DELETE CASCADE
+            ├── prompt_text
+            ├── created_by, created_at
+            │
+            └──&lt;1:N&gt;── prompt_version_variable
+                        ├── (prompt_id, version, name) (PK)
+                        └── (prompt_id, version) (FK → prompt_version)
+                              ON DELETE CASCADE
+
+Optional deferred FK:
+  prompt (id, default_version) → prompt_version (prompt_id, version)
+</div>
+
+<h3>4.1 Keys</h3>
+<table>
+  <tr>
+    <th>Key</th>
+    <th>Type</th>
+    <th>Meaning</th>
+  </tr>
+  <tr>
+    <td><code>prompt.id</code></td>
+    <td><b>PK</b></td>
+    <td>Template id</td>
+  </tr>
+  <tr>
+    <td><code>prompt_version.(prompt_id, version)</code></td>
+    <td><b>PK</b></td>
+    <td>One immutable revision</td>
+  </tr>
+  <tr>
+    <td><code>prompt_version.prompt_id</code></td>
+    <td><b>FK</b> → <code>prompt.id</code></td>
+    <td>Version belongs to template</td>
+  </tr>
+  <tr>
+    <td><code>prompt_version_variable.(prompt_id, version, name)</code></td>
+    <td><b>PK</b></td>
+    <td>Declared variable for that revision</td>
+  </tr>
+  <tr>
+    <td><code>prompt_version_variable.(prompt_id, version)</code></td>
+    <td><b>FK</b> → <code>prompt_version</code></td>
+    <td>Variables belong to a revision</td>
+  </tr>
+  <tr>
+    <td><code>prompt.(id, default_version)</code></td>
+    <td><b>FK</b> (deferred) → <code>prompt_version</code></td>
+    <td>Which revision is default</td>
+  </tr>
+</table>
+
+<h3>4.2 API ↔ storage map</h3>
+<table>
+  <tr>
+    <th>API field</th>
+    <th>Storage</th>
+  </tr>
+  <tr>
+    <td><code>prompt_id</code></td>
+    <td><code>prompt.id</code></td>
+  </tr>
+  <tr>
+    <td><code>version</code></td>
+    <td><code>prompt_version.version</code></td>
+  </tr>
+  <tr>
+    <td><code>prompt</code></td>
+    <td><code>prompt_version.prompt_text</code></td>
+  </tr>
+  <tr>
+    <td><code>variables</code></td>
+    <td>rows in <code>prompt_version_variable</code></td>
+  </tr>
+  <tr>
+    <td><code>is_default</code></td>
+    <td>computed: <code>prompt.default_version = version</code></td>
+  </tr>
+</table>
+
+<div class="avoid">
+  <b>Optional simplification:</b> store <code>variables</code> as JSON on
+  <code>prompt_version</code> and drop the child table. Fewer joins, weaker
+  uniqueness / query constraints. Prefer the child table for parity with
+  create-time validation.
+</div>
+
+<hr />
+
+<h2>5. Template format and validation</h2>
+
+<p>
+  OpenAI-compatible / current OGX rule: Mustache-style placeholders only.
+  OGX validates with:
+</p>
+
+<pre><code class="language-python">re.findall(r"{{\s*(\w+)\s*}}", prompt_text)</code></pre>
+
+<ul>
+  <li>Placeholder form: <code>{{name}}</code> (optional spaces: <code>{{ name }}</code>)</li>
+  <li>Name must match <code>\w+</code> (letters, digits, underscore)</li>
+  <li>Every placeholder in the text must be listed in <code>variables</code></li>
+  <li>Declared-but-unused names are allowed</li>
+  <li>Not Jinja: no <code>{% if %}</code>, filters, loops, dotted paths</li>
+</ul>
+
+<div class="pref">
+  <b>LCORE must reimplement this validation</b> on create and update once OGX
+  is removed. Render-time validation (missing / extra substitution values on
+  <code>/v1/responses</code>) is a second check.
+</div>
+
+<h3>5.1 Valid examples</h3>
+
+<pre><code class="language-json">{
+  "prompt": "You are a {{role}}. Focus on {{topic}}.",
+  "variables": ["role", "topic"]
+}</code></pre>
+
+<pre><code class="language-json">{
+  "prompt": "Summarize: {{ text }}",
+  "variables": ["text"]
+}</code></pre>
+
+<pre><code class="language-json">{
+  "prompt": "You are a helpful assistant. Be concise.",
+  "variables": []
+}</code></pre>
+
+<pre><code class="language-json">{
+  "prompt": "Hello {{name}}",
+  "variables": ["name", "unused_extra"]
+}</code></pre>
+<p>Declared-but-unused <code>unused_extra</code> is OK.</p>
+
+<h3>5.2 Invalid / edge cases</h3>
+
+<table>
+  <tr>
+    <th>Case</th>
+    <th>Example</th>
+    <th>Why</th>
+  </tr>
+  <tr>
+    <td><span class="bad">Undeclared var</span></td>
+    <td><code>"prompt": "Hi {{role}}", "variables": []</code></td>
+    <td><code>role</code> not in <code>variables</code></td>
+  </tr>
+  <tr>
+    <td><span class="bad">Hyphen in name</span></td>
+    <td><code>{{user-name}}</code></td>
+    <td><code>-</code> not in <code>\w</code></td>
+  </tr>
+  <tr>
+    <td><span class="bad">Dotted path</span></td>
+    <td><code>{{user.name}}</code></td>
+    <td>Not a single <code>\w+</code> token</td>
+  </tr>
+  <tr>
+    <td><span class="bad">Single braces</span></td>
+    <td><code>{name}</code></td>
+    <td>Not a placeholder (literal text)</td>
+  </tr>
+  <tr>
+    <td><span class="bad">Jinja control</span></td>
+    <td><code>{% if x %}...{% endif %}</code></td>
+    <td>Unsupported in this format</td>
+  </tr>
+  <tr>
+    <td><span class="bad">Empty prompt</span></td>
+    <td><code>""</code></td>
+    <td>Rejected by request model (<code>min_length=1</code>)</td>
+  </tr>
+  <tr>
+    <td><span class="ok">Literal braces</span></td>
+    <td><code>Use {JSON} objects carefully</code></td>
+    <td>OK if not <code>{{…}}</code></td>
+  </tr>
+</table>
+
+<p>
+  <b>Note:</b> rlsapi’s system prompt path uses Jinja2 separately. That is not
+  the Prompts API format. Keep Prompts API Mustache-only for OpenAI compatibility.
+</p>
+
+<hr />
+
+<h2>6. End-to-end flows</h2>
+
+<h3>6.1 CRUD</h3>
+<div class="er">Client
+  → POST/GET/PUT/DELETE /v1/prompts
+  → PromptStore (validate + persist)
+  → local DB
+</div>
+
+<h3>6.2 Use on responses</h3>
+<div class="er">POST /v1/responses  { prompt: {id, version?, variables?}, input, … }
+  → get_system_prompt(instructions)          # LCORE / profile defaults
+  → if prompt set: PromptStore.render(...)   # load version, substitute
+  → build_agent(instructions=defaults)       # static layer
+  → agent.run(..., instructions=rendered)    # runtime layer
+  → echo original prompt on HTTP response; do not send prompt.id to model wire
+</div>
+
+<hr />
+
+<h2>7. Injecting into pydantic-ai agents</h2>
+
+<p>
+  pydantic-ai prefers <code>instructions</code> over <code>system_prompt</code>,
+  and supports three layers:
+</p>
+
+<table>
+  <tr>
+    <th>Layer</th>
+    <th>API</th>
+    <th>Use in LCORE</th>
+  </tr>
+  <tr>
+    <td>Static</td>
+    <td><code>Agent(instructions=...)</code></td>
+    <td>Profile / deployment defaults (stable cache prefix)</td>
+  </tr>
+  <tr>
+    <td>Dynamic</td>
+    <td><code>@agent.instructions</code> + <code>deps</code></td>
+    <td>Optional; long-lived agents that resolve from store via deps</td>
+  </tr>
+  <tr>
+    <td>Runtime</td>
+    <td><code>agent.run(..., instructions=...)</code></td>
+    <td><b>Preferred</b> for per-request stored prompt templates</td>
+  </tr>
+</table>
+
+<div class="pref">
+  <b>Recommended injection:</b> keep LCORE defaults on the Agent as static
+  instructions; pass the rendered stored prompt as <b>runtime</b>
+  <code>instructions</code> on <code>run</code> / <code>run_stream_events</code>.
+  Same helper for responses, query, streaming, A2A.
+</div>
+
+<pre><code class="language-python"># defaults only (profile / get_system_prompt)
+agent = build_agent(client, responses_params_with_defaults, config)
+
+rendered = await prompt_store.render(
+    prompt_id=request.prompt.id,
+    version=request.prompt.version,
+    variables=request.prompt.variables,
+)
+
+# do not overwrite Agent(...) with the template alone —
+# pass it as runtime instructions for this run
+await agent.run(user_prompt, instructions=rendered)
+# or: async with agent.run_stream_events(user_prompt, instructions=rendered)</code></pre>
+
+<p>
+  Today <code>build_agent</code> already does
+  <code>Agent(..., instructions=responses_params.instructions)</code>. Migration
+  splits “defaults” vs “referenced template” across static vs runtime layers
+  instead of flattening everything into the constructor.
+</p>
+
+<div class="avoid">
+  <b>Avoid:</b> mapping stored prompts to <code>output_type</code> /
+  <code>PromptedOutput</code> · using <code>system_prompt</code> (history /
+  reinjection pitfalls) · forwarding <code>prompt.id</code> to OGX/the model
+  transport after cutover · stuffing the template only into constructor
+  <code>instructions</code> and losing the static/runtime split.
+</div>
+
+<hr />
+
+<h2>8. Work checklist (conceptual)</h2>
+<ol>
+  <li>Add SQLAlchemy models + migrations for the three tables (§4).</li>
+  <li>Implement <code>PromptStore</code>: create / list / get / update (new version) / delete / render.</li>
+  <li>Port OGX create/update validation (placeholder scan + declared vars + id format).</li>
+  <li>Rewire <code>app/endpoints/prompts.py</code> off <code>AsyncOgxClientHolder</code>.</li>
+  <li>In responses (and other agent entrypoints): resolve <code>request.prompt</code> → runtime instructions; strip from outbound params; echo on HTTP response.</li>
+  <li>Unit tests: validation edge cases, versioning/default, render missing vars, agent injection path.</li>
+</ol>
+
+<hr />
+
+<p class="meta">
+  Related: <code>src/app/endpoints/prompts.py</code>,
+  <code>src/utils/pydantic_ai_helpers.py</code> (<code>build_agent</code>),
+  <code>src/utils/prompts.py</code> (<code>get_system_prompt</code>),
+  OGX <code>ogx_api.prompts.models.Prompt.validate_prompt_variables</code>.
+</p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

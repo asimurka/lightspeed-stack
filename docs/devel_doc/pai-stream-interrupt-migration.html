@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PAI migration — Streaming query interrupt</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" />
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #222;
+      max-width: 800px;
+      margin: 24px auto;
+      padding: 0 16px 48px;
+    }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    h2 { font-size: 17px; margin-top: 28px; margin-bottom: 8px; }
+    h3 { font-size: 15px; margin-top: 18px; margin-bottom: 6px; }
+    p, li { margin: 8px 0; }
+    .meta { color: #555; margin-bottom: 16px; }
+    .pref { background: #f3f7f3; border-left: 3px solid #2d6a4f; padding: 8px 10px; margin: 12px 0; }
+    .keep { background: #f0f4fa; border-left: 3px solid #3b5bdb; padding: 8px 10px; margin: 12px 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 10px 0 14px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eee; }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+    pre {
+      margin: 12px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    pre code.hljs {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 12px 14px;
+      background: #f6f8fa;
+    }
+    a { color: #0b57d0; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 24px 0; }
+    .er {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      white-space: pre;
+      line-height: 1.35;
+      background: #f6f8fa;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      margin: 10px 0 14px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>PAI migration — Streaming query interrupt</h1>
+<p class="meta">Lightspeed Core Stack (LCORE) · OGX removal notes · Oct 2026</p>
+
+<p>
+  How <code>POST /v1/streaming_query/interrupt</code> should work after OGX
+  removal: use pydantic-ai’s first-party cancel path, keep the public HTTP /
+  SSE contract, and let harness <code>StepPersistence</code> own agent-history
+  snapshots.
+</p>
+<p>
+  Assumes the shared agent loop from
+  <a href="pai-responses-lcore-rewrite.html">Responses rewrite</a>
+  and the display vs agent-history split from
+  <a href="pai-conversations-api-redesign.html">conversations</a>
+  /
+  <a href="pai-compaction-migration.html">compaction</a>.
+</p>
+
+<hr />
+
+<h2>1. Today</h2>
+<p>
+  Streaming query registers the ASGI task in
+  <code>StreamInterruptRegistry</code>. The interrupt endpoint calls
+  <code>task.cancel()</code>; the stream path catches
+  <code>CancelledError</code>, repairs markdown, persists a partial turn,
+  and emits an <code>interrupted</code> SSE event. Quota consume is skipped
+  because that path returns before <code>consume_query_tokens</code>
+  (not because usage is unavailable in principle).
+</p>
+
+<h3>1.1 Public contract (unchanged)</h3>
+<table>
+  <tr>
+    <th>Request</th>
+    <th>Outcomes</th>
+  </tr>
+  <tr>
+    <td><code>{ "request_id": "…" }</code> from SSE <code>start</code></td>
+    <td>
+      200 <code>interrupted=true|false</code> · 403 not owner · 404 unknown
+    </td>
+  </tr>
+</table>
+
+<hr />
+
+<h2>2. Decision</h2>
+<div class="pref">
+  <b>Recommended (PAI default):</b> mint a per-request
+  <code>CancellationToken</code>, pass it into the agent run, and cancel
+  that token from the interrupt endpoint. Do not cancel the ASGI task for
+  product interrupt.
+</div>
+
+<hr />
+
+<h2>3. How PAI cancel works</h2>
+<p>
+  Documented stop gesture for a user “stop” button:
+</p>
+<ol>
+  <li>
+    Create <code>CancellationToken()</code> (fresh per run; single-use).
+  </li>
+  <li>
+    Pass <code>cancellation_token=token</code> to
+    <code>agent.run</code> / <code>run_stream_events</code> /
+    <code>agent.iter</code>.
+  </li>
+  <li>
+    From another request or task, call <code>token.cancel()</code>.
+  </li>
+  <li>
+    The run tears down (model stream closed, in-flight tools drained).
+  </li>
+</ol>
+
+<table>
+  <tr>
+    <th></th>
+    <th>Success</th>
+    <th>Cancel</th>
+  </tr>
+  <tr>
+    <td>Outcome</td>
+    <td>
+      returns <code>AgentRunResult</code><br />
+      stream: trailing <code>AgentRunResultEvent</code>
+    </td>
+    <td>
+      <b>raises</b> <code>RunCancelled</code><br />
+      not an <code>AgentRunResult</code>; no <code>.output</code>;
+      no final result event
+    </td>
+  </tr>
+  <tr>
+    <td>Use</td>
+    <td>result fields as usual</td>
+    <td>
+      <code>all_messages()</code> / <code>new_messages()</code>,
+      <code>usage</code>, <code>run_id</code>,
+      <code>conversation_id</code>
+    </td>
+  </tr>
+</table>
+
+<p>
+  <code>usage</code> covers completed model requests; mid-stream usage for
+  the request in flight is partial / provider-dependent.
+</p>
+<p>
+  Same first-party family:
+  <code>AgentRun.cancel()</code>,
+  <code>RunContext.cancel()</code>,
+  <code>AgentRunEvents.cancel()</code>.
+  Prefer the token when the stop comes from outside the run (our interrupt
+  HTTP handler).
+</p>
+
+<hr />
+
+<h2>4. How LCORE triggers it</h2>
+
+<div class="er">streaming_query
+        │
+        ▼
+token = CancellationToken()
+registry.register(request_id, user_id, token, conversation_id)
+        │
+        ▼
+async with agent.run_stream_events(…, cancellation_token=token)
+        │
+        ├── SSE projector (deltas / tools)
+        └── except RunCancelled:          # not AgentRunResult
+              display persist + interrupted SSE
+              consume cancelled.usage
+              deregister
+
+POST /streaming_query/interrupt
+        │
+        ├── auth + ownership (unchanged)
+        └── registry.cancel(request_id, user_id)  →  token.cancel()
+</div>
+
+<p>
+  The registry is only an ownership index for the second HTTP request
+  (<code>request_id</code> → user + token). It does not cancel asyncio
+  tasks. Keep <code>stream_interrupt.py</code> as the thin FastAPI surface
+  (auth, OTEL, same response models); replace only the cancel call.
+</p>
+
+<pre><code class="language-python">token = CancellationToken()
+registry.register(
+    request_id,
+    user_id=user_id,
+    token=token,
+    conversation_id=conversation_id,
+)
+
+try:
+    async with agent.run_stream_events(
+        prompt,
+        cancellation_token=token,
+        conversation_id=conversation_id,
+        run_id=run_id,
+    ) as stream:
+        async for event in stream:  # deltas / tools; no result event on cancel
+            yield project_lcore_sse(event)
+except RunCancelled as cancelled:  # not AgentRunResult
+    text, suffix = build_interrupted_response(
+        extract_assistant_text(cancelled.all_messages())
+    )
+    await persist_display_turn(status="interrupted", text=text)
+    consume_query_tokens(..., usage=cancelled.usage)
+    yield token_event(suffix)
+    yield interrupted_event(request_id)
+finally:
+    registry.deregister(request_id)
+
+# interrupt endpoint (other request):
+registry.cancel(request_id, user_id)  # → token.cancel()</code></pre>
+
+<hr />
+
+<h2>5. Persistence</h2>
+
+<h3>5.1 Agent history — StepPersistence</h3>
+<p>
+  With harness <code>StepPersistence</code> on the agent, a token cancel is
+  already persisted: cancel hits capability <code>on_run_error</code>
+  (<code>after_run</code> is not called), which saves a continuable
+  snapshot with <code>state='interrupted'</code>. LCORE does not need a
+  second agent-history write in the interrupt path.
+</p>
+
+<h3>5.2 Display store — LCORE</h3>
+<p>
+  The conversations / UI transcript is separate. On
+  <code>RunCancelled</code>, the streaming projector still writes the
+  display turn (<code>status=interrupted</code>), applies markdown repair,
+  and emits the interrupted SSE event — same product behavior as today.
+  StepPersistence is not the UI transcript.
+</p>
+
+<hr />
+
+<h2>6. Keep in mind</h2>
+<div class="keep">
+  <ul>
+    <li>
+      Default <code>continue_run</code> /
+      <code>latest_snapshot</code> skip
+      <code>interrupted</code> unless
+      <code>include_interrupted=True</code>.
+    </li>
+    <li>
+      Display path (<code>status=interrupted</code>, markdown repair,
+      interrupted SSE) stays LCORE.
+    </li>
+    <li>
+      Cancel before any model response may leave no snapshot (only
+      <code>run_started</code>) and empty usage — nothing to consume.
+    </li>
+    <li>
+      Charge <code>RunCancelled.usage</code> for completed requests; do
+      not skip the whole run’s usage because the user interrupted. Only
+      the in-flight mid-stream remainder is best-effort.
+    </li>
+  </ul>
+</div>
+
+<hr />
+
+<h2>7. Checklist</h2>
+<ol>
+  <li>
+    Wire <code>cancellation_token</code> through the shared run builder
+    (streaming query first; Responses stream can reuse later).
+  </li>
+  <li>
+    Registry stores <code>CancellationToken</code> + ownership metadata;
+    interrupt endpoint calls <code>token.cancel()</code> via
+    <code>registry.cancel</code>.
+  </li>
+  <li>
+    Projector: <code>except RunCancelled</code> → display persist + SSE;
+    consume <code>cancelled.usage</code>; deregister.
+  </li>
+  <li>
+    Rely on StepPersistence for agent-history snapshots; delete the ASGI
+    <code>task.cancel()</code> / dual persist / <code>uncancel</code>
+    interrupt path.
+  </li>
+  <li>
+    Tests: owner cancel (200 + SSE + display interrupted + quota for
+    completed usage); already-done; 403; 404; mid-tool cancel leaves an
+    <code>interrupted</code> snapshot.
+  </li>
+</ol>
+
+<hr />
+
+<h2>8. Links</h2>
+<ul>
+  <li><a href="query_endpoint.md">Current query / interrupt notes</a></li>
+  <li><a href="pai-responses-lcore-rewrite.html">PAI Responses / shared agent loop</a></li>
+  <li><a href="pai-conversations-api-redesign.html">PAI conversations</a></li>
+  <li><a href="https://ai.pydantic.dev/agents/#cancelling-a-run">PAI — Cancelling a run</a></li>
+  <li><a href="https://ai.pydantic.dev/harness/step-persistence/">PAI Harness — Step Persistence</a></li>
+</ul>
+
+<p class="meta">
+  Related:
+  <code>src/app/endpoints/stream_interrupt.py</code>,
+  <code>src/app/endpoints/streaming_query.py</code>,
+  <code>src/utils/stream_interrupts.py</code>,
+  <code>src/utils/agents/streaming.py</code>.
+</p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>
