@@ -1,0 +1,734 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PAI migration — conversations API redesign</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" />
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #222;
+      max-width: 800px;
+      margin: 24px auto;
+      padding: 0 16px 48px;
+    }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    h2 { font-size: 17px; margin-top: 28px; margin-bottom: 8px; }
+    h3 { font-size: 15px; margin-top: 18px; margin-bottom: 6px; }
+    p, li { margin: 8px 0; }
+    .meta { color: #555; margin-bottom: 16px; }
+    .pref { background: #f3f7f3; border-left: 3px solid #2d6a4f; padding: 8px 10px; margin: 12px 0; }
+    .avoid { background: #faf6f0; border-left: 3px solid #a65d00; padding: 8px 10px; margin: 12px 0; }
+    .open { background: #f0f4fa; border-left: 3px solid #3b5bdb; padding: 8px 10px; margin: 12px 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 10px 0 14px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eee; }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+    pre {
+      margin: 12px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    pre code.hljs {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 12px 14px;
+      background: #f6f8fa;
+    }
+    a { color: #0b57d0; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 24px 0; }
+    .ok { color: #1b7a3d; font-weight: bold; }
+    .bad { color: #a12622; font-weight: bold; }
+    .er {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      white-space: pre;
+      line-height: 1.35;
+      background: #f6f8fa;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      margin: 10px 0 14px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>PAI migration — conversations API redesign</h1>
+<p class="meta">Lightspeed Core Stack (LCORE) · OGX removal notes · Sep 2026</p>
+
+<p>
+  This document covers the <b>conversations</b> side of the OGX → pydantic-ai migration:
+  how display history should be stored and exposed once LCORE owns the agent loop,
+  how that differs from pydantic-ai message history used for inference, and the
+  proposed <b>/v3/conversations</b> wire shape (agent runs + ordered items).
+</p>
+
+<hr />
+
+<h2>1. Decision in one sentence</h2>
+<p>
+  Ship <b>/v3/conversations</b> as a local display API (items-only agent turns
+  parsed from each pydantic-ai run), while agent context comes from pydantic-ai
+  message-history persistence under the <b>same <code>conversation_id</code></b>
+  — keep today’s <code>/v1</code>/<code>/v2</code> variants until consumers move.
+</p>
+
+<div class="pref">
+  <b>Preferred baseline:</b>
+  <ul style="margin: 8px 0 0; padding-left: 20px;">
+    <li>display API ← local DB ← parsed from agent run result</li>
+    <li>agent context ← PAI persistence (same <code>conversation_id</code>)</li>
+    <li>keep <code>/v1</code> / <code>/v2</code> as today’s variants</li>
+    <li>ship items-only <code>/v3</code> (no duplicated <code>messages</code>/<code>tool_*</code>)</li>
+    <li>drop <code>/v1</code> with OGX · retire <code>/v2</code> later</li>
+  </ul>
+</div>
+
+<hr />
+
+<h2>2. How to read v1 vs v2 today</h2>
+
+<p>
+  <code>/v1/conversations</code> and <code>/v2/conversations</code> are
+  <b>backend variants</b>, not successive API generations:
+</p>
+
+<table>
+  <tr>
+    <th>Surface</th>
+    <th>Store</th>
+    <th>Role</th>
+  </tr>
+  <tr>
+    <td><code>/v1/conversations</code></td>
+    <td>OGX conversation items (+ app DB metadata)</td>
+    <td>Deprecated; dies with OGX</td>
+  </tr>
+  <tr>
+    <td><code>/v2/conversations</code></td>
+    <td>LCORE conversation cache</td>
+    <td>Local variant; keep stable as the bridge for current local-DB clients</td>
+  </tr>
+  <tr>
+    <td><code>/v3/conversations</code> (proposed)</td>
+    <td>Unified local display store</td>
+    <td>First true API redesign for agentic history</td>
+  </tr>
+</table>
+
+<p>
+  <code>/v3</code> is aimed at the industry shift away from plain chat Q/A
+  (user message + assistant reply, tools as side lists) toward an
+  <b>agentic</b> run timeline: ordered items for messages, tool calls/results,
+  retrieval, and outcomes in one sequence.
+</p>
+
+<div class="avoid">
+  <b>Avoid:</b> reimplementing <code>/v1</code> without OGX (blurs the variant
+  story and competes with <code>/v2</code>) · treating <code>/v2</code> as “the
+  next generation after v1” · shipping duplicate
+  <code>items</code> + <code>messages</code>/<code>tool_*</code> on the wire
+  (OK in SDKs with derived views; wrong for a JSON service API).
+</div>
+
+<hr />
+
+<h2>3. Hard split: display store vs agent context</h2>
+
+<p>
+  LCORE keeps <b>two separate persistence paths</b> that share one id:
+</p>
+<ol>
+  <li>
+    <b>Local conversation store + <code>/v3/conversations</code></b> —
+    used <b>only for displaying</b> history to clients (list / get / update topic /
+    delete). After each agent run, LCORE <b>parses the pydantic-ai run result</b>
+    into a backend-agnostic turn (<code>items[]</code>) and writes it here.
+  </li>
+  <li>
+    <b>pydantic-ai message-history persistence</b> — used <b>only to feed
+    message history</b> into the next agent run (inference context). It is
+    <b>not</b> what the conversations API returns.
+  </li>
+</ol>
+<p>
+  Both use the <b>same <code>conversation_id</code></b>: the id of the local
+  persistent conversation is the id pydantic-ai uses for its history. They are
+  always <b>logically equivalent</b> records of the same conversation — the same
+  turns and outcomes — but in <b>different formats</b> (display
+  <code>items[]</code> vs PAI message history). The display store is never used
+  to rebuild agent context; PAI history is never used as the conversations API
+  payload.
+</p>
+<p>
+  <b>Key reason for a local conversations API:</b> even where pydantic-ai
+  (or optional packages such as Harness
+  <code>SqliteConversationStore</code>) can list / get / delete threads and
+  persist message history, LCORE still owns a <b>separate display store and
+  <code>/v3/conversations</code> surface</b>. We need a
+  <b>backend-agnostic</b> OpenAPI contract (postgres/sqlite today, not tied to
+  a PAI/Harness store), LCORE-specific fields and
+  <b>items</b> (inline RAG <code>sources</code>, deduped turn citations, topic
+  summary, RBAC, usage, etc.) that are <b>not</b> a 1:1 dump of PAI message
+  parts. PAI persistence remains the source for <b>agent message history</b>;
+  the local API is how clients <b>list, delete, update, and display</b> the
+  same conversation in LCORE’s format.
+</p>
+
+<table>
+  <tr>
+    <th>Concern</th>
+    <th>Store</th>
+    <th>Used for</th>
+  </tr>
+  <tr>
+    <td><b>Display</b></td>
+    <td>Local SQL (evolved from cache + <code>user_conversation</code> / <code>user_turn</code>)</td>
+    <td>List / get / update topic / delete on conversations API</td>
+  </tr>
+  <tr>
+    <td><b>Agent context</b></td>
+    <td>pydantic-ai message history keyed by <code>conversation_id</code></td>
+    <td>Prompting the next run only</td>
+  </tr>
+</table>
+
+<div class="er">Request (conversation_id)
+  → PAI: load message_history[conversation_id] → agent.run → update PAI history
+  → Persist: map run → AgentTurn + items → local display store
+  → Respond: query/stream as today
+  → GET /v3/conversations/{id}: read display store only (never hydrate PAI from it)
+</div>
+
+<p>
+  Compaction for <b>tokens / context</b> stays in the PAI / context-builder path.
+  The display store may record <code>context_status</code> for UI; those summaries
+  are not re-fed into the agent from SQL.
+</p>
+
+<hr />
+
+<h2>4. Problems with the shared v1/v2 turn model</h2>
+
+<p>
+  Both variants expose the same chat-era shape
+  (<code>ConversationTurn</code>: <code>messages[]</code> + parallel
+  <code>tool_calls[]</code> / <code>tool_results[]</code>). That fits single-shot
+  Q&amp;A; it fights agentic UIs.
+</p>
+
+<table>
+  <tr>
+    <th>Gap</th>
+    <th>Why it hurts</th>
+  </tr>
+  <tr>
+    <td>Chat Q/A, not agent run</td>
+    <td>Implicitly one user + one assistant message; no run id / status / usage</td>
+  </tr>
+  <tr>
+    <td>Tools beside the timeline</td>
+    <td>Parallel arrays lose multi-round order (text → call → result → text)</td>
+  </tr>
+  <tr>
+    <td>Message = role + string</td>
+    <td>No first-class home for retrieval steps, domain errors, optional reasoning</td>
+  </tr>
+  <tr>
+    <td>No multimodal inputs</td>
+    <td>Images and other attachments are not first-class on the turn (today they live on the request / transcripts at best); history cannot faithfully show what the user sent beyond plain text</td>
+  </tr>
+  <tr>
+    <td>Citations on Message</td>
+    <td>RAG provenance glued to assistant text</td>
+  </tr>
+  <tr>
+    <td>Industry direction</td>
+    <td>Ordered heterogeneous sequences (OpenAI output items, Anthropic content blocks, PAI parts) — not sibling tool arrays</td>
+  </tr>
+</table>
+
+<hr />
+
+<h2>5. Proposed /v3 wire shape</h2>
+
+<h3>5.1 Envelope (mostly unchanged)</h3>
+<p>
+  GET conversation keeps <code>conversation_id</code> + <code>chat_history</code>
+  (today’s <code>ConversationResponse</code>). v3 also surfaces the conversation-level
+  fields that already exist on list models
+  (<code>ConversationDetails</code> / <code>ConversationData</code>) so clients are
+  not forced to join list + get for metadata:
+</p>
+<pre><code class="language-json">{
+  "conversation_id": "…",
+  "created_at": "2024-01-01T00:00:00Z",
+  "last_message_at": "2024-01-01T00:05:00Z",
+  "last_message_timestamp": 1704067500.0,
+  "message_count": 5,
+  "last_used_model": "gpt-4o-mini",
+  "last_used_provider": "openai",
+  "topic_summary": "…",
+  "chat_history": [ /* AgentTurn[] */ ]
+}</code></pre>
+<table>
+  <tr>
+    <th>Field</th>
+    <th>Exists today on</th>
+    <th>Notes</th>
+  </tr>
+  <tr>
+    <td><code>conversation_id</code></td>
+    <td>GET + list (v1/v2)</td>
+    <td>Unchanged</td>
+  </tr>
+  <tr>
+    <td><code>chat_history</code></td>
+    <td>GET (<code>ConversationResponse</code>)</td>
+    <td>Same field name; elements become <code>AgentTurn</code> (§5.2)</td>
+  </tr>
+  <tr>
+    <td><code>created_at</code>, <code>last_message_at</code>, <code>message_count</code>, <code>last_used_model</code>, <code>last_used_provider</code>, <code>topic_summary</code></td>
+    <td>List v1 (<code>ConversationDetails</code>)</td>
+    <td>Include on GET envelope in v3; list can keep the same shape</td>
+  </tr>
+  <tr>
+    <td><code>last_message_timestamp</code></td>
+    <td>List v2 (<code>ConversationData</code>)</td>
+    <td>Keep for v2-era clients / derived from <code>last_message_at</code></td>
+  </tr>
+</table>
+
+<h3>5.2 AgentTurn (run)</h3>
+<pre><code class="language-json">{
+  "id": "turn-uuid",
+  "status": "completed",
+  "agent": null,
+  "provider": "openai",
+  "model": "gpt-4o-mini",
+  "started_at": "2024-01-01T00:01:00Z",
+  "completed_at": "2024-01-01T00:01:05Z",
+  "context_status": "full",
+  "usage": { "input_tokens": 120, "output_tokens": 40 },
+  "referenced_documents": [ /* deduped set for the whole run */ ],
+  "items": [ /* TurnItem discriminated union — sole body */ ]
+}</code></pre>
+
+<table>
+  <tr>
+    <th>Field</th>
+    <th>Notes</th>
+  </tr>
+  <tr>
+    <td><code>status</code></td>
+    <td><code>completed</code> | <code>interrupted</code> | <code>failed</code> only — <b>no <code>blocked</code></b></td>
+  </tr>
+  <tr>
+    <td><code>items</code></td>
+    <td>Only timeline; do <b>not</b> also ship <code>messages</code> / <code>tool_calls</code> / <code>tool_results</code></td>
+  </tr>
+  <tr>
+    <td><code>referenced_documents</code></td>
+    <td>Turn-level <b>deduped set</b> for citation UI (built at persist time)</td>
+  </tr>
+  <tr>
+    <td><code>context_status</code> / <code>usage</code></td>
+    <td>Same names as <code>QueryResponse</code> / <code>EndEventData</code></td>
+  </tr>
+  <tr>
+    <td><code>available_quotas</code></td>
+    <td>Live query/stream only — <b>not</b> on conversation GET</td>
+  </tr>
+</table>
+
+<div class="avoid">
+  <b>Removed vs v1/v2 turn body:</b>
+  <code>messages</code>, <code>tool_calls</code>, <code>tool_results</code>.
+  That break is why this is <code>/v3</code>, not an additive tweak to
+  <code>/v2</code>.
+</div>
+
+<hr />
+
+<h2>6. TurnItem discriminated union</h2>
+
+<p>
+  Prefer a <b>discriminated union</b> on <code>kind</code> (OpenAPI
+  <code>oneOf</code>) over one merged object with all optional fields.
+  Shared base: <code>id</code> + <code>kind</code>.
+</p>
+
+<table>
+  <tr>
+    <th><code>kind</code></th>
+    <th>Attributes</th>
+    <th>Aligns with</th>
+  </tr>
+  <tr>
+    <td><code>user_message</code></td>
+    <td><code>content</code>; optional <code>attachments</code> (refs only, no bytes)</td>
+    <td>Request <code>Attachment</code> minus <code>content</code></td>
+  </tr>
+  <tr>
+    <td><code>assistant_message</code></td>
+    <td><code>content</code></td>
+    <td>Token / <code>turn_complete</code> / <code>QueryResponse.response</code></td>
+  </tr>
+  <tr>
+    <td><code>tool_call</code></td>
+    <td><code>tool_call_id</code>, <code>name</code>, <code>arguments</code></td>
+    <td><code>ToolCallSummary</code> (reuse; <code>id</code> → <code>tool_call_id</code>, <code>args</code> → <code>arguments</code>)</td>
+  </tr>
+  <tr>
+    <td><code>tool_result</code></td>
+    <td><code>tool_call_id</code>, <code>status</code>, <code>content</code></td>
+    <td><code>ToolResultSummary</code>; drop <code>round</code> (order = <code>items[]</code>)</td>
+  </tr>
+  <tr>
+    <td><code>sources</code></td>
+    <td><code>origin</code> (<code>inline</code> | <code>tool</code>), <code>tool_call_id?</code>, <code>chunks</code></td>
+    <td>Retrieval step; see §8</td>
+  </tr>
+  <tr>
+    <td><code>error</code></td>
+    <td><code>code</code>, <code>message</code>, <code>category?</code>, <code>retryable?</code>, <code>details?</code></td>
+    <td>Domain outcome only — see §7</td>
+  </tr>
+  <tr>
+    <td><code>reasoning</code></td>
+    <td><code>content</code></td>
+    <td>Optional / forward-compatible; add when product needs it</td>
+  </tr>
+</table>
+
+<div class="open">
+  <b>Extend later (new kinds, not ErrorItem codes):</b>
+  <code>approval</code> / HITL when that feature ships. Do not invent kinds for
+  every failure mode — use namespaced <code>error.code</code> +
+  <code>details</code>.
+</div>
+
+<pre><code class="language-json">"items": [
+  { "id": "i1", "kind": "user_message", "content": "Why is the pod CrashLooping?" },
+  {
+    "id": "i2",
+    "kind": "sources",
+    "origin": "inline",
+    "tool_call_id": null,
+    "chunks": [ /* RAGChunk[] for this retrieval */ ]
+  },
+  {
+    "id": "i3",
+    "kind": "tool_call",
+    "tool_call_id": "c1",
+    "name": "get_pod",
+    "arguments": { "ns": "app", "name": "api" }
+  },
+  {
+    "id": "i4",
+    "kind": "tool_result",
+    "tool_call_id": "c1",
+    "status": "success",
+    "content": "Exit 137 OOMKilled…"
+  },
+  { "id": "i5", "kind": "assistant_message", "content": "The container was OOMKilled…" }
+]</code></pre>
+
+<hr />
+
+<h2>7. HTTP errors vs ErrorItem</h2>
+
+<p>
+  <b>Non-2xx</b> = the API operation failed (nothing useful to put in history, or
+  the request was rejected). <b>ErrorItem inside 2xx</b> = the run was accepted
+  and recorded; the agent outcome failed.
+</p>
+
+<table>
+  <tr>
+    <th>Situation</th>
+    <th>HTTP</th>
+    <th>Persist turn?</th>
+    <th>ErrorItem?</th>
+  </tr>
+  <tr>
+    <td>Auth / validation / not found / quota before run</td>
+    <td><code>4xx</code> / <code>429</code></td>
+    <td><span class="bad">no</span></td>
+    <td><span class="bad">no</span></td>
+  </tr>
+  <tr>
+    <td>Dependency down before useful work</td>
+    <td><code>5xx</code> / <code>503</code></td>
+    <td><span class="bad">no</span>*</td>
+    <td><span class="bad">no</span></td>
+  </tr>
+  <tr>
+    <td>Model/provider fails mid-run after accept</td>
+    <td><code>200</code></td>
+    <td><span class="ok">yes</span> (<code>failed</code>)</td>
+    <td><span class="ok">yes</span></td>
+  </tr>
+  <tr>
+    <td>Tool fails but run continues</td>
+    <td><code>200</code></td>
+    <td><span class="ok">yes</span></td>
+    <td><span class="bad">no</span> — <code>tool_result.status=error</code></td>
+  </tr>
+  <tr>
+    <td>User interrupt</td>
+    <td><code>200</code></td>
+    <td><span class="ok">yes</span> (<code>interrupted</code>)</td>
+    <td>optional</td>
+  </tr>
+  <tr>
+    <td>Shield refusal</td>
+    <td><code>200</code></td>
+    <td><span class="ok">yes</span> (<code>completed</code>)</td>
+    <td><span class="bad">no</span> — see §9</td>
+  </tr>
+</table>
+<p>
+  *If a placeholder turn was already created, prefer persist + ErrorItem and
+  still return 2xx on the query path.
+</p>
+
+<h3>7.1 ErrorItem shape (extensible)</h3>
+<pre><code class="language-json">{
+  "id": "…",
+  "kind": "error",
+  "code": "provider.rate_limit",
+  "message": "Upstream model rate limit exceeded",
+  "category": "provider",
+  "retryable": true,
+  "details": { "retry_after_ms": 1200 }
+}</code></pre>
+
+<table>
+  <tr>
+    <th>Field</th>
+    <th>Role</th>
+  </tr>
+  <tr>
+    <td><code>code</code></td>
+    <td>Namespaced machine id (<code>domain.reason</code>) — primary extension point</td>
+  </tr>
+  <tr>
+    <td><code>message</code></td>
+    <td>Safe human text</td>
+  </tr>
+  <tr>
+    <td><code>category</code></td>
+    <td>Coarse UI bucket: <code>provider</code> | <code>tool</code> | <code>quota</code> | <code>validation</code> | <code>cancelled</code> | <code>internal</code> (expand rarely; no <code>moderation</code> on the public wire)</td>
+  </tr>
+  <tr>
+    <td><code>details</code></td>
+    <td>Open object for future/code-specific attrs without new top-level fields</td>
+  </tr>
+</table>
+
+<p>
+  Transport errors stay <code>AbstractErrorResponse</code> /
+  SSE <code>ErrorEventData</code>: <code>status_code</code> +
+  <code>response</code> / <code>cause</code>. Map to ErrorItem only when
+  persisting a failed turn: <code>response</code> → <code>message</code>,
+  <code>cause</code> → <code>details.cause</code> — <b>never</b> put
+  <code>status_code</code> on the item.
+</p>
+
+<hr />
+
+<h2>8. RAG: chunks per item, docs per turn</h2>
+
+<table>
+  <tr>
+    <th>Data</th>
+    <th>Scope</th>
+    <th>Role</th>
+  </tr>
+  <tr>
+    <td><code>RAGChunk[]</code></td>
+    <td>Per <code>sources</code> item</td>
+    <td>Evidence for that retrieval step (scores, which search)</td>
+  </tr>
+  <tr>
+    <td><code>ReferencedDocument[]</code></td>
+    <td>Per turn, <b>deduped set</b></td>
+    <td>Citation footer for the run</td>
+  </tr>
+</table>
+
+<p>
+  Build the turn-level doc set <b>once at persist time</b> from all
+  <code>sources</code> items (union by <code>document_id</code> / url+title).
+  Do not maintain two independent writers.
+</p>
+
+<h3>8.1 Inline RAG (not a tool)</h3>
+<p>
+  Inline / pre-query RAG is <b>not</b> a tool call. Represent it as a
+  <code>sources</code> item with <code>origin: "inline"</code> and
+  <code>tool_call_id: null</code>, typically right after
+  <code>user_message</code>:
+</p>
+
+<div class="er">user_message
+sources          ← origin=inline, chunks for pre-query RAG
+[tool_call / tool_result …]   ← optional real file_search
+  sources?       ← origin=tool, tool_call_id set, chunks for that search
+assistant_message
+</div>
+
+<div class="avoid">
+  <b>Avoid:</b> synthesizing a fake <code>file_search</code> tool_call for inline
+  RAG · hanging chunks only on <code>user_message</code> /
+  <code>assistant_message</code> · turn-global chunk lists (loses multi-search
+  attribution).
+</div>
+
+<p>
+  Prefer one home for chunks: always on <code>sources</code> (inline or
+  <code>origin: "tool"</code> linked by <code>tool_call_id</code>), so storage
+  and OpenAPI stay consistent with tool and non-tool retrieval.
+</p>
+
+<hr />
+
+<h2>9. Shields / moderation</h2>
+
+<div class="pref">
+  <b>Preferred:</b> treat shield refusals as a <b>normal completed turn</b>.
+  Stream refusal as <code>token</code>s; persist as <code>assistant_message</code>;
+  <code>status: "completed"</code>; HTTP 2xx. Keep shield decision / moderation id
+  as <b>internal-only</b> signals (metrics, telemetry, private DB side channel) —
+  <b>not</b> in public conversation JSON.
+</div>
+
+<div class="avoid">
+  <b>Do not expose:</b> <code>status: "blocked"</code> · moderation
+  <code>ErrorItem</code> · dedicated SSE <code>blocked</code> event.
+</div>
+
+<hr />
+
+<h2>10. Streaming payloads — align, don’t fork</h2>
+
+<p>
+  Existing <code>StreamEventPayload</code> (discriminator <code>event</code>) is
+  largely sufficient for agentic streaming:
+</p>
+
+<table>
+  <tr>
+    <th>SSE <code>event</code></th>
+    <th>Persisted as</th>
+  </tr>
+  <tr>
+    <td><code>start</code></td>
+    <td>Turn correlation (<code>conversation_id</code> / <code>request_id</code>)</td>
+  </tr>
+  <tr>
+    <td><code>token</code> / <code>turn_complete</code></td>
+    <td><code>assistant_message</code></td>
+  </tr>
+  <tr>
+    <td><code>tool_call</code> / <code>tool_result</code></td>
+    <td>Same-named items (reuse summary models)</td>
+  </tr>
+  <tr>
+    <td><code>end</code></td>
+    <td>Turn <code>usage</code> / <code>context_status</code>; live citation aggregate OK; persistence uses §8</td>
+  </tr>
+  <tr>
+    <td><code>error</code> / <code>interrupted</code></td>
+    <td>Transport vs turn <code>status</code> / optional ErrorItem (§7)</td>
+  </tr>
+  <tr>
+    <td><code>compaction</code></td>
+    <td>Lifecycle only (already on the wire; add to the typed union)</td>
+  </tr>
+</table>
+
+<p>
+  <b>Not missing</b> for v3: reasoning (add later), approval/HITL (add later),
+  mid-stream sources (optional). Streaming stays the only place with token
+  deltas and start/end envelopes; conversation GET never stores those events
+  verbatim.
+</p>
+
+<div class="open">
+  <b>Cleanup:</b> fold <code>compaction</code> into <code>StreamEventPayload</code>
+  and converge hand-built dicts in <code>streaming_sse.py</code> onto the typed
+  payloads so the union matches what is actually emitted.
+</div>
+
+<p>
+  Longer term: evolve <code>QueryResponse</code> toward the same
+  <code>AgentTurn</code> / <code>items</code> so sync query, stream reduction,
+  and GET conversation share one schema.
+</p>
+
+<hr />
+
+<h2>11. Version rollout</h2>
+
+<ol>
+  <li>Keep <code>/v1</code> deprecated until OGX removal (do not reimplement without OGX unless a hard external contract requires the path).</li>
+  <li>Keep <code>/v2</code> stable for local-DB consumers (additive fixes only).</li>
+  <li>Implement unified display store + persist path from agent runs.</li>
+  <li>Ship <code>/v3/conversations</code> with the items-only contract.</li>
+  <li>Give consumers one adaptation window (v1→v3 or v2→v3).</li>
+  <li>Remove <code>/v1</code> with OGX; retire <code>/v2</code> when traffic is gone.</li>
+</ol>
+
+<hr />
+
+<h2>12. Work checklist (conceptual)</h2>
+<ol>
+  <li>Lock OpenAPI models: <code>AgentTurn</code>, <code>TurnItem</code> union, list details for v3.</li>
+  <li>Design SQL schema / migration from cache + <code>user_conversation</code> / <code>user_turn</code> (backfill adapter).</li>
+  <li>Persist mapper: PAI run / <code>TurnSummary</code> → <code>AgentTurn.items</code> (including inline <code>sources</code>).</li>
+  <li>Dedupe <code>referenced_documents</code> at turn write; chunks only on <code>sources</code>.</li>
+  <li>Wire shield refusals as normal completed turns; internal signals only.</li>
+  <li>Align SSE typed union with <code>compaction</code>; document stream→persist mapping.</li>
+  <li>Endpoints: <code>/v3/conversations</code> CRUD; leave v1/v2 behavior unchanged.</li>
+  <li>Unit tests: multi-tool order, inline vs tool sources, failed mid-run ErrorItem, interrupt, no JSON field duplication.</li>
+</ol>
+
+<hr />
+
+<p class="meta">
+  Related:
+  <code>src/models/common/conversation.py</code>,
+  <code>src/models/common/turn_summary.py</code>,
+  <code>src/models/common/agents/stream_payloads.py</code>,
+  <code>src/app/endpoints/conversations_v2.py</code>,
+  <code>src/cache/cache_entry.py</code>,
+  <code>src/models/database/conversations.py</code>,
+  <code>src/utils/query.py</code> (<code>store_query_results</code>).
+</p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>

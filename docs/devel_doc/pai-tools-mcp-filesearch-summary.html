@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PAI migration — tools, MCP, file_search</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" />
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #222;
+      max-width: 800px;
+      margin: 24px auto;
+      padding: 0 16px 48px;
+    }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    h2 { font-size: 17px; margin-top: 28px; margin-bottom: 8px; }
+    h3 { font-size: 15px; margin-top: 18px; margin-bottom: 6px; }
+    p, li { margin: 8px 0; }
+    .meta { color: #555; margin-bottom: 16px; }
+    .pref { background: #f3f7f3; border-left: 3px solid #2d6a4f; padding: 8px 10px; margin: 12px 0; }
+    .avoid { background: #faf6f0; border-left: 3px solid #a65d00; padding: 8px 10px; margin: 12px 0; }
+    .open { background: #f0f4fa; border-left: 3px solid #3b5bdb; padding: 8px 10px; margin: 12px 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 10px 0 14px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eee; }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+    pre {
+      margin: 12px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    pre code.hljs {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 12px 14px;
+      background: #f6f8fa;
+    }
+    a { color: #0b57d0; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 24px 0; }
+  </style>
+</head>
+<body>
+
+<h1>PAI migration — tools, MCP, file_search</h1>
+<p class="meta">Lightspeed Core Stack (LCORE) · focused notes for OGX removal · Sep 2026</p>
+
+<p>
+  This document covers only the <b>tools side</b> of the OGX → pydantic-ai migration:
+  how MCP, file_search / RAG, and skills should run once LCORE owns the agent loop.
+  It does not cover inference provider adapters, conversation CRUD, or the
+  Responses HTTP adapter — those are separate workstreams.
+</p>
+<p>
+  Scope is LCORE’s <b>officially supported</b> inference providers
+  (<a href="providers.md">providers.md</a>): OpenAI, Azure, VertexAI, WatsonX,
+  AWS Bedrock, RHOAI (vLLM), and RHEL AI (RHAIIS/vLLM). After OGX removal, tools must
+  behave the same on that whole set. MCP is <b>local only</b>
+  (agent-process MCP client) — provider-hosted MCP is out of scope.
+  Wiring: <code>MCP</code> capability with a configured <code>MCPToolset</code>
+  as <code>local=</code> (see §4.1).
+</p>
+
+<hr />
+
+<h2>1. Decision in one sentence</h2>
+<p>
+  Post-OGX, LCORE should treat MCP, file_search, and skills as
+  <b>agent-executed function tools</b> — from the model’s point of view these are
+  ordinary tool calls that the <b>agent process</b> runs and returns. That path is
+  the same for every supported inference provider.
+</p>
+
+<div class="pref">
+  <b>Preferred baseline:</b> one LCORE-owned file_search / RAG tool +
+  local MCP via <code>MCP(native=False, local=MCPToolset(...))</code> + existing
+  skills as function tools. In message history that shows up as
+  <code>ToolCallPart</code> → LCORE/agent executes → <code>ToolReturnPart</code>.
+</div>
+
+<hr />
+
+<h2>2. Function tools (LCORE path)</h2>
+
+<p>
+  Pydantic-ai can also wire some features as provider-native tools, but LCORE’s
+  baseline is the <b>function-tool</b> path: the model emits a tool call, pydantic-ai
+  pauses the loop, LCORE (or an in-process MCP client) runs the tool, and a tool
+  return is fed into the next model request.
+</p>
+<p>
+  Docs:
+  <a href="https://pydantic.dev/docs/ai/tools-toolsets/tools">Function tools</a>,
+  <a href="https://pydantic.dev/docs/ai/api/pydantic-ai/messages/">Message parts</a>.
+</p>
+
+<table>
+  <tr>
+    <th>Kind</th>
+    <th>History parts</th>
+    <th>Who executes</th>
+    <th>When to use in LCORE</th>
+  </tr>
+  <tr>
+    <td><b>Function tools</b></td>
+    <td><code>ToolCallPart</code> → agent → <code>ToolReturnPart</code></td>
+    <td>LCORE / pydantic-ai agent process</td>
+    <td><b>Only path</b> for MCP, file_search, skills</td>
+  </tr>
+</table>
+
+<p>
+  That loop is provider-agnostic across OpenAI, Azure, VertexAI, WatsonX, Bedrock,
+  and vLLM. One LCORE-owned path keeps <b>behavior, auth, corpora, timeouts, and
+  telemetry</b> identical for the whole supported set.
+</p>
+
+<hr />
+
+<h2>3. file_search / RAG</h2>
+
+<p>
+  “file_search” means: the model may call a retrieval tool during generation. LCORE already
+  has retrieval (BYOK, OKP, vector search utilities). The migration question is whether that
+  retrieval stays <b>our tool</b> over LCORE corpora, or we use a provider’s hosted
+  file-search / vector-store API where one exists.
+</p>
+
+<h3>3.1 Native file_search on LCORE-supported providers</h3>
+<p>
+  Mapped from pydantic-ai’s <code>FileSearchTool</code> table
+  (<a href="https://pydantic.dev/docs/ai/tools-toolsets/native-tools/#file-search-tool">docs</a>)
+  onto LCORE’s supported set only:
+</p>
+<table>
+  <tr>
+    <th>LCORE-supported provider</th>
+    <th>Native <code>FileSearchTool</code>?</th>
+    <th>Notes</th>
+  </tr>
+  <tr>
+    <td>OpenAI (Responses API)</td>
+    <td>✅</td>
+    <td>OpenAI vector stores (Files API). Not Chat Completions.</td>
+  </tr>
+  <tr>
+    <td>Azure OpenAI</td>
+    <td>⚠️ / limited</td>
+    <td>Only if the deployment exposes the same Responses + vector-store surface as OpenAI; not assumed for every Azure setup.</td>
+  </tr>
+  <tr>
+    <td>Google VertexAI</td>
+    <td>❌</td>
+    <td>PAI marks Vertex-style as unsupported for <code>FileSearchTool</code> (distinct from Gemini API file search, which LCORE does not support as a provider).</td>
+  </tr>
+  <tr>
+    <td>IBM WatsonX</td>
+    <td>❌</td>
+    <td>Not supported.</td>
+  </tr>
+  <tr>
+    <td>AWS Bedrock</td>
+    <td>❌</td>
+    <td>Not supported.</td>
+  </tr>
+  <tr>
+    <td>RHOAI / RHEL AI (vLLM)</td>
+    <td>❌</td>
+    <td>OpenAI-compat Chat Completions; no native file_search.</td>
+  </tr>
+</table>
+<p>
+  Even on OpenAI Responses, the corpus lives in the <b>provider’s</b> vector store, not
+  in LCORE BYOK/OKP. Most of the supported set has no native file_search at all.
+</p>
+
+<h3>3.2 Options</h3>
+<table>
+  <tr>
+    <th>Option</th>
+    <th>What it is</th>
+    <th>Pros</th>
+    <th>Cons</th>
+  </tr>
+  <tr>
+    <td><b>A. LCORE custom tool</b> (preferred)</td>
+    <td>Register an <code>@agent.tool</code> (or capability) that calls LCORE vector search / BYOK / OKP</td>
+    <td>Same on all supported providers; reuses existing retrieval; filters, max_chunks, auth stay in LCORE</td>
+    <td>We own latency, failures, and result formatting</td>
+  </tr>
+  <tr>
+    <td>B. PAI <code>FileSearchTool</code> (native)</td>
+    <td><code>NativeTool(FileSearchTool(file_store_ids=[…]))</code> where the provider hosts it</td>
+    <td>Less retrieval code on OpenAI Responses (and some Azure)</td>
+    <td>Missing on VertexAI / WatsonX / Bedrock / vLLM; corpus is not LCORE BYOK; conflicts with dropping OGX vector-store proxy</td>
+  </tr>
+  <tr>
+    <td>C. Mix A + B</td>
+    <td>Dual implementation</td>
+    <td>Possible latency win on OpenAI</td>
+    <td>Two RAG contracts; harder parity tests — <b>not preferred</b></td>
+  </tr>
+</table>
+
+<div class="pref">
+  <b>Prefer A.</b> Native file_search exists on OpenAI Responses (and possibly some Azure),
+  but LCORE must also serve VertexAI, WatsonX, Bedrock, and vLLM with the same BYOK/OKP
+  corpora. One LCORE retriever (tool + optional inline adapter) is the consistent design.
+</div>
+
+<p>
+  Inline RAG (inject context before the model call) remains a related but separate feature.
+  The important migration point is that the <b>tool</b> form of retrieval replaces what OGX
+  used to execute as native file_search on supporting stacks. Sharing one core retrieve
+  function between inline and tool adapters is fine; both still stay LCORE-owned.
+</p>
+
+<pre><code class="language-python">from pydantic_ai import Agent, RunContext
+from pydantic_ai.tools import Tool
+
+from configuration import configuration
+
+async def file_search(ctx: RunContext[None], query: str) -> dict:
+    sources = list(configuration.rag.retrieval.tool.sources or [])
+    max_chunks = configuration.rag.retrieval.tool.max_chunks
+    return {"chunks": [], "documents": []}
+
+agent = Agent(
+    model,
+    tools=[Tool(file_search, name="file_search")],
+    capabilities=[*existing_capabilities],
+)
+result = await agent.run(prompt)
+</code></pre>
+
+<p>
+  Attach only when tool RAG is enabled. Keep per-request with the agent (same
+  lifecycle as MCP). Inline RAG can share the same retrieve helper.
+</p>
+
+<hr />
+
+<h2>4. MCP (local only)</h2>
+
+<p>
+  MCP servers expose tools over the Model Context Protocol. After OGX removal, LCORE
+  (via pydantic-ai) must connect to those servers <b>from the agent process</b>, advertise
+  their tools to the model, and execute calls when the model requests them — with the same
+  per-request credentials LCORE already supports.
+</p>
+<p>
+  LCORE does <b>not</b> use provider-hosted MCP. Baseline is a <b>local</b> MCP client
+  only, wired as an <code>MCP</code> capability that wraps a configured
+  <code>MCPToolset</code> (see §4.1).
+</p>
+<p>
+  Docs:
+  <a href="https://pydantic.dev/docs/ai/mcp/overview/">MCP overview</a>,
+  <a href="https://pydantic.dev/docs/ai/mcp/client/">MCP client / MCPToolset</a>,
+  <a href="https://pydantic.dev/docs/ai/mcp/client/#per-user-authentication">Per-user authentication</a>.
+</p>
+
+<h3>4.1 MCP capability + MCPToolset</h3>
+<p>
+  Two local entry points; both run tools in the agent process as function tools.
+  The capability’s local path can build an <code>MCPToolset</code> itself, or accept
+  a fully configured one via <code>local=</code>.
+</p>
+
+<table>
+  <tr>
+    <th></th>
+    <th><code>MCP</code> capability alone</th>
+    <th><code>MCPToolset</code> via <code>toolsets=</code></th>
+  </tr>
+  <tr>
+    <td><b>Pros</b></td>
+    <td>
+      Primary PAI entry point; attaches via <code>capabilities=</code> with shields/skills;
+      room for a later <code>native=True</code> without changing the config schema
+    </td>
+    <td>
+      Full client knobs (timeouts, headers, <code>http_client</code>,
+      <code>process_tool_call</code>); local-only by construction
+    </td>
+  </tr>
+  <tr>
+    <td><b>Cons</b></td>
+    <td>
+      Thin client API if used without <code>local=</code>; must keep
+      <code>native=False</code> on LCORE’s supported providers today
+    </td>
+    <td>
+      Parallel attachment path if used bare; no capability-level native upgrade path
+    </td>
+  </tr>
+</table>
+
+<div class="pref">
+  <b>Decision:</b> use <b>both</b> — one <code>MCP</code> capability per configured
+  server with <code>native=False</code> and a fully configured
+  <code>MCPToolset</code> as <code>local=</code>. Attach via
+  <code>capabilities=</code> (the capability’s toolset still flows into
+  <code>Agent.toolsets</code>).
+</div>
+
+<p>
+  That keeps the capability as the agent-facing unit (discovery, future native
+  upgrade) while putting timeouts, headers, and other client options on the
+  toolset LCORE already needs for today’s registry.
+</p>
+
+<pre><code class="language-python">from pydantic_ai import Agent
+from pydantic_ai.capabilities import MCP
+from pydantic_ai.mcp import MCPToolset
+
+from utils.mcp.mcp_headers import build_mcp_headers
+
+# Per HTTP request — same merge as today’s get_mcp_tools / InputToolMCP
+merged = build_mcp_headers(config, mcp_headers, request.headers, token)
+
+mcp_capabilities = []
+for server in configuration.mcp_servers:
+    # skip servers whose configured auth did not resolve for this user
+    toolset_id = f"mcp:{server.name}"
+    toolset = MCPToolset(
+        server.url,
+        id=toolset_id,
+        headers=merged.get(server.name, {}) or None,
+        include_instructions=True,
+        read_timeout=float(server.timeout) if server.timeout else None,
+    )
+    mcp_capabilities.append(
+        MCP(server.url, native=False, local=toolset, id=toolset_id)
+    )
+
+agent = Agent(model, capabilities=[*existing_capabilities, *mcp_capabilities])
+result = await agent.run(prompt)
+</code></pre>
+
+<p>
+  Use <code>headers=</code> on the toolset for the full LCORE merge. A lone bearer
+  drops custom and propagated headers (e.g. <code>x-rh-identity</code>).
+</p>
+
+<h3>4.2 Multi-user authentication</h3>
+<p>
+  LCORE merges per-request credentials in <code>build_mcp_headers</code>
+  (config secrets, <code>MCP-HEADERS</code>, K8s / client / oauth tokens, allowlisted
+  propagated headers such as <code>x-rh-identity</code>) and already builds a new
+  agent per request. Keep doing the same for MCP: construct <b>fresh</b>
+  <code>MCP</code> + <code>MCPToolset</code> pairs with that request’s merged
+  <code>headers=</code> — identical to today’s new <code>InputToolMCP</code>
+  objects in <code>get_mcp_tools</code>. No shared/cached client across users; no
+  new auth architecture.
+  (<a href="https://pydantic.dev/docs/ai/mcp/client/#per-user-authentication">PAI per-user auth</a>)
+</p>
+
+<hr />
+
+<h2>5. Skills and other function tools</h2>
+<p>
+  Agent skills and other custom functions are already modeled as tools that LCORE / the
+  agent executes. Removing OGX does not change that contract: they remain pydantic-ai
+  function tools or capabilities attached to the agent, on the same client-side path as
+  MCP and file_search.
+</p>
+<p>
+  Lifecycle matches MCP: skills are wired when <code>build_agent</code> runs for that
+  request (via <code>_agent_capabilities</code>), not as a long-lived shared toolset
+  across concurrent users. Keep that per-request attachment after OGX removal.
+</p>
+
+<hr />
+
+<h2>6. Parsing agent responses (<code>tool_processor</code>)</h2>
+
+<p>
+  Today, streaming and non-streaming agent helpers
+  (<code>utils/agents/streaming.py</code>, <code>utils/agents/query.py</code>) reduce
+  pydantic-ai message parts into LCORE turn summaries via
+  <code>utils/agents/tool_processor.py</code>. That module has <b>two</b> pipelines:
+</p>
+
+<table>
+  <tr>
+    <th>Part types</th>
+    <th>Processor</th>
+    <th>What LCORE emits today</th>
+  </tr>
+  <tr>
+    <td><code>ToolCallPart</code> / <code>ToolReturnPart</code></td>
+    <td><code>process_function_tool_*</code></td>
+    <td>Generic <code>function_call</code> / <code>function_call_output</code> (string content)</td>
+  </tr>
+  <tr>
+    <td><code>NativeToolCallPart</code> / <code>NativeToolReturnPart</code></td>
+    <td><code>process_native_tool_*</code></td>
+    <td>Typed summaries: <code>file_search_call</code>, <code>mcp_call</code>, <code>mcp_list_tools</code>, <code>web_search_call</code>; plus <code>rag_chunks</code> / <code>referenced_documents</code> for file_search</td>
+  </tr>
+</table>
+
+<p>
+  Under OGX / provider-native tools, <b>file_search and MCP arrive on the native path</b>.
+  <code>summarize_native_tool_call</code> / <code>process_native_tool_result</code> match on
+  <code>FileSearchTool.kind</code> and names prefixed with
+  <code>MCPServerTool.kind:</code>, then run specialized helpers
+  (<code>summarize_file_search_result</code>, <code>summarize_mcp_tool_result</code>, …)
+  that know the provider’s return shape (OpenAI file-search result rows, MCP list vs call
+  payloads).
+</p>
+
+<p>
+  With the preferred baseline — LCORE file_search as an <code>@agent.tool</code> and
+  a local MCP client (<code>MCP</code> + <code>MCPToolset</code>) —
+  <b>file_search and MCP are no longer native</b>.
+  They show up as ordinary function-tool parts:
+  <code>ToolCallPart</code> → LCORE/MCP client executes → <code>ToolReturnPart</code>.
+  The native match arms for <code>FileSearchTool</code> / <code>MCPServerTool</code>
+  simply never fire for those product features.
+</p>
+
+<div class="avoid">
+  <b>If we only flip registration and leave <code>tool_processor</code> unchanged:</b>
+  MCP and file_search collapse into generic
+  <code>function_call</code> / <code>function_call_output</code>. SSE and conversation
+  turn summaries lose typed <code>mcp_*</code> / <code>file_search_call</code> events,
+  and <code>rag_chunks</code> / <code>referenced_documents</code> stop being filled from
+  the native file-search parser.
+</div>
+
+<h3>6.1 What must move to the function-tool path</h3>
+<table>
+  <tr>
+    <th>Feature</th>
+    <th>Today (native)</th>
+    <th>After switch (function tools)</th>
+  </tr>
+  <tr>
+    <td>file_search</td>
+    <td>
+      <code>NativeTool*</code> + <code>FileSearchTool.kind</code> →
+      <code>type="file_search_call"</code>, parse OpenAI-shaped
+      <code>results</code> into <code>RAGChunk</code> /
+      <code>ReferencedDocument</code>
+    </td>
+    <td>
+      <code>ToolCallPart</code> / <code>ToolReturnPart</code> for the LCORE tool name.
+      Return payload must be a known shape (or the tool must return structured data)
+      so a <b>new</b> function-tool summarizer can rebuild the same RAG fields —
+      not <code>part.model_response_str()</code> alone.
+    </td>
+  </tr>
+  <tr>
+    <td>MCP</td>
+    <td>
+      Native name <code>mcp:…</code> + <code>action</code> /
+      <code>tool_args</code> → <code>mcp_list_tools</code> or <code>mcp_call</code>
+    </td>
+    <td>
+      Local MCP client exposes each remote tool as a normal function tool
+      (tool name = MCP tool name, not <code>MCPServerTool.kind:label</code>).
+      Need naming / metadata conventions (e.g. server label, list vs call) if API
+      clients still expect <code>type="mcp_call"</code> / <code>mcp_list_tools</code>.
+    </td>
+  </tr>
+</table>
+
+<h3>6.2 Practical migration notes for <code>tool_processor</code></h3>
+<ul>
+  <li>
+    Extend <code>summarize_function_tool_call</code> /
+    <code>summarize_function_tool_result</code> (or add LCORE-specific helpers) to
+    recognize the file_search tool and MCP tools by <b>name / return schema</b>, and
+    emit the same <code>ToolCallSummary</code> / <code>ToolResultSummary</code> types
+    the UI and <code>/v2/conversations</code> already consume.
+  </li>
+  <li>
+    Move RAG document/chunk extraction off
+    <code>OpenAIFileSearchResult</code> / native content dicts onto whatever the LCORE
+    retriever returns from the function tool (reuse
+    <code>build_referenced_document</code> / <code>rag_chunks_from_*</code> ideas with
+    LCORE’s own hit shape).
+  </li>
+  <li>
+    Native handlers for <code>FileSearchTool</code> / <code>MCPServerTool</code> become
+    unused for the product path (safe to keep briefly for leftover history, or delete
+    once nothing emits those parts). <code>WebSearchTool</code> is unrelated unless we
+    also move it client-side.
+  </li>
+  <li>
+    Message history for the next turn will store
+    <code>ToolCallPart</code> / <code>ToolReturnPart</code> for these features, not
+    <code>NativeTool*</code> — that is correct for continuation; the API projection
+    layer is what must be taught the new shapes.
+  </li>
+</ul>
+
+<hr />
+
+<h2>7. Preferred stack (summary)</h2>
+<table>
+  <tr>
+    <th>Concern</th>
+    <th>Preferred</th>
+    <th>Avoid as default</th>
+    <th>Why</th>
+  </tr>
+  <tr>
+    <td>file_search</td>
+    <td>LCORE function tool over shared retriever</td>
+    <td>Native <code>FileSearchTool</code> as the only path</td>
+    <td>Native only on OpenAI Responses (maybe some Azure); missing on VertexAI / WatsonX / Bedrock / vLLM; BYOK stays LCORE-owned</td>
+  </tr>
+  <tr>
+    <td>MCP</td>
+    <td>
+      <code>MCP(native=False, local=MCPToolset(...))</code> per server +
+      per-request headers (§4.1)
+    </td>
+    <td>Provider-hosted / <code>native=True</code> MCP; shared client for user tokens</td>
+    <td>
+      Capability for agent attachment / future native option; toolset for client
+      knobs; same path on all supported providers
+    </td>
+  </tr>
+  <tr>
+    <td>Skills</td>
+    <td>Existing function tools / capabilities on per-request agent</td>
+    <td>—</td>
+    <td>Already client-side application logic</td>
+  </tr>
+  <tr>
+    <td>Auth</td>
+    <td>
+      Per-request <code>Agent</code> + fresh <code>MCP</code>/<code>MCPToolset</code>
+      (same as today’s <code>InputToolMCP</code>)
+    </td>
+    <td>Process-global / cached MCP client for user tokens</td>
+    <td>PAI session identity is per client instance; LCORE already isolates per request</td>
+  </tr>
+</table>
+
+<hr />
+
+<h2>8. Doc links (quick index)</h2>
+<ul>
+  <li><a href="providers.md">LCORE supported providers</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/tools-toolsets/tools">Function tools</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/tools-toolsets/native-tools/#file-search-tool">FileSearchTool provider support</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/mcp/overview/">MCP overview</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/mcp/client/">MCPToolset client</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/mcp/client/#per-user-authentication">Per-user MCP authentication</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/api/pydantic-ai/messages/">Message / part types</a></li>
+</ul>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/python.min.js"></script>
+<script>hljs.highlightAll();</script>
+
+</body>
+</html>

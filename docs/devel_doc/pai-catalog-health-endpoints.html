@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PAI migration — catalog &amp; health endpoints</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" />
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 13pt;
+      line-height: 1.5;
+      color: #222;
+      max-width: 800px;
+      margin: 24px auto;
+      padding: 0 16px 48px;
+    }
+    h1 { font-size: 26pt; font-weight: bold; margin-bottom: 8px; }
+    h2 { font-size: 20pt; font-weight: bold; margin-top: 28px; margin-bottom: 8px; }
+    h3 { font-size: 16pt; font-weight: bold; margin-top: 18px; margin-bottom: 6px; }
+    p, li { margin: 8px 0; }
+    .meta { color: #555; margin-bottom: 16px; }
+    .pref { background: #f3f7f3; border-left: 3px solid #2d6a4f; padding: 8px 10px; margin: 12px 0; }
+    .avoid { background: #faf6f0; border-left: 3px solid #a65d00; padding: 8px 10px; margin: 12px 0; }
+    .open { background: #f0f4fa; border-left: 3px solid #3b5bdb; padding: 8px 10px; margin: 12px 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 10px 0 14px;
+      font-size: 13pt;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eee; }
+    code { font-family: Consolas, "Courier New", monospace; font-size: 13pt; }
+    pre {
+      margin: 12px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    pre code.hljs {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13pt;
+      line-height: 1.4;
+      padding: 12px 14px;
+      background: #f6f8fa;
+    }
+    a { color: #0b57d0; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 24px 0; }
+    .er {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 13pt;
+      white-space: pre;
+      line-height: 1.35;
+      background: #f6f8fa;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      margin: 10px 0 14px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>PAI migration — catalog &amp; health endpoints</h1>
+<p class="meta">Lightspeed Core Stack (LCORE) · OGX removal · Oct 2026</p>
+
+<p>
+  Companion to
+  <a href="pai-providers-registry.html">providers registry</a>.
+  After PAI, inference is in-process — no OGX sidecar.
+  That kills degraded mode and simplifies readiness.
+</p>
+
+<div class="pref">
+  Drop <code>/v1/providers</code>. Keep tools / info / readiness
+  as LCORE-owned. Readiness = local registry + default model.
+  No remote health pings. No degraded mode.
+</div>
+
+<hr />
+
+<h2 id="s1">1. Summary</h2>
+<table>
+  <tr>
+    <th>Endpoint</th>
+    <th>Action</th>
+  </tr>
+  <tr>
+    <td><code>GET /v1/providers</code> (+ <code>/{id}</code>)</td>
+    <td><b>Remove</b></td>
+  </tr>
+  <tr>
+    <td><code>GET /v1/tools</code></td>
+    <td><b>Keep</b> — drop OGX client; MCP + capabilities.
+      File-search catalog → vector-store feature</td>
+  </tr>
+  <tr>
+    <td><code>GET /v1/info</code></td>
+    <td><b>Keep</b> — name + <code>service_version</code> only;
+      drop <code>ogx_version</code></td>
+  </tr>
+  <tr>
+    <td><code>GET /liveness</code></td>
+    <td><b>Unchanged</b></td>
+  </tr>
+  <tr>
+    <td><code>GET /readiness</code></td>
+    <td><b>Rewrite</b> — local
+      <code>ProviderRegistry</code> + default model;
+      delete degraded mode + OGX provider health</td>
+  </tr>
+</table>
+<p>
+  UI inference catalog stays
+  <code>GET /v1/models</code>
+  (<a href="pai-providers-registry.html#s8">registry §8</a>).
+</p>
+
+<hr />
+
+<h2 id="s2">2. <code>GET /v1/providers</code> — remove</h2>
+<p>
+  Today: proxy of <code>client.providers.list()</code> by OGX
+  <code>api</code>. Unused by query / Responses / MCP / RAG.
+  Only internal users: readiness health walk and file-search
+  discovery — both move off this API.
+</p>
+<p>
+  <b>No replacement.</b> Inference →
+  <code>provider_id</code> on <code>/v1/models</code>.
+  Vector stores → their own endpoints.
+</p>
+<p>
+  <b><code>tool_runtime</code> is unnecessary.</b>
+  MCP and file-search are on automatically when configured —
+  not plugin rows:
+</p>
+<ul>
+  <li><b>MCP</b> — <code>mcp_servers</code> →
+    <code>/v1/mcp-servers</code>, <code>/v1/tools</code>,
+    agent toolset. No
+    <code>model-context-protocol</code> provider.</li>
+  <li><b>File-search</b> — LCORE RAG / vector-store path
+    (separate feature). No
+    <code>inline::file-search</code> provider.</li>
+</ul>
+<p>
+  Delete handlers, auth actions, response models, tests.
+  Do not rebuild a multi-API inventory.
+</p>
+
+<hr />
+
+<h2 id="s3">3. <code>GET /v1/tools</code></h2>
+<p>
+  Today: MCP + agent capabilities (local) + file-search via
+  OGX <code>providers.list()</code>
+  (<code>builtin_tools.py</code>).
+</p>
+<p>
+  This feature: <b>remove the OGX client</b>. Keep MCP +
+  capabilities and the response shape. Stop calling
+  <code>get_file_search_tools</code> (OGX-only today).
+  File-search rows return in the vector-store feature from
+  LCORE config — see
+  <a href="pai-tools-mcp-filesearch-summary.html">tools / MCP / file_search</a>.
+</p>
+
+<hr />
+
+<h2 id="s4">4. <code>GET /v1/info</code></h2>
+<p>
+  Today returns <code>ogx_version</code> from
+  <code>inspect.version()</code> and 503s if OGX is down.
+  After: <code>name</code> + <code>service_version</code> only.
+  Delete <code>ogx_version</code> (prefer clean break + OpenAPI
+  regen). No fake backend version.
+</p>
+
+<hr />
+
+<h2 id="s5">5. <code>GET /liveness</code></h2>
+<p>
+  Unchanged (<code>alive: true</code>). Do not fold readiness
+  checks into liveness.
+</p>
+
+<hr />
+
+<h2 id="s6">6. <code>GET /readiness</code></h2>
+
+<h3>6.1 Today → gone</h3>
+<table>
+  <tr>
+    <th>Today</th>
+    <th>Gone</th>
+  </tr>
+  <tr>
+    <td>Startup: OGX connect; on failure
+      <code>allow_degraded_mode</code> →
+      <code>DegradedModeTracker</code></td>
+    <td>Entire degraded mode (tracker, config flag,
+      <code>ls_started_in_degraded_mode</code>,
+      readiness early-return with
+      <code>overall_status=degraded</code>)</td>
+  </tr>
+  <tr>
+    <td>Probe: <code>providers.list()</code> health
+      (all APIs)</td>
+    <td>OGX plugin health walk; vendor HTTP pings on probe</td>
+  </tr>
+  <tr>
+    <td>Default model via
+      <code>client.openai.list()</code> + library reload</td>
+    <td>OGX list + Stack reload “self-heal”</td>
+  </tr>
+</table>
+
+<div class="avoid">
+  Do not reuse degraded mode for vendor 429s or MCP down —
+  request errors, pod stays ready. Never
+  <code>ready: true</code> with LLM unavailable.
+</div>
+
+<h3>6.2 Meaning after PAI</h3>
+<table>
+  <tr>
+    <th>Probe</th>
+    <th>Means</th>
+  </tr>
+  <tr>
+    <td>Liveness</td>
+    <td>Process up</td>
+  </tr>
+  <tr>
+    <td>Readiness</td>
+    <td>Config loaded, registry initialized, default model
+      in <b>local</b> catalog — cheap, no network</td>
+  </tr>
+</table>
+
+<h3>6.3 Startup</h3>
+<div class="er">load config
+→ ProviderRegistry.initialize(inference.providers)  # no chat HTTP
+→ if default set: check_default_model() or abort startup
+→ setup_model_metrics(registry.list_models(llm))
+→ yield</div>
+<p>
+  Fail-fast if registry or default model cannot be built.
+  No degraded flag.
+</p>
+
+<h3>6.4 Probe</h3>
+<p>
+  Keep JSON shape
+  (<code>ready</code>, <code>reason</code>,
+  <code>overall_status</code>, <code>impacts</code>,
+  <code>providers</code>). Stop returning
+  <code>degraded</code>. Prefer remove
+  <code>HealthStatus.DEGRADED</code> with OpenAPI regen.
+</p>
+<pre><code class="language-python"># registry missing → 503 unhealthy
+# check_default_model() false → 503; providers=[default id]
+# else → 200 healthy, providers=[], impacts=null
+#
+# check_default_model: no default → ok;
+# else get(provider).get_llm(model) is not None
+# (local only — replaces check_model_available)</code></pre>
+
+<table>
+  <tr>
+    <th>Field</th>
+    <th>Healthy</th>
+    <th>Unhealthy</th>
+  </tr>
+  <tr>
+    <td><code>ready</code></td>
+    <td>true / 200</td>
+    <td>false / 503</td>
+  </tr>
+  <tr>
+    <td><code>overall_status</code></td>
+    <td><code>healthy</code></td>
+    <td><code>unhealthy</code></td>
+  </tr>
+  <tr>
+    <td><code>providers</code></td>
+    <td><code>[]</code></td>
+    <td>failing default inference id only</td>
+  </tr>
+</table>
+
+<p>
+  <b>Not on this probe:</b> vendor reachability, MCP, vector
+  store / file-search, optional conversation DB.
+</p>
+
+<h3>6.5 Degraded mode disposal</h3>
+<p>
+  Sidecar-era escape hatch (LCORE-1856). Delete
+  <code>degraded_mode.py</code>,
+  <code>allow_degraded_mode</code>, metric, startup branch,
+  readiness early return, docs/examples.
+</p>
+
+<div class="pref">
+  Cannot build default inference → do not take traffic.
+  Fail startup or readiness — never “degraded but ready.”
+</div>
+
+<hr />
+
+<h2 id="s7">7. Code / tests</h2>
+<table>
+  <tr>
+    <th>Area</th>
+    <th>After</th>
+  </tr>
+  <tr>
+    <td>providers.py</td>
+    <td>Removed</td>
+  </tr>
+  <tr>
+    <td>tools.py</td>
+    <td>No OGX; MCP + capabilities</td>
+  </tr>
+  <tr>
+    <td>info.py</td>
+    <td>LCORE only</td>
+  </tr>
+  <tr>
+    <td>health.py / main.py</td>
+    <td>Registry + <code>check_default_model</code>;
+      no degraded</td>
+  </tr>
+  <tr>
+    <td>model metrics</td>
+    <td><code>registry.list_models(llm)</code></td>
+  </tr>
+</table>
+<ul>
+  <li>providers: routes gone; auth tests updated</li>
+  <li>tools: no OGX mock; MCP + capabilities listed</li>
+  <li>info: 200 without backend; no <code>ogx_version</code></li>
+  <li>readiness: default present → 200; missing → 503;
+    no default → 200; no degraded cases</li>
+  <li>startup: registry init failure aborts lifespan</li>
+</ul>
+
+<hr />
+
+<h2 id="s8">8. Out of scope</h2>
+<ul>
+  <li>File-search on <code>/v1/tools</code> + RAG tool
+    (vector-store feature)</li>
+  <li>Optional readiness for DB / MCP</li>
+  <li>Confirm no UI still calls <code>/v1/providers</code></li>
+  <li>Dashboard cleanup for
+    <code>ls_started_in_degraded_mode</code></li>
+</ul>
+
+<hr />
+
+<h2 id="s9">9. Links</h2>
+<ul>
+  <li><a href="pai-providers-registry.html">Providers registry</a></li>
+  <li><a href="pai-tools-mcp-filesearch-summary.html">Tools / MCP / file_search</a></li>
+  <li><a href="openapi.md#get-readiness">OpenAPI — readiness</a></li>
+  <li><a href="../design/low-overhead-deployment-for-server-mode/low-overhead-deployment-for-server-mode.md">Degraded mode history</a></li>
+</ul>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/python.min.js"></script>
+<script>hljs.highlightAll();</script>
+
+</body>
+</html>

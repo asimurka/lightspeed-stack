@@ -1,0 +1,1174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PAI migration — Responses API (LCORE rewrite)</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/styles/github.min.css" />
+  <style>
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 14px;
+      line-height: 1.5;
+      color: #222;
+      max-width: 800px;
+      margin: 24px auto;
+      padding: 0 16px 48px;
+    }
+    h1 { font-size: 22px; margin-bottom: 8px; }
+    h2 { font-size: 17px; margin-top: 28px; margin-bottom: 8px; }
+    h3 { font-size: 15px; margin-top: 18px; margin-bottom: 6px; }
+    p, li { margin: 8px 0; }
+    .meta { color: #555; margin-bottom: 16px; }
+    .pref { background: #f3f7f3; border-left: 3px solid #2d6a4f; padding: 8px 10px; margin: 12px 0; }
+    .avoid { background: #faf6f0; border-left: 3px solid #a65d00; padding: 8px 10px; margin: 12px 0; }
+    .open { background: #f0f4fa; border-left: 3px solid #3b5bdb; padding: 8px 10px; margin: 12px 0; }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 10px 0 14px;
+      font-size: 13px;
+    }
+    th, td {
+      border: 1px solid #999;
+      padding: 6px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    th { background: #eee; }
+    code {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+    }
+    pre {
+      margin: 12px 0;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      overflow-x: auto;
+    }
+    pre code.hljs {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.4;
+      padding: 12px 14px;
+      background: #f6f8fa;
+    }
+    a { color: #0b57d0; }
+    hr { border: none; border-top: 1px solid #ccc; margin: 24px 0; }
+    .ok { color: #1b7a3d; font-weight: bold; }
+    .bad { color: #a12622; font-weight: bold; }
+    .er {
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      white-space: pre;
+      line-height: 1.35;
+      background: #f6f8fa;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      padding: 12px 14px;
+      overflow-x: auto;
+      margin: 10px 0 14px;
+    }
+  </style>
+</head>
+<body>
+
+<h1>PAI migration — Responses API (LCORE rewrite)</h1>
+<p class="meta">Lightspeed Core Stack (LCORE) · OGX removal notes · Oct 2026</p>
+
+<p>
+  How <code>/v1/responses</code> should run after OGX removal: keep the public
+  OpenAI-compatible Responses HTTP contract, replace
+  <code>AsyncOgxClientHolder.get_client().responses.create</code> with a
+  per-request pydantic-ai <code>Agent</code>, and wrap that agent with a
+  Responses input/output adapter.
+</p>
+<p>
+  This document covers the <b>Responses HTTP adapter</b> only — especially
+  preserving today’s client <code>function</code> vs MCP execution split, and
+  projecting PAI results into the Responses envelope. Topics owned by other
+  migration notes are linked, not restated.
+</p>
+
+<hr />
+
+<h2>1. Decision (one sentence)</h2>
+<div class="pref">
+  <b>Recommended:</b> one pydantic-ai agent loop per request, two HTTP
+  projectors (OpenAI Responses envelope vs LCORE query SSE). Preserve today’s
+  OpenResponses tool semantics: request <code>function</code> tools break the
+  loop for the external agent; request and config <code>mcp</code> /
+  <code>file_search</code> / skills execute in-process. Do not keep an OGX
+  Responses pass-through.
+</div>
+<div class="avoid">
+  <b>Avoid:</b> calling OGX <code>responses.create</code> · treating all
+  <code>request.tools</code> as deferred · a homemade conversation copy for
+  <code>previous_response_id</code> · pre-run OGX shield HTTP plus
+  <code>shield_violation_generator</code> · compaction via
+  <code>omit_conversation</code> · adopting PAI
+  <code>Agent.to_responses()</code> as the LCORE endpoint (text-only; hides
+  server tool calls) · per-provider settings translators for common knobs (§8).
+</div>
+
+<hr />
+
+<h2>2. Assumptions (covered elsewhere)</h2>
+<p>
+  By cutover these land in their own docs; Responses is a consumer:
+</p>
+<ul>
+  <li>
+    <a href="pai-providers-registry.html">Providers registry</a> —
+    <code>get_model</code>, profiles, ModelSettings resolver.
+  </li>
+  <li>
+    <a href="pai-prompts-api-migration.html">Prompts</a> —
+    resolve <code>request.prompt</code> → instructions, strip id, echo.
+  </li>
+  <li>
+    <a href="pai-tools-mcp-filesearch-summary.html">Tools / MCP / file_search / skills</a> —
+    local <code>MCP(native=False, local=MCPToolset)</code>, LCORE
+    <code>file_search</code> function tool, skills as capabilities.
+  </li>
+  <li>
+    <a href="pai-conversations-api-redesign.html">Conversations redesign</a> —
+    display store + persist mapper (PAI run → turn items).
+  </li>
+  <li>
+    <a href="pai-compaction-migration.html">Compaction</a> —
+    harness <code>TieredCompaction</code> (Design B), not
+    <code>omit_conversation</code>.
+  </li>
+  <li>
+    <a href="pai-stream-interrupt-migration.html">Stream interrupt</a> —
+    cancel token / interrupted SSE (query path; Responses may share later).
+  </li>
+</ul>
+<p>
+  Query / streaming query share the same agent loop after cutover; only the
+  projector differs (<code>utils/agents/query.py</code>,
+  <code>utils/agents/streaming.py</code>).
+</p>
+
+<hr />
+
+<h2>3. Target architecture</h2>
+
+<p>Request path (non-stream and stream share the middle):</p>
+<div class="er">auth / quota / conversation load
+        │
+        ▼
+prompt resolve → runtime instructions          (prompts doc)
+        │
+        ▼
+registry.get_model(provider_id, model_name)    (providers doc)
+        │
+        ▼
+assemble tools + filter + tool_choice          (§6 — Responses-specific)
+        │
+        ▼
+OpenResponses → ModelSettings + profile resolve (§8)
+        │
+        ▼
+Agent + wrap_run (shields) + TieredCompaction  (compaction doc)
+        │
+        ▼
+Agent.run  /  run_stream_events
+        │
+        ├── projector: OpenAI Responses JSON / SSE     (/v1/responses)
+        └── projector: LCORE query SSE                 (streaming query)
+        │
+        ▼
+persist via conversations mapper               (conversations doc)
+</div>
+
+<p>
+  Always project PAI events into the LCORE Responses envelope for
+  <code>/v1/responses</code>. Do not return raw PAI / OpenAI SDK objects as the
+  public body.
+</p>
+
+<h3>3.1 What the adapter owns vs PAI</h3>
+<table>
+  <tr>
+    <th>Concern</th>
+    <th>LCORE adapter</th>
+    <th>PAI</th>
+  </tr>
+  <tr>
+    <td>HTTP schema, examples, sanitize, telemetry, quota</td>
+    <td>✓</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>OpenAI Responses input → <code>Agent.run</code> args</td>
+    <td>✓</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Parse <code>tools[]</code>; function vs mcp wiring (§6)</td>
+    <td>✓</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>PAI events / result → Responses object or SSE</td>
+    <td>✓</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Echo of applied model, instructions, tools, settings</td>
+    <td>✓</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>OpenResponses → <code>ModelSettings</code> map (§8)</td>
+    <td>✓ (once)</td>
+    <td>wire honor via model + profile</td>
+  </tr>
+  <tr>
+    <td>Post-filter client vs server output (storage / stream)</td>
+    <td>✓ (same as today)</td>
+    <td></td>
+  </tr>
+  <tr>
+    <td>Model call, tool loop, streaming parts</td>
+    <td>wiring</td>
+    <td>✓</td>
+  </tr>
+  <tr>
+    <td>Run persistence (<code>run_id</code>, message history)</td>
+    <td>fork policy (§7)</td>
+    <td>✓</td>
+  </tr>
+</table>
+
+<hr />
+
+<h2>4. What happens to <code>src/app/endpoints/responses.py</code></h2>
+
+<p>
+  Today the handler is an OGX Responses proxy plus LCORE pre/post steps
+  (~1480 lines). After rewrite the file should be a thin FastAPI surface;
+  logic moves into adapter modules (§10).
+</p>
+
+<table>
+  <tr>
+    <th>Today</th>
+    <th>After</th>
+  </tr>
+  <tr>
+    <td>Auth, quota, conversation id, header merge, sanitize, Splunk telemetry</td>
+    <td><span class="ok">keep</span> (rewire conversation load to the new store)</td>
+  </tr>
+  <tr>
+    <td><code>client.responses.create(…)</code> / OGX stream</td>
+    <td><span class="bad">drop</span> → <code>Agent.run</code> / <code>run_stream_events</code></td>
+  </tr>
+  <tr>
+    <td><code>run_shield_moderation_v2</code> before the model</td>
+    <td><span class="bad">drop</span> → wrap_run capabilities (§5)</td>
+  </tr>
+  <tr>
+    <td><code>shield_violation_generator</code> SSE</td>
+    <td><span class="bad">drop</span> → projector emits a completed refusal</td>
+  </tr>
+  <tr>
+    <td>Compaction via <code>omit_conversation</code></td>
+    <td><span class="bad">drop</span> →
+      <a href="pai-compaction-migration.html">TieredCompaction</a></td>
+  </tr>
+  <tr>
+    <td><code>prepare_tools</code>, merge header, allowed-tools filter, MCP output filter</td>
+    <td><span class="ok">keep semantics</span>; rewire onto PAI toolsets (§6)</td>
+  </tr>
+  <tr>
+    <td><code>previous_response_id</code> as OGX chaining</td>
+    <td>tip → <code>continue_run</code>; not tip → <code>fork_run</code> + LCORE ids (§7)</td>
+  </tr>
+  <tr>
+    <td>Stored prompt as OGX <code>prompt.id</code></td>
+    <td>resolve → instructions (prompts doc)</td>
+  </tr>
+</table>
+
+<hr />
+
+<h2>5. Shields as wrap_run capabilities</h2>
+<p>
+  Input and output moderation run inside the agent, not as a second HTTP
+  round-trip to OGX. Existing LCORE capabilities
+  (<code>QuestionValidity</code>, Granite Guardian, <code>PiiRedaction</code>)
+  wrap <code>Agent.run</code> / stream. Order: shields outermost so a refusal
+  never starts (or continues) the model loop.
+</p>
+<div class="pref">
+  <b>Recommended:</b> capability refuses → projector still returns a
+  <b>completed</b> Responses object (or stream that ends in
+  <code>response.completed</code>) with a refusal payload. Persist that as a
+  normal turn.
+</div>
+<div class="avoid">
+  <b>Avoid:</b> keeping <code>run_shield_moderation_v2</code> plus the agent ·
+  a dedicated <code>shield_violation_generator</code> · failing the HTTP
+  request with 4xx for a content-policy refusal.
+</div>
+
+<hr />
+
+<h2>6. Tools — preserve today’s OGX Responses semantics</h2>
+<p>
+  How to <b>register and discover</b> MCP, file_search, and skills is in
+  <a href="pai-tools-mcp-filesearch-summary.html">pai-tools-mcp-filesearch-summary.html</a>.
+  This section is only what <code>/v1/responses</code> must preserve from today’s
+  OGX pass-through: who executes which OpenResponses tool type, and how the
+  external agent resumes.
+</p>
+
+<h3>6.1 What OGX does today (baseline to keep)</h3>
+<p>
+  LCORE resolves / merges <code>tools</code>, then forwards the OpenResponses
+  tool list to <code>client.responses.create</code>. OGX owns the loop:
+</p>
+<table>
+  <tr>
+    <th>OpenResponses <code>tools[]</code> entry</th>
+    <th>Who executes</th>
+    <th>Public result</th>
+  </tr>
+  <tr>
+    <td><code>type: "function"</code> (from request)</td>
+    <td><b>External agent</b> — loop breaks</td>
+    <td><code>function_call</code>; next request brings
+      <code>function_call_output</code></td>
+  </tr>
+  <tr>
+    <td><code>type: "mcp"</code> (request or config)</td>
+    <td><b>Backend</b> connects to <code>server_url</code> and runs</td>
+    <td><code>mcp_call</code> / <code>mcp_list_tools</code> (with output)</td>
+  </tr>
+  <tr>
+    <td><code>type: "file_search"</code> (config / request)</td>
+    <td><b>Backend</b></td>
+    <td><code>file_search_call</code></td>
+  </tr>
+</table>
+<p>
+  LCORE’s “client vs server” split today is <b>post-hoc filtering</b> for
+  storage / metrics / stream (<code>is_server_deployed_output</code>), not a
+  different execution path for MCP:
+</p>
+<ul>
+  <li><code>function_call</code> → always client (pass through; skip turn summary).</li>
+  <li><code>mcp_*</code> with <code>server_label</code> in LCORE config → server.</li>
+  <li><code>mcp_*</code> with any other label → client for filter only (still executed by the backend if reachable).</li>
+</ul>
+<p>
+  <code>X-LCS-Merge-Server-Tools: true</code> only changes which tools are
+  <b>sent</b> into the loop (client list ∪ config list + 409 on conflicts). See
+  <a href="responses.md#server-tool-merging">responses.md § Server-Tool Merging</a>.
+</p>
+
+<h3>6.2 PAI wiring that preserves that</h3>
+<table>
+  <tr>
+    <th>Source</th>
+    <th>PAI attachment</th>
+    <th>Loop behavior</th>
+  </tr>
+  <tr>
+    <td>Request <code>type: "function"</code></td>
+    <td><code>ExternalToolset</code> from <code>name</code> /
+      <code>description</code> / <code>parameters</code></td>
+    <td>Ends with <code>DeferredToolRequests</code> → project
+      <code>function_call</code></td>
+  </tr>
+  <tr>
+    <td>Request <code>type: "mcp"</code></td>
+    <td><code>MCP(native=False, local=MCPToolset(server_url, …))</code>
+      — same as config MCP</td>
+    <td>Execute in-loop; project <code>mcp_call</code>; mark label
+      non-config for post-filter</td>
+  </tr>
+  <tr>
+    <td>Config MCP / skills / file_search</td>
+    <td>As in tools doc</td>
+    <td>Execute in-loop</td>
+  </tr>
+</table>
+<div class="avoid">
+  <b>Avoid:</b> putting request <code>mcp</code> tools on
+  <code>ExternalToolset</code> (that would change today’s semantics — OGX
+  executes them). Only <code>function</code> tools are deferred to the
+  external agent.
+</div>
+
+<pre><code class="language-python"># Parse OpenResponses tools (discriminator = type)
+external_defs: list[ToolDefinition] = []
+request_mcp_caps: list[MCP] = []
+client_mcp_labels: set[str] = set()
+
+for tool in request.tools or []:
+    if tool.type == "function":
+        external_defs.append(ToolDefinition(
+            name=tool.name,
+            description=tool.description,
+            parameters_json_schema=tool.parameters or {"type": "object", "properties": {}},
+        ))
+    elif tool.type == "mcp":
+        # Execute in-process (preserve OGX). Do not defer.
+        client_mcp_labels.add(tool.server_label)
+        request_mcp_caps.append(MCP(
+            tool.server_url,
+            native=False,
+            local=MCPToolset(
+                tool.server_url,
+                id=f"mcp:{tool.server_label}",
+                headers=resolved_headers_for(tool),
+            ),
+            id=f"mcp:{tool.server_label}",
+        ))
+    # file_search / web_search: existing LCORE rules (BYOK translate, conflicts, …)
+
+# Config MCP + skills + file_search from tools doc; merge header ∪ as today; 409 on conflicts
+
+agent = Agent(
+    model,
+    instructions=instructions,
+    capabilities=[*server_caps, *request_mcp_caps, skills],
+    toolsets=[ExternalToolset(external_defs, id="client")] if external_defs else [],
+    output_type=[str, DeferredToolRequests],  # needed when function tools present
+)
+
+result = await agent.run(
+    prompt,
+    message_history=history,
+    conversation_id=conversation_id,
+    run_id=str(uuid4()),  # always mint; never reuse previous_response_id
+    deferred_tool_results=deferred_from_function_call_outputs(request.input),
+)</code></pre>
+
+<h3>6.3 Resume (external agent, function tools only)</h3>
+<p>
+  Unchanged wire contract. After a response that includes
+  <code>function_call</code>, the external agent runs the tool and POSTs again:
+</p>
+<pre><code class="language-json">{
+  "previous_response_id": "&lt;prior run_id&gt;",
+  "input": [
+    { "type": "function_call_output", "call_id": "fc_1", "output": "…" }
+  ],
+  "tools": [ /* same function (+ optional mcp) declarations as needed */ ]
+}</code></pre>
+<p>
+  Adapter: tip → <code>continue_run</code> + new <code>run_id</code>; map
+  <code>function_call_output</code> items →
+  <code>DeferredToolResults(calls={call_id: output})</code>. Client MCP does
+  not use this path when it was executed in-loop.
+</p>
+
+<h3>6.4 <code>tool_choice</code> and filters</h3>
+<p>
+  Keep today’s LCORE resolution
+  (<code>resolve_tool_choice</code> / <code>resolve_client_tool_choice</code>,
+  allowed-tools filter, <code>tool_choice=none</code> → no tools). After
+  assembly, map onto PAI <code>PrepareTools</code> / first-step
+  <code>tool_choice</code> callable using profile flags from the providers
+  registry — do not special-case backends here.
+</p>
+
+<h3>6.5 Output filter (unchanged product rule)</h3>
+<p>
+  Keep <code>is_server_deployed_output</code> behavior when merge streaming is
+  on: hide server MCP noise from the client stream; pass through
+  <code>function_call</code> and non-config MCP labels; exclude client items
+  from turn summary / metrics / storage.
+</p>
+
+<hr />
+
+<h2>7. <code>previous_response_id</code> — continue vs fork</h2>
+<p>
+  Display CRUD and the turn model live in
+  <a href="pai-conversations-api-redesign.html">conversations redesign</a>.
+  Agent history snapshots and compaction interaction are in
+  <a href="pai-compaction-migration.html">compaction</a>. Responses owns the
+  tip-vs-fork policy for <code>previous_response_id</code> (same rule as
+  today’s <code>resolve_response_context</code>).
+</p>
+<p>
+  LCORE always mints <code>conversation_id</code> and <code>run_id</code> into
+  <code>Agent.run</code>. Public <code>response.id</code> is that
+  <code>run_id</code>. <code>continue_run</code> / <code>fork_run</code> only
+  load messages; they do not assign ids.
+</p>
+<table>
+  <tr>
+    <th>Request</th>
+    <th>History</th>
+    <th><code>conversation_id</code></th>
+    <th><code>run_id</code></th>
+  </tr>
+  <tr>
+    <td>No conversation / previous response</td>
+    <td><code>None</code></td>
+    <td>mint</td>
+    <td>mint → <code>response.id</code></td>
+  </tr>
+  <tr>
+    <td>Continue: request <code>conversation</code>, or
+      <code>previous_response_id == last_response_id</code></td>
+    <td><code>continue_run(store, run_id=prior_run_id)</code></td>
+    <td><b>keep</b></td>
+    <td>mint (must not already appear in history)</td>
+  </tr>
+  <tr>
+    <td>Fork: <code>previous_response_id != last_response_id</code></td>
+    <td><code>fork_run(store, run_id=previous_response_id)</code></td>
+    <td><b>mint new</b> (explicit string, not <code>'new'</code>, not omitted)</td>
+    <td>mint</td>
+  </tr>
+</table>
+<pre><code class="language-python"># tip: linear continue
+history = await continue_run(store, run_id=previous_response_id)
+result = await agent.run(
+    prompt, message_history=history,
+    conversation_id=existing_conv_id, run_id=str(uuid4()),
+)
+
+# not tip: fork off that snapshot
+history = await fork_run(store, run_id=previous_response_id)
+result = await agent.run(
+    prompt, message_history=history,
+    conversation_id=str(uuid4()), run_id=str(uuid4()),
+)</code></pre>
+<div class="avoid">
+  <b>Avoid:</b>
+  <code>conversation_id='new'</code> · omitting <code>conversation_id</code>
+  after <code>fork_run</code> (inherits parent thread) ·
+  <code>fork_run</code> on every <code>previous_response_id</code> · reusing
+  <code>previous_response_id</code> as <code>run_id</code> · conversation-head
+  overwrite only (mid-chain fork cannot load).
+</div>
+
+<hr />
+
+<h2 id="s8">8. OpenResponses settings → provider ModelSettings</h2>
+<p>
+  How advanced OpenResponses request fields become per-backend knobs.
+  Profile tables and <code>resolve_model_settings</code> live in
+  <a href="pai-providers-registry.html#s7">pai-providers-registry.html §7</a>;
+  this section is the Responses-side mapping policy.
+</p>
+
+<div class="pref">
+  <b>Decision:</b> one OpenResponses → PAI <code>ModelSettings</code>
+  translator, then profile resolve. Do <b>not</b> write a separate settings
+  translator per inference provider for common knobs
+  (<code>temperature</code>, <code>max_tokens</code>, …). PAI’s model class
+  already puts supported <code>ModelSettings</code> keys on that provider’s
+  wire; the profile says what the model id can honor.
+</div>
+
+<h3>8.1 Layers</h3>
+<div class="er">OpenResponses request fields
+        │
+        ▼
+LCORE: one translator (§8.2–§8.4)
+  → shared ModelSettings (+ rare openai_* / thinking)
+  → agent output_type from text.format (§8.4)
+  → agent args for tools / input / conversation
+        │
+        ▼
+resolve_model_settings(profile, requested)     (providers doc)
+  drop unsupported + warnings; 400 only cannot-start / output-contract
+  (incl. text.format the profile cannot honor)
+        │
+        ▼
+Agent(..., output_type=…)
+Agent.run(..., model_settings=applied)
+        │
+        ▼
+PAI Model class → provider wire (automatic per model type)
+</div>
+
+<h3>8.2 Field map (Responses owns this once)</h3>
+<table>
+  <tr>
+    <th>OpenResponses field</th>
+    <th>Maps to</th>
+    <th>Notes</th>
+  </tr>
+  <tr>
+    <td><code>temperature</code>, <code>top_p</code>, penalties, …</td>
+    <td>same-named <code>ModelSettings</code></td>
+    <td>Shared PAI knobs</td>
+  </tr>
+  <tr>
+    <td><code>max_output_tokens</code></td>
+    <td><code>max_tokens</code></td>
+    <td>Rename (same as today’s
+      <code>_model_settings_from_responses_params</code>)</td>
+  </tr>
+  <tr>
+    <td><code>parallel_tool_calls</code></td>
+    <td><code>parallel_tool_calls</code></td>
+    <td>Profile may drop if unsupported</td>
+  </tr>
+  <tr>
+    <td><code>reasoning.effort</code> (and related)</td>
+    <td><code>thinking</code> and/or
+      <code>openai_reasoning_effort</code></td>
+    <td>Profile decides if honored; do not special-case backends in the
+      adapter beyond this map</td>
+  </tr>
+  <tr>
+    <td>OpenAI-Responses-only knobs
+      (verbosity, truncation, …)</td>
+    <td><code>openai_*</code> on
+      <code>OpenAIResponsesModelSettings</code></td>
+    <td>Only when the resolved model is actually OpenAI
+      Responses–shaped; otherwise drop + warn</td>
+  </tr>
+  <tr>
+    <td><code>tools</code> / <code>tool_choice</code></td>
+    <td>agent toolsets / PrepareTools (§6)</td>
+    <td><b>Not</b> ModelSettings</td>
+  </tr>
+  <tr>
+    <td><code>previous_response_id</code> /
+      <code>conversation</code></td>
+    <td><code>continue_run</code> / <code>fork_run</code> (§7)</td>
+    <td>Not <code>openai_previous_response_id</code> after OGX removal</td>
+  </tr>
+  <tr>
+    <td><code>instructions</code> / <code>prompt</code></td>
+    <td>agent <code>instructions</code></td>
+    <td>Prompts doc</td>
+  </tr>
+  <tr>
+    <td><code>input</code> / items</td>
+    <td>prompt + deferred results (§6.3)</td>
+    <td>Not settings</td>
+  </tr>
+  <tr>
+    <td><code>text.format</code></td>
+    <td>agent <code>output_type</code> (§8.4)</td>
+    <td><b>Not</b> ModelSettings (except
+      <code>text.verbosity</code>)</td>
+  </tr>
+  <tr>
+    <td><code>text.verbosity</code></td>
+    <td><code>openai_text_verbosity</code></td>
+    <td>OpenAI Responses–shaped models only; else drop + warn</td>
+  </tr>
+</table>
+
+<h3>8.3 Responses as client of the resolver</h3>
+<ol>
+  <li>Accept any settings that pass the public Pydantic request schema
+    (do not 400 only because a backend “usually ignores” a field).</li>
+  <li>
+    Map once (§8.2) → call
+    <code>get_model_profile</code> +
+    <code>resolve_model_settings</code> →
+    <code>ModelSettings</code> for <code>Agent.run</code>.
+  </li>
+  <li>Echo the <b>applied</b> (resolved) values on the Responses object,
+    not the raw request blob.</li>
+  <li>Surface coercions / drops as warnings (response
+    <code>warning</code> / log), not silent omission.</li>
+  <li>HTTP 400 only for cannot-start or output-contract. Shield refusals
+    stay completed (§5).</li>
+</ol>
+
+<div class="avoid">
+  <b>Avoid:</b>
+  a Bedrock / WatsonX / vLLM / Vertex settings translator each ·
+  stuffing the whole Responses body into <code>extra_body</code> on every
+  backend · catching PAI <code>UserError</code> to probe capability ·
+  forwarding <code>openai_previous_response_id</code> /
+  <code>openai_native_tools</code> as the post-OGX continuation or tools
+  path (LCORE owns those via §6–§7).
+</div>
+
+<p>
+  Seed code today:
+  <code>src/pydantic_ai_lightspeed/ogx/_model.py</code>
+  (<code>_model_settings_from_responses_params</code>) — retarget from
+  OGX-oriented <code>OpenAIResponsesModelSettings</code> +
+  <code>extra_body</code> toward unified <code>ModelSettings</code> plus the
+  narrow <code>openai_*</code> set above. Today
+  <code>text</code> is stuffed into <code>extra_body</code> for OGX; after
+  cutover it becomes <code>output_type</code> (§8.4), not
+  <code>extra_body</code>.
+</p>
+
+<h3>8.4 <code>text</code> attribute in practice</h3>
+<p>
+  OpenResponses shape (from
+  <a href="responses.md#text"><code>responses.md</code></a> /
+  <code>OpenAIResponseText</code>):
+</p>
+<pre><code class="language-json">{
+  "text": {
+    "format": {
+      "type": "text" | "json_object" | "json_schema",
+      "name": "…",           // json_schema
+      "description": "…",    // json_schema
+      "schema": { … },       // json_schema (JSON Schema object)
+      "strict": true         // json_schema
+    },
+    "verbosity": "low" | "medium" | "high"   // optional; default medium
+  }
+}</code></pre>
+<p>
+  <b>Important:</b> <code>format</code> selects the agent’s
+  <code>output_type</code>. Only <code>verbosity</code> is a model setting
+  (<code>openai_text_verbosity</code>). Do not forward
+  <code>text</code> via <code>extra_body</code> after OGX removal.
+</p>
+
+<h4>8.4.1 Format → <code>output_type</code></h4>
+<table>
+  <tr>
+    <th><code>text.format.type</code></th>
+    <th>PAI wiring</th>
+    <th>Profile gate</th>
+  </tr>
+  <tr>
+    <td>omitted / <code>"text"</code></td>
+    <td><code>output_type=str</code> (or
+      <code>[str, DeferredToolRequests]</code> when client function tools
+      are present — §6)</td>
+    <td>always OK</td>
+  </tr>
+  <tr>
+    <td><code>"json_object"</code></td>
+    <td>Free-form JSON object. Prefer
+      <code>NativeOutput(StructuredDict({"type":"object","additionalProperties":True}, name=…))</code>
+      when <code>supports_json_object_output</code> (or native JSON schema);
+      else <code>PromptedOutput(…)</code> with a “return a JSON object”
+      template. No fixed property schema from the client.</td>
+    <td><code>supports_json_object_output</code> or prompted fallback;
+      400 only if profile says cannot-start / no prompted path</td>
+  </tr>
+  <tr>
+    <td><code>"json_schema"</code></td>
+    <td>
+<pre style="margin:0;border:none;background:transparent;padding:0">schema_type = StructuredDict(
+    format.schema,
+    name=format.name,
+    description=format.description,
+)
+# pick mode from profile.default_structured_output_mode
+# and capability flags:
+if profile.supports_json_schema_output:
+    out = NativeOutput(schema_type, name=…, description=…,
+                       strict=format.strict)
+elif mode == "tool":
+    out = ToolOutput(schema_type, name=…, strict=format.strict)
+else:
+    out = PromptedOutput(schema_type, name=…, description=…)
+output_type = [out, DeferredToolRequests]  # if client functions
+# else output_type = out</pre>
+    </td>
+    <td><code>supports_json_schema_output</code> for native;
+      else tool/prompted per
+      <code>default_structured_output_mode</code>.
+      Missing/invalid <code>schema</code> → 400.
+      Profile cannot honor any mode → 400 output-contract.</td>
+  </tr>
+</table>
+
+<pre><code class="language-python">def output_type_from_text(text, *, need_deferred: bool):
+    """Map OpenResponses text → Agent output_type."""
+    fmt = None if text is None else text.format
+    kind = None if fmt is None else fmt.type
+
+    if kind is None or kind == "text":
+        base: object = str
+    elif kind == "json_object":
+        base = NativeOutput(  # or PromptedOutput if profile requires
+            StructuredDict(
+                {"type": "object", "additionalProperties": True},
+                name="json_object",
+            )
+        )
+    elif kind == "json_schema":
+        if not fmt.schema:
+            raise cannot_start("text.format.schema required")
+        schema_type = StructuredDict(
+            fmt.schema, name=fmt.name, description=fmt.description
+        )
+        base = NativeOutput(
+            schema_type,
+            name=fmt.name,
+            description=fmt.description,
+            strict=fmt.strict,
+        )  # swap for ToolOutput / PromptedOutput per profile
+    else:
+        raise cannot_start(f"unsupported text.format.type: {kind}")
+
+    if need_deferred:
+        return [base, DeferredToolRequests]
+    return base
+
+# settings side (only verbosity):
+if text and text.verbosity is not None:
+    model_settings["openai_text_verbosity"] = text.verbosity
+</code></pre>
+
+<h4>8.4.2 Projector / public envelope</h4>
+<p>
+  OpenResponses still returns a normal
+  <code>message</code> / <code>output_text</code> item. For
+  <code>json_object</code> / <code>json_schema</code>, put the serialized
+  JSON (from <code>result.output</code>) in
+  <code>output_text.text</code> — same shape clients see today through OGX.
+  Do not invent a separate structured-output item type on the wire.
+</p>
+<ul>
+  <li>Plain text → <code>str(result.output)</code> in <code>output_text</code>.</li>
+  <li>Structured → <code>json.dumps(result.output)</code> (dict from
+    <code>StructuredDict</code> / model dump) in <code>output_text</code>.</li>
+  <li>Deferred function calls still take precedence as
+    <code>function_call</code> items when
+    <code>result.output</code> is <code>DeferredToolRequests</code> (§6 / §10).</li>
+</ul>
+
+<div class="avoid">
+  <b>Avoid:</b> mapping <code>text</code> into <code>ModelSettings.extra_body</code> ·
+  requiring a Pydantic model class per client schema (use
+  <code>StructuredDict</code>) · 400 on every backend that lacks native JSON
+  schema when prompted/tool mode would work · treating
+  <code>verbosity</code> as cross-provider (it is <code>openai_*</code> only).
+</div>
+
+<hr />
+
+<h2>9. Input adapter (Responses JSON → agent)</h2>
+<table>
+  <tr>
+    <th>Request field</th>
+    <th>Agent / run</th>
+  </tr>
+  <tr>
+    <td><code>model</code></td>
+    <td><code>registry.get_model</code> (providers doc)</td>
+  </tr>
+  <tr>
+    <td><code>input</code></td>
+    <td>user prompt + items; <code>function_call_output</code> →
+      <code>DeferredToolResults</code> (§6.3)</td>
+  </tr>
+  <tr>
+    <td><code>instructions</code> / stored prompt</td>
+    <td>runtime instructions (prompts doc)</td>
+  </tr>
+  <tr>
+    <td><code>tools</code></td>
+    <td>function → <code>ExternalToolset</code>; mcp →
+      <code>MCP</code>+<code>MCPToolset</code> (§6)</td>
+  </tr>
+  <tr>
+    <td>sampling / thinking / …</td>
+    <td>OpenResponses → <code>ModelSettings</code> + profile resolve (§8)</td>
+  </tr>
+  <tr>
+    <td><code>text</code></td>
+    <td><code>output_type</code> from <code>format</code>;
+      <code>verbosity</code> → <code>openai_text_verbosity</code> (§8.4)</td>
+  </tr>
+  <tr>
+    <td><code>previous_response_id</code></td>
+    <td>tip <code>continue_run</code> / fork <code>fork_run</code> (§7)</td>
+  </tr>
+  <tr>
+    <td><code>conversation</code></td>
+    <td>display / agent history load (conversations doc)</td>
+  </tr>
+  <tr>
+    <td><code>stream</code></td>
+    <td>always <code>run_stream_events</code>; SSE vs buffered JSON (§10.2)</td>
+  </tr>
+</table>
+<p>
+  Keep today’s sanitization (strip secrets from echoes, bound sizes) on the
+  way in and out.
+</p>
+
+<hr />
+
+<h2>10. Output adapter (agent → Responses)</h2>
+<p>
+  Goal: consume PAI run streaming events and produce an async iterator of
+  OpenResponses-compatible events on the fly (then optionally SSE-encode
+  them). Do <b>not</b> mount PAI <code>Agent.to_responses()</code> (not
+  shipped for our pin; text-only; hides in-loop tools). Do not put the
+  projector on the agent — Agent has no projector slot.
+</p>
+
+<div class="pref">
+  <b>Recommended:</b> subclass PAI
+  <code>UIEventStream</code>
+  (<code>from pydantic_ai.ui import UIEventStream</code>, impl in
+  <code>pydantic_ai.ui._event_stream</code>) as
+  <code>OpenResponsesEventStream</code>. LCORE keeps building the agent and
+  run kwargs (§6–§9); the stream class only transforms. A full
+  <code>UIAdapter</code> is optional — useful later if we want
+  <code>dispatch_request</code>, but not required for the projector.
+</div>
+
+<h3>10.1 How <code>UIEventStream</code> works</h3>
+<p>
+  Template-method dispatcher. You override fine-grained
+  <code>handle_*</code> hooks (and abstract <code>encode_event</code>).
+  You call only <code>transform_stream</code> (and optionally
+  <code>encode_stream</code>). The base class invokes your overrides.
+</p>
+<div class="er">agent.run_stream_events(...)          → AsyncIterator[NativeEvent]
+        │
+        ▼
+OpenResponsesEventStream.transform_stream(native)
+        │
+        ├─ before_stream()              → e.g. response.created
+        ├─ for each NativeEvent:
+        │     handle_event(event)       # base match/dispatch
+        │       → handle_part_start/delta/end
+        │           → handle_text_* / handle_tool_call_* / …
+        │       → handle_function_tool_* / handle_run_result / …
+        ├─ on_error / on_cancelled
+        └─ after_stream()
+        │
+        ▼
+AsyncIterator[OpenResponses event objects]
+        │  optional encode_stream / encode_event
+        ▼
+SSE strings (text/event-stream)</div>
+<p>
+  Important hooks for Responses: <code>before_stream</code>,
+  <code>handle_text_start/delta/end</code>,
+  <code>handle_tool_call_*</code> /
+  <code>handle_function_tool_*</code> (server-executed tools vs deferred
+  client functions), <code>handle_run_result</code> (completed /
+  <code>DeferredToolRequests</code>), <code>on_error</code>,
+  <code>encode_event</code>. Docs:
+  <a href="https://pydantic.dev/docs/ai/api/ui/base/#pydantic_ai.ui.UIEventStream">UIEventStream API</a>.
+</p>
+
+<h3>10.2 Unify stream and non-stream</h3>
+<p>
+  PAI has no “<code>AgentRunResult</code> → one Responses JSON” helper.
+  Do <b>not</b> keep a second mapper for <code>stream=false</code>.
+  Both HTTP modes use the same agent API and the same
+  <code>OpenResponsesEventStream</code>. The request flag only chooses
+  <b>packaging</b>.
+</p>
+<table>
+  <tr>
+    <th></th>
+    <th><code>stream=true</code></th>
+    <th><code>stream=false</code></th>
+  </tr>
+  <tr>
+    <td>Agent</td>
+    <td colspan="2"><code>run_stream_events</code> (always)</td>
+  </tr>
+  <tr>
+    <td>Transform</td>
+    <td colspan="2"><code>transform_stream</code> → OpenResponses events</td>
+  </tr>
+  <tr>
+    <td>HTTP</td>
+    <td><code>encode_stream</code> → SSE</td>
+    <td>buffer events; return the completed Responses object as JSON
+      (<code>encode_event</code> unused)</td>
+  </tr>
+</table>
+<p>
+  Non-stream is a <b>buffered stream</b>: handlers still emit
+  <code>response.created</code>, deltas, tool items; LCORE does not flush
+  them. The JSON body is the snapshot at <code>response.completed</code>
+  / <code>response.failed</code> (same <code>output[]</code> the SSE
+  client would have accumulated). Keep that snapshot on the projector
+  (mutate a running Responses object in the handlers, or fold the event
+  list at the end).
+</p>
+<div class="avoid">
+  <b>Avoid:</b> <code>agent.run</code> plus a parallel result→JSON mapper
+  · encoding SSE and then parsing it back into JSON for non-stream.
+</div>
+
+<h3>10.3 How LCORE will use it</h3>
+<ol>
+  <li>Build agent + run args as today in this doc (tools, settings,
+    <code>output_type</code>, history, minted <code>run_id</code>).</li>
+  <li>Construct <code>OpenResponsesEventStream(response_id=run_id, …)</code>
+    with <code>run_input=None</code> (standalone encoder mode — no UIAdapter).</li>
+  <li>Always open <code>agent.run_stream_events(…)</code> and
+    <code>transform_stream</code>.</li>
+  <li>If <code>stream</code>: <code>encode_stream</code> →
+    FastAPI <code>StreamingResponse</code>. Else: drain the event
+    iterator and return the projector’s final Responses object as JSON.</li>
+  <li>Inside handlers: apply §6.5 client/server filter (hide server MCP noise
+    when merge streaming; pass through client <code>function_call</code>).</li>
+</ol>
+<pre><code class="language-python">projector = OpenResponsesEventStream(response_id=run_id, model=…)
+
+async with agent.run_stream_events(prompt, run_id=run_id, …) as native:
+    events = projector.transform_stream(native)
+    if stream:
+        async for chunk in projector.encode_stream(events):
+            yield chunk  # OpenResponses SSE
+    else:
+        async for _ in events:
+            pass
+        return projector.final_response  # one JSON body</code></pre>
+<div class="avoid">
+  <b>Avoid:</b> a free-standing <code>for ev in events</code> giant switch when
+  <code>UIEventStream</code> already provides the dispatch · overriding
+  <code>handle_event</code> without calling <code>super()</code> · using
+  stock AG-UI / Vercel adapters as the public Responses wire · treating
+  custom toolsets as the event projector (toolsets execute; this class
+  formats).
+</div>
+
+<h3>10.4 Event mapping (what handlers emit)</h3>
+<table>
+  <tr>
+    <th>PAI side</th>
+    <th>OpenResponses</th>
+  </tr>
+  <tr>
+    <td><code>before_stream</code></td>
+    <td><code>response.created</code> / <code>response.in_progress</code></td>
+  </tr>
+  <tr>
+    <td>text start / delta / end</td>
+    <td>output item + <code>response.output_text.*</code></td>
+  </tr>
+  <tr>
+    <td>Deferred / client function tool call</td>
+    <td><code>function_call</code> output item</td>
+  </tr>
+  <tr>
+    <td>Executed MCP / file_search parts</td>
+    <td><code>mcp_call</code> / <code>file_search_call</code> (today’s shapes)</td>
+  </tr>
+  <tr>
+    <td><code>handle_run_result</code> (text / structured)</td>
+    <td><code>response.completed</code> (structured still in
+      <code>output_text</code> as JSON string — §8.4)</td>
+  </tr>
+  <tr>
+    <td><code>on_error</code></td>
+    <td><code>response.failed</code></td>
+  </tr>
+</table>
+
+<h3>10.5 Failures (HTTP vs stream)</h3>
+<ul>
+  <li>Validation / cannot-start / output-contract → HTTP 400 (before the agent runs).</li>
+  <li>Auth / quota → 401 / 403 / 429.</li>
+  <li>Provider outage → 502/503 as today.</li>
+  <li>Shield refusal → completed Responses (or stream completed) with refusal content.</li>
+  <li>Mid-run tool or model error → <code>on_error</code> →
+    <code>response.failed</code>; persist ErrorItem.</li>
+</ul>
+
+<hr />
+
+<h2>11. Suggested modules</h2>
+<p>
+  Keep <code>app/endpoints/responses.py</code> as routing + auth + quota.
+  Split so query/streaming can import the same run builder:
+</p>
+<table>
+  <tr>
+    <th>Module (illustrative)</th>
+    <th>Role</th>
+  </tr>
+  <tr>
+    <td><code>utils/responses/run_builder.py</code></td>
+    <td>registry model, tool assembly (§6), settings map + resolve (§8), shields, compaction hook, <code>Agent(…)</code></td>
+  </tr>
+  <tr>
+    <td><code>utils/responses/settings_adapter.py</code>
+      (or part of input adapter)</td>
+    <td>OpenResponses fields → <code>ModelSettings</code> (§8.2); call profile resolver</td>
+  </tr>
+  <tr>
+    <td><code>utils/responses/input_adapter.py</code></td>
+    <td>OpenAI input / previous run / <code>function_call_output</code> → run args</td>
+  </tr>
+  <tr>
+    <td><code>utils/responses/openai_event_stream.py</code></td>
+    <td><code>OpenResponsesEventStream(UIEventStream)</code> — PAI
+      <code>NativeEvent</code> → OpenResponses events / SSE (§10)</td>
+  </tr>
+  <tr>
+    <td>existing <code>utils/agents/streaming.py</code></td>
+    <td>LCORE query SSE projector</td>
+  </tr>
+</table>
+<p>
+  <code>utils/pydantic_ai_helpers.py</code> / <code>OgxResponsesModel</code>
+  go away once the registry model is the transport.
+</p>
+
+<hr />
+
+<h2>12. Work checklist (conceptual)</h2>
+<ol>
+  <li>Land deps: providers, prompts, tools/MCP/skills, conversations mapper, TieredCompaction (linked docs).</li>
+  <li>Input adapter: request → agent args; parse tools by <code>type</code>; map <code>function_call_output</code> → <code>DeferredToolResults</code>.</li>
+  <li>Run builder: function → <code>ExternalToolset</code>; request+config mcp → <code>MCP</code>+<code>MCPToolset</code>; merge header + 409; tool_choice filters; shields; compaction.</li>
+  <li><code>OpenResponsesEventStream(UIEventStream)</code>: always <code>run_stream_events</code> → <code>transform_stream</code>; SSE vs buffered JSON (§10.2); deferred → <code>function_call</code>; keep <code>is_server_deployed_output</code> filter.</li>
+  <li>Tip <code>continue_run</code> vs mid-chain <code>fork_run</code> with LCORE-minted ids.</li>
+  <li>Settings: one OpenResponses → <code>ModelSettings</code> map (§8); profile resolve; echo applied + warnings; no per-provider translators.</li>
+  <li>Delete OGX create, pre-run shield, <code>shield_violation_generator</code>, omit_conversation compaction.</li>
+  <li>
+    Tests: function tool pause/resume with <code>function_call_output</code>;
+    request mcp still executed in-loop; merge 409; tip continue vs fork;
+    reused <code>run_id</code> rejected; refusal completed envelope;
+    settings drop vs 400 on output-contract; both projectors on one fake
+    agent run.
+  </li>
+</ol>
+
+<hr />
+
+<h2>13. Doc links</h2>
+<ul>
+  <li><a href="responses.md">Current Responses endpoint notes</a> (incl. server-tool merging)</li>
+  <li><a href="pai-providers-registry.html#s7">PAI providers registry — profiles &amp; settings</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/api/pydantic-ai/settings/">PAI ModelSettings</a></li>
+  <li><a href="pai-prompts-api-migration.html">PAI prompts</a></li>
+  <li><a href="pai-tools-mcp-filesearch-summary.html">PAI tools / MCP / file_search / skills</a></li>
+  <li><a href="pai-conversations-api-redesign.html">PAI conversations redesign</a></li>
+  <li><a href="pai-compaction-migration.html">PAI compaction (TieredCompaction)</a></li>
+  <li><a href="pai-stream-interrupt-migration.html">PAI stream interrupt</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/tools-toolsets/deferred-tools/">PAI deferred / external tools</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/api/ui/base/#pydantic_ai.ui.UIEventStream">PAI UIEventStream</a> (output stream transform)</li>
+  <li><a href="https://pydantic.dev/docs/ai/integrations/ui/overview/">PAI UI event streams overview</a></li>
+  <li><a href="https://pydantic.dev/docs/ai/harness/step-persistence/">PAI Step Persistence</a> (<code>continue_run</code> / <code>fork_run</code>)</li>
+</ul>
+
+<p class="meta">
+  Related:
+  <code>src/app/endpoints/responses.py</code>,
+  <code>src/utils/responses.py</code>
+  (<code>resolve_tool_choice</code>, <code>resolve_client_tool_choice</code>,
+  <code>is_server_deployed_output</code>),
+  <code>src/utils/agents/query.py</code>,
+  <code>src/utils/agents/streaming.py</code>,
+  <code>src/models/common/responses/</code>.
+</p>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.11.1/languages/python.min.js"></script>
+<script>hljs.highlightAll();</script>
+</body>
+</html>
