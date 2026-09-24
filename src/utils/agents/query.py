@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from enum import StrEnum
 from typing import Optional
 
@@ -28,7 +29,7 @@ from models.common.moderation import ShieldModerationResult
 from models.common.query import Attachment
 from models.common.responses.responses_api_params import ResponsesApiParams
 from models.common.responses.types import ResponseInput
-from models.common.turn_summary import TurnSummary
+from models.common.turn_summary import RAGChunk, TurnSummary
 from utils.agents.error_handler import map_agent_inference_error
 from utils.agents.tool_processor import (
     process_function_tool_call,
@@ -46,6 +47,7 @@ from utils.otel_tracing import (
     SpanAttributes,
     SpanEvents,
     add_span_event,
+    llm_inference_span_attributes,
     set_span_attributes,
 )
 from utils.pydantic_ai_helpers import build_agent, captured_output_items
@@ -208,16 +210,9 @@ def build_turn_summary_from_agent_run(
                 if isinstance(request_part, ToolReturnPart):
                     process_function_tool_result(state, request_part)
 
-    # Add tool execution attributes to current span (parent llm.inference span)
+    # Emit tool execution event on current span (parent llm.inference span)
     current_span = trace.get_current_span()
     if current_span.is_recording() and tool_call_names:
-        set_span_attributes(
-            current_span,
-            {
-                SpanAttributes.TOOL_CALLS_COUNT: len(tool_call_names),
-                SpanAttributes.TOOL_CALLS_NAMES: tool_call_names,
-            },
-        )
         add_span_event(
             current_span,
             SpanEvents.TOOL_EXECUTION_COMPLETED,
@@ -242,6 +237,7 @@ async def retrieve_agent_response(
     no_tools: bool = False,
     image_attachments: Optional[list[Attachment]] = None,
     shield_ids: Optional[list[str]] = None,
+    extra_rag_chunks: Optional[list[RAGChunk]] = None,
 ) -> TurnSummary:
     """Retrieve a turn summary from a blocking agent run.
 
@@ -257,6 +253,8 @@ async def retrieve_agent_response(
         image_attachments: Image attachments for multimodal prompt construction.
         shield_ids: Optional list of shield names to run for this turn, mirroring
             ``QueryRequest.shield_ids``. If ``None``, all configured shields run.
+        extra_rag_chunks: Optional inline RAG chunks (BYOK/Solr) to prepend before
+            recording ``llm.inference`` span attributes.
     Returns:
         Turn summary for the completed agent run.
 
@@ -293,6 +291,7 @@ async def retrieve_agent_response(
 
         # Emit inference started event
         add_span_event(span, SpanEvents.LLM_INFERENCE_STARTED)
+        inference_start_time = time.monotonic()
 
         try:
             agent = build_agent(
@@ -318,16 +317,6 @@ async def retrieve_agent_response(
             response = map_agent_inference_error(exc, responses_params.model)
             raise HTTPException(**response.model_dump()) from exc
 
-        # Set token usage attributes
-        if run_result.usage:
-            set_span_attributes(
-                span,
-                {
-                    SpanAttributes.LLM_USAGE_INPUT_TOKENS: run_result.usage.input_tokens,
-                    SpanAttributes.LLM_USAGE_OUTPUT_TOKENS: run_result.usage.output_tokens,
-                },
-            )
-
         vector_store_ids = extract_vector_store_ids_from_tools(responses_params.tools)
         rag_id_mapping = configuration.rag_id_mapping
         turn_summary = build_turn_summary_from_agent_run(
@@ -341,6 +330,18 @@ async def retrieve_agent_response(
         # persist the turn exactly as OGX would have (LCORE-3883).
         turn_summary.output_items = captured_output_items(agent)
 
+        if extra_rag_chunks:
+            turn_summary.rag_chunks = list(extra_rag_chunks) + turn_summary.rag_chunks
+
+        set_span_attributes(
+            span,
+            llm_inference_span_attributes(
+                turn_summary,
+                model_id,
+                provider_id,
+                time.monotonic() - inference_start_time,
+            ),
+        )
         # Emit inference completed event after successful summary build
         add_span_event(span, SpanEvents.LLM_INFERENCE_COMPLETED)
 

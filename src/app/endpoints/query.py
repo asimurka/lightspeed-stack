@@ -44,6 +44,7 @@ from utils.otel_tracing import (
     SpanEvents,
     add_span_event,
     anonymize_value,
+    root_span_turn_attributes,
     set_span_attributes,
 )
 from utils.query import (
@@ -153,7 +154,8 @@ async def _handle_query_with_tracing(
     """
     check_configuration_loaded(configuration)
 
-    started_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    started_at_dt = datetime.datetime.now(datetime.UTC)
+    started_at = started_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     user_id, _, _skip_userid_check, token = auth
 
     # Set initial span attributes
@@ -275,20 +277,21 @@ async def _handle_query_with_tracing(
         shield_ids=query_request.shield_ids,
         no_tools=bool(query_request.no_tools),
         image_attachments=image_attachments,
+        extra_rag_chunks=(
+            inline_rag_context.rag_chunks
+            if moderation_result.decision == "passed"
+            else None
+        ),
     )
 
     if moderation_result.decision == "passed":
-        # Combine inline RAG results (BYOK + Solr) with tool-based RAG results for the transcript
-        rag_chunks = inline_rag_context.rag_chunks
-        tool_rag_chunks = turn_summary.rag_chunks
-        logger.info("RAG as a tool retrieved %d chunks", len(tool_rag_chunks))
-        turn_summary.rag_chunks = rag_chunks + tool_rag_chunks
-
-        # Add tool-based RAG documents and chunks
-        rag_documents = inline_rag_context.referenced_documents
-        tool_rag_documents = turn_summary.referenced_documents
+        # Combine inline RAG documents with tool-based RAG documents for the transcript
+        logger.info(
+            "RAG as a tool retrieved %d chunks",
+            len(turn_summary.rag_chunks) - len(inline_rag_context.rag_chunks),
+        )
         turn_summary.referenced_documents = deduplicate_referenced_documents(
-            rag_documents + tool_rag_documents
+            inline_rag_context.referenced_documents + turn_summary.referenced_documents
         )
 
     # Get topic summary for new conversation
@@ -314,7 +317,8 @@ async def _handle_query_with_tracing(
         quota_limiters=configuration.quota_limiters, user_id=user_id
     )
 
-    completed_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    completed_at_dt = datetime.datetime.now(datetime.UTC)
+    completed_at = completed_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     conversation_id = normalize_conversation_id(responses_params.conversation)
 
     logger.info("Storing query results")
@@ -335,13 +339,14 @@ async def _handle_query_with_tracing(
 
     logger.info("Building final response")
 
-    # Set final span attributes
+    # Set final root-span attributes (llm.* attrs live on the llm.inference span)
     set_span_attributes(
         root_span,
-        {
-            SpanAttributes.SESSION_ID: conversation_id,
-            SpanAttributes.OUTPUT: turn_summary.llm_response,
-        },
+        root_span_turn_attributes(
+            turn_summary,
+            session_id=conversation_id,
+            compacted=compaction.compacted,
+        ),
     )
 
     # Emit LLM response completed event

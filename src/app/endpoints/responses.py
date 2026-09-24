@@ -79,7 +79,9 @@ from utils.otel_tracing import (
     SpanEvents,
     add_span_event,
     anonymize_value,
+    llm_inference_span_attributes,
     record_exception,
+    root_span_turn_attributes,
     set_span_attributes,
 )
 from utils.prompts import get_system_prompt
@@ -158,18 +160,18 @@ def _count_request_attachments(response_input: ResponseInput) -> int:
 def _finalize_responses_root_span(
     root_span: trace.Span,
     turn_summary: TurnSummary,
+    compacted: bool = False,
 ) -> None:
     """Set final root-span attributes and completion events for /responses.
 
     Args:
         root_span: OpenTelemetry root span for the request.
-        turn_summary: Completed turn summary with output text.
+        turn_summary: Completed turn summary with the LLM response text.
+        compacted: Whether the turn used compacted conversation context.
     """
     set_span_attributes(
         root_span,
-        {
-            SpanAttributes.OUTPUT: turn_summary.llm_response,
-        },
+        root_span_turn_attributes(turn_summary, compacted=compacted),
     )
     add_span_event(root_span, SpanEvents.LLM_RESPONSE_COMPLETED)
 
@@ -206,33 +208,29 @@ def _start_llm_inference_span(
 def _complete_llm_inference_span(
     span: trace.Span,
     turn_summary: TurnSummary,
+    model: str,
+    inference_time: float,
 ) -> None:
-    """Record usage/tool attrs and completion event, then end an inference span.
+    """Record turn-summary attrs and completion event, then end an inference span.
 
     Args:
         span: The ``llm.inference`` span to finalize.
-        turn_summary: Completed turn summary providing token usage and tool calls.
+        turn_summary: Completed turn summary with tools, RAG, and tokens.
+        model: Composite model identifier in ``provider/model`` format.
+        inference_time: Inference duration in seconds.
     """
+    provider_id, bare_model_id = extract_provider_and_model_from_model_id(model)
     set_span_attributes(
         span,
-        {
-            SpanAttributes.LLM_USAGE_INPUT_TOKENS: (
-                turn_summary.token_usage.input_tokens
-            ),
-            SpanAttributes.LLM_USAGE_OUTPUT_TOKENS: (
-                turn_summary.token_usage.output_tokens
-            ),
-        },
+        llm_inference_span_attributes(
+            turn_summary,
+            bare_model_id,
+            provider_id,
+            inference_time,
+        ),
     )
-    tool_names = [tc.name for tc in turn_summary.tool_calls]
-    if tool_names:
-        set_span_attributes(
-            span,
-            {
-                SpanAttributes.TOOL_CALLS_COUNT: len(tool_names),
-                SpanAttributes.TOOL_CALLS_NAMES: tool_names,
-            },
-        )
+    if turn_summary.tool_calls:
+        tool_names = [tc.name for tc in turn_summary.tool_calls]
         add_span_event(
             span,
             SpanEvents.TOOL_EXECUTION_COMPLETED,
@@ -570,7 +568,7 @@ async def handle_responses_with_tracing(  # pylint: disable=too-many-locals
     )
     attachments_count = _count_request_attachments(original_request.input)
 
-    span_attributes: dict[str, Any] = {
+    span_attributes: dict[SpanAttributes, Any] = {
         SpanAttributes.USER_ID: anonymize_value(user_id),
         SpanAttributes.INPUT: input_text,
         SpanAttributes.REQUEST_ATTACHMENTS_COUNT: attachments_count,
@@ -1231,7 +1229,8 @@ async def response_generator(
             )
         raise
 
-    # Populate tools before closing llm.inference so tool attrs land on that span.
+    # Extract response metadata from final response object before closing
+    # the inference span so tool/RAG attrs can be recorded on it.
     if latest_response_object:
         _populate_turn_summary(
             latest_response_object,
@@ -1243,6 +1242,8 @@ async def response_generator(
     _complete_llm_inference_span(
         inference_span,
         turn_summary,
+        api_params.model,
+        time.monotonic() - inference_start_time,
     )
 
     # Explicitly append the turn to conversation if context passed by previous response
@@ -1302,7 +1303,11 @@ async def generate_response(
             completed_at,
             turn_summary.llm_response,
         )
-        _finalize_responses_root_span(root_span, turn_summary)
+        _finalize_responses_root_span(
+            root_span,
+            turn_summary,
+            context.compacted_original_input is not None,
+        )
         # Persist conversation state before clients can close the stream.
         yield "data: [DONE]\n\n"
     finally:
@@ -1325,9 +1330,10 @@ async def handle_non_streaming_response(
     """
     root_span = context.root_span
     user_id = context.auth[0]
+    inference_span: Optional[trace.Span] = None
+    inference_start_time: Optional[float] = None
 
     # Fork: Get response object (blocked vs normal)
-    inference_span: Optional[trace.Span] = None
     if context.moderation_result.decision == "blocked":
         output_text = context.moderation_result.message
         api_response = OpenAIResponseObject.model_construct(
@@ -1367,6 +1373,8 @@ async def handle_non_streaming_response(
             token_usage = extract_token_usage(
                 api_response.usage, api_params.model, context.endpoint_path
             )
+            # Keep inference span open until turn_summary is built below so
+            # tool/RAG attributes can be recorded on llm.inference.
             logger.info("Consuming tokens")
             consume_query_tokens(
                 user_id=user_id,
@@ -1411,11 +1419,13 @@ async def handle_non_streaming_response(
     )
     turn_summary.rag_chunks.extend(context.inline_rag_context.rag_chunks)
 
-    # Close llm.inference after tools are known so usage + tool attrs share one span.
-    if inference_span is not None:
+    # Close llm.inference after tools/RAG are known so usage + eval attrs share one span.
+    if inference_span is not None and inference_start_time is not None:
         _complete_llm_inference_span(
             inference_span,
             turn_summary,
+            api_params.model,
+            time.monotonic() - inference_start_time,
         )
 
     # Get available quotas
@@ -1446,7 +1456,11 @@ async def handle_non_streaming_response(
         completed_at,
         output_text,
     )
-    _finalize_responses_root_span(root_span, turn_summary)
+    _finalize_responses_root_span(
+        root_span,
+        turn_summary,
+        context.compacted_original_input is not None,
+    )
     configured_mcp_labels = {s.name for s in configuration.mcp_servers}
     response_dict = (
         api_response.model_dump(exclude_none=True)

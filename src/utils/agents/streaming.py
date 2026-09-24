@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime
+import time
 from collections.abc import AsyncIterator
 from functools import singledispatch
 from typing import Any, Final, Optional
@@ -70,6 +71,8 @@ from utils.otel_tracing import (
     SpanAttributes,
     SpanEvents,
     add_span_event,
+    llm_inference_span_attributes,
+    root_span_turn_attributes,
     set_span_attributes,
 )
 from utils.pydantic_ai_helpers import build_agent, captured_output_items
@@ -364,28 +367,30 @@ async def generate_agent_response(  # pylint: disable=too-many-statements
     )
     yield serialize_event(end_payload, media_type)
 
-    completed_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    completed_at_dt = datetime.datetime.now(datetime.UTC)
+    completed_at = completed_at_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
     logger.info("Storing query results")
     store_query_results(
         user_id=context.user_id,
         conversation_id=context.conversation_id,
         model=responses_params.model,
         completed_at=completed_at,
-        started_at=context.started_at,
+        started_at=context.started_at.strftime("%Y-%m-%dT%H:%M:%SZ"),
         summary=turn_summary,
         query=context.query_request.query,
         skip_userid_check=context.skip_userid_check,
         topic_summary=topic_summary,
     )
 
-    # Set final OTEL span attributes
+    # Set final OTEL root-span attributes (input set earlier; llm.* on llm.inference)
     add_span_event(root_span, SpanEvents.TURN_PERSISTED)
     set_span_attributes(
         root_span,
-        {
-            SpanAttributes.SESSION_ID: context.conversation_id,
-            SpanAttributes.OUTPUT: turn_summary.llm_response,
-        },
+        root_span_turn_attributes(
+            turn_summary,
+            session_id=context.conversation_id,
+            compacted=context_status == "summarized",
+        ),
     )
     add_span_event(root_span, SpanEvents.LLM_RESPONSE_COMPLETED)
     root_span.end()
@@ -426,6 +431,7 @@ async def agent_response_generator(
             },
         )
         add_span_event(span, SpanEvents.LLM_INFERENCE_STARTED)
+        inference_start_time = time.monotonic()
 
         media_type = context.query_request.media_type or MEDIA_TYPE_JSON
         dispatch_state = AgentTurnAccumulator(
@@ -463,23 +469,26 @@ async def agent_response_generator(
             endpoint_path,
         )
 
+        turn_summary.referenced_documents = deduplicate_referenced_documents(
+            context.inline_rag_context.referenced_documents
+            + turn_summary.referenced_documents
+        )
+        turn_summary.rag_chunks = (
+            context.inline_rag_context.rag_chunks + turn_summary.rag_chunks
+        )
+
         set_span_attributes(
             span,
-            {
-                SpanAttributes.LLM_USAGE_INPUT_TOKENS: run_result.usage.input_tokens,
-                SpanAttributes.LLM_USAGE_OUTPUT_TOKENS: run_result.usage.output_tokens,
-            },
+            llm_inference_span_attributes(
+                turn_summary,
+                model_id,
+                provider_id,
+                time.monotonic() - inference_start_time,
+            ),
         )
 
         if turn_summary.tool_calls:
             tool_names = [tc.name for tc in turn_summary.tool_calls]
-            set_span_attributes(
-                span,
-                {
-                    SpanAttributes.TOOL_CALLS_COUNT: len(tool_names),
-                    SpanAttributes.TOOL_CALLS_NAMES: tool_names,
-                },
-            )
             add_span_event(
                 span,
                 SpanEvents.TOOL_EXECUTION_COMPLETED,
@@ -497,14 +506,6 @@ async def agent_response_generator(
                 ErrorStreamPayload.from_error_response(error_response),
                 media_type,
             )
-
-        turn_summary.referenced_documents = deduplicate_referenced_documents(
-            context.inline_rag_context.referenced_documents
-            + turn_summary.referenced_documents
-        )
-        turn_summary.rag_chunks = (
-            context.inline_rag_context.rag_chunks + turn_summary.rag_chunks
-        )
 
 
 def serialize_event(

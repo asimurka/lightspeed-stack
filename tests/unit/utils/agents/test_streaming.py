@@ -4,6 +4,7 @@
 
 import asyncio
 import base64
+import datetime
 import json
 from collections.abc import AsyncIterator, Callable
 from typing import Any, Optional
@@ -164,7 +165,7 @@ def make_generator_context_fixture(
         context.user_id = user_id
         context.skip_userid_check = False
         context.model_id = "provider1/model1"
-        context.started_at = "2024-01-01T00:00:00Z"
+        context.started_at = datetime.datetime(2024, 1, 1, tzinfo=datetime.UTC)
         context.client = mocker.AsyncMock()
         context.moderation_result = moderation_result or ShieldModerationPassed()
         context.inline_rag_context = RAGContext()
@@ -960,6 +961,7 @@ class TestGenerateAgentResponseOtel:
         assert root.attributes is not None
         assert root.attributes[SpanAttributes.SESSION_ID] == context.conversation_id
         assert root.attributes[SpanAttributes.OUTPUT] == "The answer is 42"
+        assert root.attributes[SpanAttributes.COMPACTED] is False
         event_names = [e.name for e in root.events]
         assert SpanEvents.TURN_PERSISTED in event_names
         assert SpanEvents.LLM_RESPONSE_COMPLETED in event_names
@@ -1036,8 +1038,10 @@ class TestGenerateAgentResponseOtel:
         assert span.attributes[SpanAttributes.LLM_MODEL_ID] == "model1"
         assert span.attributes[SpanAttributes.LLM_USAGE_INPUT_TOKENS] == 4
         assert span.attributes[SpanAttributes.LLM_USAGE_OUTPUT_TOKENS] == 2
-        assert span.attributes[SpanAttributes.TOOL_CALLS_COUNT] == 1
-        assert span.attributes[SpanAttributes.TOOL_CALLS_NAMES] == (WebSearchTool.kind,)
+        assert SpanAttributes.INFERENCE_TIME in span.attributes
+        assert SpanAttributes.TOOL_CALLS in span.attributes
+        assert SpanAttributes.TOOL_RESULTS in span.attributes
+        assert SpanAttributes.RAG_CHUNKS in span.attributes
         event_names = [e.name for e in span.events]
         assert SpanEvents.LLM_INFERENCE_STARTED in event_names
         assert SpanEvents.LLM_INFERENCE_COMPLETED in event_names
