@@ -132,7 +132,6 @@ async def test_find_provider_returns_provider_or_none() -> None:
     await registry.initialize(_inference_config(_openai_entry()))
 
     provider = registry.find_provider("openai")
-
     assert provider is not None
     assert provider.provider_id == "openai"
     assert registry.find_provider("missing") is None

@@ -58,7 +58,7 @@ def ogx_config_section(lcs_config: dict[str, Any]) -> dict[str, Any]:
 
 # Maps a UnifiedInferenceProvider.type (canonical, backend-agnostic vocabulary)
 # to the OGX provider_type emitted by apply_high_level_inference. The
-# completeness of this map against UnifiedInferenceProvider.type is asserted by
+# completeness of this map against UnifiedInferenceProvider type is asserted by
 # a unit test so a new Literal value cannot be added without a mapping.
 PROVIDER_TYPE_MAP: dict[str, str] = {
     "openai": "remote::openai",
