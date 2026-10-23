@@ -2,7 +2,7 @@
 
 # pylint: disable=redefined-outer-name,protected-access
 
-from typing import Any
+from typing import Any, Optional
 
 import pytest
 from pydantic_ai.embeddings.bedrock import BedrockEmbeddingModel
@@ -31,6 +31,24 @@ def _entry(**config: Any) -> BedrockInferenceProviderEntry:
             },
         }
     )
+
+
+def _mock_control_plane(
+    mocker: Any,
+    provider: BedrockInferenceProvider,
+    foundations: list[dict[str, Any]],
+    profile_pages: Optional[list[list[dict[str, Any]]]] = None,
+) -> Any:
+    """Stub ListFoundationModels and paginated ListInferenceProfiles."""
+    client = mocker.MagicMock()
+    client.list_foundation_models.return_value = {"modelSummaries": foundations}
+    paginator = mocker.MagicMock()
+    paginator.paginate.return_value = [
+        {"inferenceProfileSummaries": page} for page in (profile_pages or [])
+    ]
+    client.get_paginator.return_value = paginator
+    mocker.patch.object(provider, "_create_bedrock_client", return_value=client)
+    return client
 
 
 def _catalog_model(
@@ -129,33 +147,130 @@ async def test_discover_models_types_and_skips_by_modality(
     mocker: Any,
 ) -> None:
     """Keeps TEXT as llm and EMBEDDING as embedding; skips other modalities."""
-    client = mocker.MagicMock()
-    client.list_foundation_models.return_value = {
-        "modelSummaries": [
+    client = _mock_control_plane(
+        mocker,
+        provider,
+        [
             {
-                "modelId": "anthropic.claude-3-haiku-20240307-v1:0",
+                "modelId": "nvidia.nemotron-nano-12b-v2",
                 "outputModalities": ["TEXT"],
+                "inferenceTypesSupported": ["ON_DEMAND"],
             },
             {
                 "modelId": "amazon.titan-embed-text-v2:0",
                 "outputModalities": ["EMBEDDING"],
+                "inferenceTypesSupported": ["ON_DEMAND"],
             },
             {
                 "modelId": "stability.stable-diffusion-xl-v1",
                 "outputModalities": ["IMAGE"],
+                "inferenceTypesSupported": ["ON_DEMAND"],
             },
             {"modelId": "custom-unknown"},
-        ]
-    }
-    mocker.patch.object(provider, "_create_bedrock_client", return_value=client)
+        ],
+    )
 
     discovered = await provider._discover_models()
 
     assert [(item.provider_model_id, item.model_type) for item in discovered] == [
-        ("anthropic.claude-3-haiku-20240307-v1:0", "llm"),
+        ("nvidia.nemotron-nano-12b-v2", "llm"),
         ("amazon.titan-embed-text-v2:0", "embedding"),
     ]
     client.list_foundation_models.assert_called_once_with()
+    client.get_paginator.assert_called_once_with("list_inference_profiles")
+    client.get_paginator.return_value.paginate.assert_called_once_with(
+        typeEquals="SYSTEM_DEFINED"
+    )
+
+
+@pytest.mark.asyncio
+async def test_discover_models_remaps_profile_only_and_skips_unusable(
+    provider: BedrockInferenceProvider,
+    mocker: Any,
+) -> None:
+    """Keeps on-demand ids, remaps the first profile, and drops unusable models."""
+    _mock_control_plane(
+        mocker,
+        provider,
+        [
+            {
+                "modelId": "amazon.nova-pro-v1:0",
+                "outputModalities": ["TEXT"],
+                "inferenceTypesSupported": ["ON_DEMAND", "INFERENCE_PROFILE"],
+            },
+            {
+                "modelId": "openai.gpt-6-astra",
+                "outputModalities": ["TEXT"],
+                "inferenceTypesSupported": ["INFERENCE_PROFILE"],
+            },
+            {
+                "modelId": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "outputModalities": ["TEXT"],
+                "inferenceTypesSupported": ["INFERENCE_PROFILE"],
+            },
+            {
+                "modelId": "missing.profile-only",
+                "outputModalities": ["TEXT"],
+                "inferenceTypesSupported": ["INFERENCE_PROFILE"],
+            },
+            {
+                "modelId": "amazon.nova-pro-v1:0:300k",
+                "outputModalities": ["TEXT"],
+                "inferenceTypesSupported": ["PROVISIONED"],
+            },
+            {
+                "modelId": "amazon.titan-embed-text-v2:0:8k",
+                "outputModalities": ["EMBEDDING"],
+            },
+        ],
+        [
+            [
+                {
+                    "inferenceProfileId": "us.openai.gpt-6-astra",
+                    "models": [
+                        {
+                            "modelArn": (
+                                "arn:aws:bedrock:us-east-1::foundation-model/"
+                                "openai.gpt-6-astra"
+                            )
+                        }
+                    ],
+                },
+                {
+                    "inferenceProfileId": "eu.openai.gpt-6-astra",
+                    "models": [
+                        {
+                            "modelArn": (
+                                "arn:aws:bedrock:eu-west-1::foundation-model/"
+                                "openai.gpt-6-astra"
+                            )
+                        }
+                    ],
+                },
+            ],
+            [
+                {
+                    "inferenceProfileId": "us.anthropic.claude-sonnet-4-5-20250929-v1:0",
+                    "models": [
+                        {
+                            "modelArn": (
+                                "arn:aws:bedrock:us-east-1::foundation-model/"
+                                "anthropic.claude-sonnet-4-5-20250929-v1:0"
+                            )
+                        }
+                    ],
+                },
+            ],
+        ],
+    )
+
+    discovered = await provider._discover_models()
+
+    assert [(item.provider_model_id, item.model_type) for item in discovered] == [
+        ("amazon.nova-pro-v1:0", "llm"),
+        ("us.openai.gpt-6-astra", "llm"),
+        ("us.anthropic.claude-sonnet-4-5-20250929-v1:0", "llm"),
+    ]
 
 
 def test_create_llm_uses_bedrock_converse_model(
