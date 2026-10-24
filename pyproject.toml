@@ -57,8 +57,7 @@ dependencies = [
     # Used by authorization resolvers
     "jsonpath-ng>=1.6.1,<1.9.0",
     "psycopg2-binary>=2.9.10",
-    # LCORE-1565
-    "litellm>=1.83.7",
+    "litellm==1.107.0rc2",
     "urllib3>=2.6.3",
     # Used for agent card configuration
     "PyYAML>=6.0.0",
@@ -86,7 +85,7 @@ dependencies = [
     # Used for model context windows in conversation compaction (LCORE-4765)
     "genai-prices>=0.1.12",
     # Used for Pydantic AI
-    "pydantic-ai==2.27.1",
+    "pydantic-ai==2.38.0",
     "pydantic-ai-skills>=0.11.0",
     # Used for OpenTelemetry instrumentation
     "opentelemetry-distro>=0.49b0",
@@ -208,8 +207,8 @@ ogxlibdev = [
     # API inference: remote::vertexai
     "google-cloud-aiplatform>=1.130.0",
     # API inference: remote::watsonx
-    # LCORE-1565
-    "litellm>=1.88.6",
+    # LCORE-1565 — keep in lockstep with root litellm pin
+    "litellm==1.107.0rc2",
     # Other
     "autoevals>=0.0.129",
     "fire>=0.7.0",
