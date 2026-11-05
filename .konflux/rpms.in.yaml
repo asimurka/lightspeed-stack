@@ -10,6 +10,7 @@ packages:
 upgradePackages:
   [
     libbrotli,
+    thrift,
   ]
 contentOrigin:
   repofiles: ["./redhat.repo"]
