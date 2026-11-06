@@ -14,6 +14,7 @@ from cache.cache_factory import CacheFactory
 from log import get_logger
 from models.config import (
     A2AStateConfiguration,
+    AgentStepPersistenceConfiguration,
     ApprovalsConfiguration,
     AuthenticationConfiguration,
     AuthorizationConfiguration,
@@ -415,6 +416,13 @@ class AppConfig:  # pylint: disable=too-many-public-methods
         if self._configuration is None:
             raise LogicError("logic error: configuration is not loaded")
         return self._configuration.conversation_cache
+
+    @property
+    def agent_step_persistence_configuration(self) -> AgentStepPersistenceConfiguration:
+        """Return harness step persistence settings (file, SQLite, or default)."""
+        if self._configuration is None:
+            raise LogicError("logic error: configuration is not loaded")
+        return self._configuration.agent_step_persistence
 
     @property
     def database_configuration(self) -> DatabaseConfiguration:

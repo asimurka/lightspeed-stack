@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, Optional
 
 from ogx.core.library_client import AsyncOGXAsLibraryClient
 from ogx_client import AsyncOgxClient
 from pydantic_ai.agent import Agent
 from pydantic_ai.capabilities import AbstractCapability, AgentCapability
+from pydantic_ai_harness.step_persistence import (
+    FileStepStore,
+    SqliteStepStore,
+    StepPersistence,
+)
 from pydantic_ai_skills import SkillsCapability
 
 from log import get_logger
@@ -31,12 +37,15 @@ from utils.shields import get_shields_for_request
 
 if TYPE_CHECKING:
     from configuration import AppConfig
-    from models.common.responses.responses_api_params import ResponsesApiParams
+
+from models.common.responses.responses_api_params import ResponsesApiParams
 
 _AGENT_SKILLS_PROVIDER_ID: Final[str] = "agent-skills"
 _AGENT_SKILLS_TOOLGROUP_ID: Final[str] = "builtin::agent-skills"
 _BUILTIN_CAPABILITY_SERVER_SOURCE: Final[str] = "builtin"
 _CAPABILITY_TOOL_TYPE: Final[str] = "tool"
+
+logger = get_logger(__name__)
 
 
 def _skills_capability(
@@ -195,10 +204,26 @@ def _shield_capability(shield: ShieldConfiguration) -> AgentCapability[object]:
             )
 
 
+def _agent_step_persistence_capability(
+    config: AppConfig,
+) -> StepPersistence[object]:
+    """Build PAI ``StepPersistence`` from ``agent_step_persistence``."""
+    block = config.agent_step_persistence_configuration
+    match block.type:
+        case "sqlite":
+            store = SqliteStepStore(database=Path(block.sqlite.db_path))
+        case "file":
+            store = FileStepStore(Path(block.file_directory))
+        case _:
+            raise ValueError(f"Unsupported agent step persistence type: {block.type!r}")
+    return StepPersistence(store=store)
+
+
 def _agent_capabilities(
     skills: Optional[SkillsConfiguration],
     shields: Optional[list[ShieldConfiguration]] = None,
     no_tools: bool = False,
+    step_persistence: Optional[StepPersistence[object]] = None,
 ) -> Optional[list[AgentCapability[object]]]:
     """Assemble pydantic-ai capabilities for an LCS agent.
 
@@ -207,12 +232,15 @@ def _agent_capabilities(
         shields: Configured guardrail shields (question validity, redaction), or
             None/empty when no shields are enabled.
         no_tools: When True, omit capabilities that expose a toolset via ``get_toolset()``.
+        step_persistence: Optional ``StepPersistence``; ``None`` skips it (e.g. tool listing).
 
     Returns:
         Configured capabilities, or None when no capabilities are enabled.
 
     """
     capabilities: list[AgentCapability[object]] = []
+    if step_persistence is not None:
+        capabilities.append(step_persistence)
     for shield in shields or []:
         capabilities.append(_shield_capability(shield))
     if skills_capability := _skills_capability(skills):
@@ -227,9 +255,6 @@ def _agent_capabilities(
             )
         ]
     return capabilities or None
-
-
-logger = get_logger(__name__)
 
 
 def captured_output_items(agent: Any) -> list[Any]:
@@ -281,6 +306,7 @@ def build_agent(
         responses_params: Parameters produced by ``prepare_responses_params`` for this turn.
         config: Application configuration. Agent skills (``config.skills``) and the
             configured guardrail shields (``config.shields``) are extracted from it.
+            ``agent_step_persistence`` configures PAI ``StepPersistence`` storage.
         shields: Optional list of shield names to run for this turn, matching each
             shield's configured ``name``. Mirrors ``QueryRequest.shield_ids``: if
             ``None``, all shields configured in ``config.shields`` run; an empty
@@ -293,7 +319,12 @@ def build_agent(
 
     """
     shield_configs = get_shields_for_request(config.shields, shields)
-    capabilities = _agent_capabilities(config.skills, shield_configs, no_tools=no_tools)
+    capabilities = _agent_capabilities(
+        config.skills,
+        shield_configs,
+        no_tools=no_tools,
+        step_persistence=_agent_step_persistence_capability(config),
+    )
 
     model = OgxResponsesModel.from_ogx_client(
         responses_params.model, client, responses_params=responses_params

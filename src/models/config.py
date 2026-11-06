@@ -2340,6 +2340,36 @@ class ConversationHistoryConfiguration(ConfigurationBase):
         return self
 
 
+class AgentStepPersistenceFileConfiguration(ConfigurationBase):
+    """File-backed harness step store."""
+
+    type: Literal["file"] = "file"
+
+    file_directory: str = Field(
+        ...,
+        title="Directory",
+        description="Root directory for PAI harness step files.",
+    )
+
+
+class AgentStepPersistenceSqliteConfiguration(ConfigurationBase):
+    """SQLite-backed harness step store."""
+
+    type: Literal["sqlite"] = "sqlite"
+
+    sqlite: SQLiteDatabaseConfiguration = Field(
+        ...,
+        title="SQLite database",
+        description="SQLite file for harness step persistence.",
+    )
+
+
+AgentStepPersistenceConfiguration = Annotated[
+    AgentStepPersistenceFileConfiguration | AgentStepPersistenceSqliteConfiguration,
+    Field(discriminator="type"),
+]
+
+
 class A2AStateConfiguration(ConfigurationBase):
     """A2A protocol persistent state configuration.
 
@@ -3843,6 +3873,15 @@ class Configuration(ConfigurationBase):
         ),
         title="Conversation history configuration",
         description="Conversation history configuration.",
+    )
+
+    agent_step_persistence: AgentStepPersistenceConfiguration = Field(
+        default_factory=lambda: AgentStepPersistenceFileConfiguration(
+            type="file",
+            file_directory=constants.DEFAULT_AGENT_STEP_PERSISTENCE_DIRECTORY,
+        ),
+        title="Agent step persistence",
+        description="Pydantic AI harness StepPersistence storage for agent run history.",
     )
 
     compaction: CompactionConfiguration = Field(

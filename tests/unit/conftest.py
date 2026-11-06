@@ -24,9 +24,13 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
 from pytest_mock import AsyncMockType, MockerFixture
 
 from configuration import AppConfig
-from constants import DEFAULT_LOGGER_NAME
+from constants import DEFAULT_AGENT_STEP_PERSISTENCE_DIRECTORY, DEFAULT_LOGGER_NAME
 from models.common.responses.responses_api_params import ResponsesApiParams
-from models.config import ShieldConfiguration, SkillsConfiguration
+from models.config import (
+    AgentStepPersistenceFileConfiguration,
+    ShieldConfiguration,
+    SkillsConfiguration,
+)
 
 type AgentFixtures = Generator[
     tuple[
@@ -291,6 +295,12 @@ def make_agent_config_fixture(
         config = mocker.Mock()
         config.skills = skills
         config.shields = shields or []
+        config.agent_step_persistence_configuration = (
+            AgentStepPersistenceFileConfiguration(
+                type="file",
+                file_directory=DEFAULT_AGENT_STEP_PERSISTENCE_DIRECTORY,
+            )
+        )
         return config
 
     return _make

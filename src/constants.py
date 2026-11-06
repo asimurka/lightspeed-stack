@@ -22,6 +22,11 @@ SYNTHESIZED_CONFIG_PATH_ENV_VAR: Final[str] = "LIGHTSPEED_STACK_SYNTHESIZED_CONF
 # library mode. Overwritten on each boot and written with mode 0600 (R10).
 DEFAULT_SYNTHESIZED_CONFIG_PATH: Final[str] = "./.generated/run.yaml"
 
+# Default on-disk root for Pydantic AI harness StepPersistence (agent history).
+# Same LCORE conversation_id keys runs in the store; OGX continues to supply
+# inference context until continuation reads this history (dual-store design).
+DEFAULT_AGENT_STEP_PERSISTENCE_DIRECTORY: Final[str] = "./.lcore/agent_history"
+
 UNABLE_TO_PROCESS_RESPONSE: Final[str] = "Unable to process this request"
 
 # Response stored in the conversation when the user interrupts a streaming request

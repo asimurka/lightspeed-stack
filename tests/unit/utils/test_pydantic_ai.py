@@ -8,12 +8,14 @@ import pytest
 from fastapi import HTTPException
 from ogx.core.library_client import AsyncOGXAsLibraryClient
 from ogx_client import AsyncOgxClient
+from pydantic_ai_harness.step_persistence import StepPersistence
 from pydantic_ai_skills import SkillsCapability
 from pytest_mock import MockerFixture
 
 from configuration import AppConfig
 from models.common.responses.responses_api_params import ResponsesApiParams
 from models.config import (
+    AgentStepPersistenceFileConfiguration,
     QuestionValidityConfig,
     QuestionValidityShieldConfiguration,
     RedactionConfig,
@@ -169,6 +171,54 @@ class TestAgentCapabilities:
 
 class TestBuildAgent:
     """Tests for the build_agent factory function."""
+
+    def test_build_agent_attaches_step_persistence(
+        self,
+        mocker: MockerFixture,
+        mock_client: AsyncOgxClient,
+        mock_params: ResponsesApiParams,
+        make_agent_config: Callable[..., AppConfig],
+    ) -> None:
+        """Every built agent includes harness StepPersistence for agent history."""
+        mock_agent_ctor = mocker.patch("utils.pydantic_ai_helpers.Agent")
+        mocker.patch(
+            "pydantic_ai_lightspeed.ogx.OgxResponsesModel.from_ogx_client",
+            return_value=mocker.Mock(),
+        )
+        build_agent(mock_client, mock_params, make_agent_config())
+        capabilities = mock_agent_ctor.call_args.kwargs["capabilities"]
+        assert capabilities
+        assert any(isinstance(cap, StepPersistence) for cap in capabilities)
+
+    def test_step_persistence_honors_configured_file_directory(
+        self,
+        mocker: MockerFixture,
+        mock_client: AsyncOgxClient,
+        mock_params: ResponsesApiParams,
+        tmp_path,
+    ) -> None:
+        """``type: file`` + ``file_directory`` selects the FileStepStore root."""
+        mock_agent_ctor = mocker.patch("utils.pydantic_ai_helpers.Agent")
+        mocker.patch(
+            "pydantic_ai_lightspeed.ogx.OgxResponsesModel.from_ogx_client",
+            return_value=mocker.Mock(),
+        )
+        store_root = tmp_path / "agent_steps"
+        config = mocker.Mock()
+        config.skills = None
+        config.shields = []
+        config.agent_step_persistence_configuration = (
+            AgentStepPersistenceFileConfiguration(
+                type="file",
+                file_directory=str(store_root),
+            )
+        )
+
+        build_agent(mock_client, mock_params, config)
+        capabilities = mock_agent_ctor.call_args.kwargs["capabilities"]
+        persistence = [c for c in capabilities if isinstance(c, StepPersistence)]
+        assert len(persistence) == 1
+        assert persistence[0].store._root == store_root.resolve()
 
     def test_returns_agent_with_correct_model(
         self,
