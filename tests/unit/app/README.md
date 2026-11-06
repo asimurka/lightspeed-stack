@@ -8,6 +8,10 @@ Init of tests/unit/app.
 
 Unit tests for app.database module.
 
+## [test_exception_handlers.py](test_exception_handlers.py)
+
+Unit tests for display-history FastAPI exception handlers.
+
 ## [test_main_lifespan.py](test_main_lifespan.py)
 
 Unit tests for the startup sequence of the FastAPI application.

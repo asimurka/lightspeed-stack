@@ -1,7 +1,10 @@
 """Load, create, and delete agentic turn display records."""
 
-from typing import Any, Optional
+from typing import Optional
 
+from conversations.display_history.agentic.models.agent_turn_summary import (
+    AgentTurnSummary,
+)
 from conversations.display_history.persistence.models import UserAgenticTurn
 from conversations.display_history.persistence.session import display_history_session
 
@@ -26,32 +29,26 @@ def list_agentic_turns_for_conversation(conversation_id: str) -> list[UserAgenti
         )
 
 
-def insert_agentic_turn(  # pylint: disable=too-many-arguments
+def insert_agentic_turn(
     conversation_id: str,
     turn_number: int,
-    *,
-    referenced_documents: list[dict[str, Any]],
-    input_items: list[dict[str, Any]],
-    output_items: list[dict[str, Any]],
-    status: str = "completed",
-    agent: Optional[str] = None,
-    context_status: str = "full",
-    input_tokens: int = 0,
-    output_tokens: int = 0,
+    summary: AgentTurnSummary,
 ) -> UserAgenticTurn:
-    """Create an agentic display record and return the saved row."""
+    """Create an agentic display record from a persistence summary."""
     with display_history_session("insert agentic turn") as session:
         row = UserAgenticTurn(
             conversation_id=conversation_id,
             turn_number=turn_number,
-            status=status,
-            agent=agent,
-            context_status=context_status,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            referenced_documents=referenced_documents,
-            input_items=input_items,
-            output_items=output_items,
+            status=summary.status,
+            agent=summary.agent,
+            context_status=summary.context_status,
+            input_tokens=summary.input_tokens,
+            output_tokens=summary.output_tokens,
+            referenced_documents=[
+                doc.model_dump(mode="json") for doc in summary.referenced_documents
+            ],
+            input_items=[item.model_dump(mode="json") for item in summary.input],
+            output_items=[item.model_dump(mode="json") for item in summary.output],
         )
         session.add(row)
         session.commit()

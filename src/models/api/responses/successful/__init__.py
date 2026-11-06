@@ -16,8 +16,10 @@ from models.api.responses.successful.configuration import ConfigurationResponse
 from models.api.responses.successful.conversations import (
     ConversationDeleteResponse,
     ConversationResponse,
+    ConversationResponseV3,
     ConversationsListResponse,
     ConversationsListResponseV2,
+    ConversationsListResponseV3,
     ConversationUpdateResponse,
 )
 from models.api.responses.successful.feedback import (
@@ -75,9 +77,11 @@ __all__ = [
     "ConfigurationResponse",
     "ConversationDeleteResponse",
     "ConversationResponse",
+    "ConversationResponseV3",
     "ConversationUpdateResponse",
     "ConversationsListResponse",
     "ConversationsListResponseV2",
+    "ConversationsListResponseV3",
     "FeedbackResponse",
     "FeedbackStatusUpdateResponse",
     "FileResponse",

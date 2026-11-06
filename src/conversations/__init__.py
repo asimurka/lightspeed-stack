@@ -1,1 +1,1 @@
-"""Conversation domain: client display timelines and agent run history."""
+"""Saved conversations, client history, and agent run preparation."""

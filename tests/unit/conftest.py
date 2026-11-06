@@ -285,8 +285,8 @@ def make_agent_config_fixture(
 ) -> Callable[..., AppConfig]:
     """Return a factory building a duck-typed AppConfig stand-in for build_agent.
 
-    build_agent reads config.skills and config.shields from the object it receives.
-    Step persistence is initialized on ``AgentHistoryService``.
+    build_agent reads config.skills and config.shields; step persistence comes from
+    AgentHistoryService (initialize SQLite in-memory before calling build_agent).
     """
 
     def _make(

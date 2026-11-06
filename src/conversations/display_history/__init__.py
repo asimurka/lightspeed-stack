@@ -1,1 +1,1 @@
-"""Client-visible conversation timelines (agentic and future chat-era)."""
+"""Saved conversation metadata used for continuation and display."""

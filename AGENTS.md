@@ -53,6 +53,7 @@ src/
 │   │   ├── config.py                             # Handler for REST API call to retrieve service configuration
 │   │   ├── conversations_v1.py                   # Handler for REST API calls to manage conversation history using Conversations API
 │   │   ├── conversations_v2.py                   # Handler for REST API calls to manage conversation history
+│   │   ├── conversations_v3.py                   # Handler for REST API calls to manage agentic display-history conversations
 │   │   ├── feedback.py                           # Handler for REST API endpoint for user feedback
 │   │   ├── health.py                             # Handlers for health REST API endpoints
 │   │   ├── info.py                               # Handler for REST API call to provide info

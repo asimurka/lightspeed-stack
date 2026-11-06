@@ -1,4 +1,4 @@
-"""Agent step persistence store for Pydantic AI harness."""
+"""Agent message persistence and run labels."""
 
 from conversations.agent_history.service import AgentHistoryService
 

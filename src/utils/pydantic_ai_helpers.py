@@ -296,7 +296,7 @@ def build_agent(
 
     """
     shield_configs = get_shields_for_request(config.shields, shields)
-    capabilities = _agent_capabilities(config.skills, shield_configs, no_tools=no_tools)
+    capabilities = _agent_capabilities(config.skills, shield_configs, no_tools)
 
     model = OgxResponsesModel.from_ogx_client(
         responses_params.model, client, responses_params=responses_params

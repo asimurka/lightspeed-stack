@@ -8,3 +8,7 @@ Agent step persistence store for Pydantic AI harness.
 
 Process-local harness step store lifecycle for PAI agent history.
 
+## [ids.py](ids.py)
+
+Public ids for conversations, agent runs, and display turn items.
+

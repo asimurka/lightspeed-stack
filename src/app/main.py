@@ -19,6 +19,7 @@ from a2a_storage import A2AStorageFactory
 from app import routers
 from app.database import create_tables, initialize_database
 from app.endpoints.streaming_query import shutdown_background_topic_summary_tasks
+from app.exception_handlers import register_exception_handlers
 from authorization.azure_token_manager import AzureEntraIDManager
 from client.ogx import AsyncOgxClientHolder
 from configuration import configuration
@@ -52,6 +53,7 @@ _OPENAPI_TAGS: Final[list[dict[str, str]]] = [
         ),
     },
     {"name": "conversations_v2", "description": "Conversations API v2."},
+    {"name": "conversations_v3", "description": "Conversations API v3."},
     {"name": "feedback", "description": "User feedback."},
     {"name": "health", "description": "Health and readiness probes."},
     {"name": "info", "description": "Service information."},
@@ -306,6 +308,7 @@ class GlobalExceptionMiddleware:  # pylint: disable=too-few-public-methods
 
 logger.info("Including routers")
 routers.include_routers(app)
+register_exception_handlers(app)
 
 app_routes_paths = [rc.path for rc in iter_route_contexts(app.routes) if rc.path]
 

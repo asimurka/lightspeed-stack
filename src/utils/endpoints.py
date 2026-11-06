@@ -57,14 +57,103 @@ def retrieve_conversation(conversation_id: str) -> Optional[UserConversation]:
     """Retrieve a conversation from the database by its ID.
 
     Args:
-        conversation_id (str): The unique identifier of the conversation to retrieve.
+        conversation_id: The unique identifier of the conversation to retrieve.
 
     Returns:
-        Optional[UserConversation]: The conversation object if found, otherwise None.
+        The conversation object if found, otherwise None.
 
     """
     with get_session() as session:
         return session.query(UserConversation).filter_by(id=conversation_id).first()
+
+
+def can_access_conversation(
+    conversation_id: str, user_id: str, others_allowed: bool
+) -> bool:
+    """Check only whether a user is allowed to access a conversation.
+
+    Args:
+        conversation_id: The ID of the conversation to check.
+        user_id: The ID of the user requesting access.
+        others_allowed: Whether the user can access conversations owned by others.
+
+    Returns:
+        True if the user is allowed to access the conversation.
+
+    """
+    if others_allowed:
+        return True
+
+    with get_session() as session:
+        owner_user_id = (
+            session.query(UserConversation.user_id)
+            .filter(UserConversation.id == conversation_id)
+            .scalar()
+        )
+        if owner_user_id is None:
+            return True
+
+        return owner_user_id == user_id
+
+
+def validate_and_retrieve_conversation(
+    normalized_conv_id: str,
+    user_id: str,
+    others_allowed: bool,
+) -> UserConversation:
+    """Validate access and retrieve a conversation from the database.
+
+    Args:
+        normalized_conv_id: The normalized conversation ID to retrieve.
+        user_id: The ID of the user requesting access.
+        others_allowed: Whether the user can access conversations owned by others.
+
+    Returns:
+        The conversation object if found and accessible.
+
+    Raises:
+        HTTPException: Forbidden, not found, or database error.
+
+    """
+    if not can_access_conversation(
+        normalized_conv_id,
+        user_id,
+        others_allowed=others_allowed,
+    ):
+        logger.warning(
+            "User %s attempted to read conversation %s they don't have access to",
+            user_id,
+            normalized_conv_id,
+        )
+        response = ForbiddenResponse.conversation(
+            action="read",
+            resource_id=normalized_conv_id,
+            user_id=user_id,
+        )
+        raise HTTPException(**response.model_dump())
+
+    try:
+        user_conversation = retrieve_conversation(normalized_conv_id)
+        if user_conversation is None:
+            logger.error(
+                "Conversation %s not found in database.",
+                normalized_conv_id,
+            )
+            response = NotFoundResponse(
+                resource="conversation", resource_id=normalized_conv_id
+            )
+            raise HTTPException(**response.model_dump())
+
+    except SQLAlchemyError as e:
+        logger.error(
+            "Database error occurred while retrieving conversation %s: %s",
+            normalized_conv_id,
+            str(e),
+        )
+        response = InternalServerErrorResponse.database_error()
+        raise HTTPException(**response.model_dump()) from e
+
+    return user_conversation
 
 
 def retrieve_conversation_turns(conversation_id: str) -> list[UserTurn]:
@@ -95,105 +184,6 @@ def retrieve_conversation_turns(conversation_id: str) -> list[UserTurn]:
         )
         response = InternalServerErrorResponse.database_error()
         raise HTTPException(**response.model_dump()) from e
-
-
-def can_access_conversation(
-    conversation_id: str, user_id: str, others_allowed: bool
-) -> bool:
-    """Check only whether a user is allowed to access a conversation.
-
-    Args:
-        conversation_id (str): The ID of the conversation to check.
-        user_id (str): The ID of the user requesting access.
-        others_allowed (bool): Whether the user can access conversations owned by others.
-
-    Returns:
-        bool: True if the user is allowed to access the conversation, False otherwise.
-
-    """
-    if others_allowed:
-        return True
-
-    with get_session() as session:
-        owner_user_id = (
-            session.query(UserConversation.user_id)
-            .filter(UserConversation.id == conversation_id)
-            .scalar()
-        )
-        # If conversation does not exist, permissions check returns True
-        if owner_user_id is None:
-            return True
-
-        # If conversation exists, user_id must match
-        return owner_user_id == user_id
-
-
-def validate_and_retrieve_conversation(
-    normalized_conv_id: str,
-    user_id: str,
-    others_allowed: bool,
-) -> UserConversation:
-    """
-    Validate access and retrieve a conversation from the database.
-
-    This function performs access validation, retrieves the conversation,
-    and handles all error cases (forbidden access, not found, database errors).
-
-    Args:
-        normalized_conv_id: The normalized conversation ID to retrieve.
-        user_id: The ID of the user requesting access.
-        others_allowed: Whether the user can access conversations owned by others.
-
-    Returns:
-        UserConversation: The conversation object if found and accessible.
-
-    Raises:
-        HTTPException:
-            - 403 Forbidden: If user doesn't have access to the conversation.
-            - 404 Not Found: If conversation doesn't exist in database.
-            - 500 Internal Server Error: If database error occurs.
-
-    """
-    if not can_access_conversation(
-        normalized_conv_id,
-        user_id,
-        others_allowed=others_allowed,
-    ):
-        logger.warning(
-            "User %s attempted to read conversation %s they don't have access to",
-            user_id,
-            normalized_conv_id,
-        )
-        response = ForbiddenResponse.conversation(
-            action="read",
-            resource_id=normalized_conv_id,
-            user_id=user_id,
-        )
-        raise HTTPException(**response.model_dump())
-
-    # If reached this, user is authorized to retrieve this conversation
-    try:
-        user_conversation = retrieve_conversation(normalized_conv_id)
-        if user_conversation is None:
-            logger.error(
-                "Conversation %s not found in database.",
-                normalized_conv_id,
-            )
-            response = NotFoundResponse(
-                resource="conversation", resource_id=normalized_conv_id
-            )
-            raise HTTPException(**response.model_dump())
-
-    except SQLAlchemyError as e:
-        logger.error(
-            "Database error occurred while retrieving conversation %s: %s",
-            normalized_conv_id,
-            str(e),
-        )
-        response = InternalServerErrorResponse.database_error()
-        raise HTTPException(**response.model_dump()) from e
-
-    return user_conversation
 
 
 async def resolve_response_context(
@@ -286,17 +276,14 @@ async def resolve_response_context(
 def retrieve_turn_by_response_id(response_id: str) -> UserTurn:
     """Retrieve a response's turn from the database by response ID.
 
-    Looks up the turn that has this response_id to get its conversation.
-    Used for fork/previous_response_id resolution.
-
     Args:
         response_id: The ID of the response (stored on UserTurn.response_id).
 
     Returns:
-        The UserTurn row for that response (has conversation_id).
+        The UserTurn row for that response.
 
     Raises:
-        HTTPException: 404 if no turn has this response_id; 500 on database error.
+        HTTPException: Not found or database error.
 
     """
     try:
@@ -324,7 +311,10 @@ def check_turn_existence(response_id: str) -> bool:
         response_id: The ID of the response to check.
 
     Returns:
-        bool: True if the turn exists, False otherwise.
+        True if the turn exists.
+
+    Raises:
+        HTTPException: On database error.
 
     """
     try:

@@ -1,11 +1,11 @@
-"""Errors raised when display history cannot be saved or loaded."""
+"""Errors when saved conversation data cannot be read or written."""
 
 
 class DisplayHistoryDatabaseError(Exception):
-    """A database operation for display history failed."""
+    """A display-history database operation failed."""
 
     def __init__(self, operation: str) -> None:
-        """Record which persistence action failed."""
+        """Store which operation failed."""
         self.operation = operation
         super().__init__(f"Display history {operation} failed")
 

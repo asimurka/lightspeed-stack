@@ -1,4 +1,4 @@
-"""Process-local harness step store lifecycle for PAI agent history."""
+"""Configure and share the agent step store for the process."""
 
 from __future__ import annotations
 
@@ -23,20 +23,20 @@ logger = get_logger(__name__)
 
 
 class AgentHistoryService(metaclass=Singleton):
-    """Owns the shared harness step store for Pydantic AI StepPersistence."""
+    """Singleton holder for the agent step store."""
 
     def __init__(self) -> None:
         """Create an uninitialized service.
 
-        Call initialize after application configuration is loaded.
+        Call initialize after configuration is loaded.
         """
         self._store: Optional[StepStore] = None
 
     def initialize(self, config: AgentStepPersistenceConfiguration) -> None:
-        """Build the step store from persistence configuration.
+        """Open the step store from service configuration.
 
         Args:
-            config: Agent step persistence settings (noop or sqlite).
+            config: Persistence settings for agent steps.
 
         """
         match config:
@@ -49,31 +49,17 @@ class AgentHistoryService(metaclass=Singleton):
                 self._store = SqliteStepStore(database=Path(sqlite.sqlite.db_path))
 
     def clear_store(self) -> None:
-        """Drop the active step store reference without reinitializing.
-
-        Used on configuration reload or in tests before a fresh initialize call.
-        """
+        """Clear the active store without opening a new one."""
         self._store = None
 
     @property
     def store(self) -> Optional[StepStore]:
-        """Return the configured step store.
-
-        Returns:
-            The active store, or None when persistence is disabled (noop).
-
-        """
+        """Return the configured step store, or None when persistence is off."""
         return self._store
 
     @property
     def step_persistence(self) -> Optional[StepPersistence[object]]:
-        """Return the harness StepPersistence capability for Pydantic AI agents.
-
-        Returns:
-            StepPersistence wrapping the active store, or None when persistence
-            is disabled.
-
-        """
+        """Return the agent persistence capability, or None when persistence is off."""
         if self._store is None:
             return None
         return StepPersistence(store=self._store)

@@ -4,6 +4,10 @@ from typing import ClassVar
 
 from pydantic import Field, computed_field
 
+from conversations.display_history.agentic.models.conversation import (
+    Conversation,
+    ConversationMetadata,
+)
 from log import get_logger
 from models.api.responses.successful.bases import (
     AbstractDeleteResponse,
@@ -176,6 +180,92 @@ class ConversationsListResponseV2(AbstractSuccessfulResponse):
                             "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
                             "topic_summary": "Openshift Microservices Deployment Strategies",
                             "last_message_timestamp": 1704067200.0,
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+
+
+class ConversationResponseV3(Conversation, AbstractSuccessfulResponse):
+    """Model representing a v3 response for retrieving a conversation.
+
+    The body is the display-history conversation envelope: metadata plus
+    ordered ``AgentTurn`` values in ``chat_history``.
+    """
+
+    model_config = {
+        "from_attributes": True,
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+                    "created_at": "2024-01-01T00:00:00Z",
+                    "last_turn_at": "2024-01-01T00:01:05Z",
+                    "turn_count": 1,
+                    "last_used_model": "gpt-4-turbo",
+                    "last_used_provider": "openai",
+                    "topic_summary": "OpenShift deployment strategies",
+                    "chat_history": [
+                        {
+                            "id": "resp_1",
+                            "status": "completed",
+                            "agent": None,
+                            "provider": "openai",
+                            "model": "gpt-4-turbo",
+                            "started_at": "2024-01-01T00:01:00Z",
+                            "completed_at": "2024-01-01T00:01:05Z",
+                            "context_status": "full",
+                            "usage": {"input_tokens": 4, "output_tokens": 6},
+                            "referenced_documents": [],
+                            "input": [
+                                {
+                                    "id": "msg_user_1",
+                                    "kind": "message",
+                                    "role": "user",
+                                    "content": [{"type": "text", "text": "Hello"}],
+                                }
+                            ],
+                            "output": [
+                                {
+                                    "id": "msg_assistant_1",
+                                    "kind": "message",
+                                    "role": "assistant",
+                                    "content": [{"type": "text", "text": "Hi there!"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+
+
+class ConversationsListResponseV3(AbstractSuccessfulResponse):
+    """Model representing a v3 response for listing conversations of a user.
+
+    Attributes:
+        conversations: List of conversation envelopes without chat history.
+
+    """
+
+    conversations: list[ConversationMetadata]
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "conversations": [
+                        {
+                            "conversation_id": "123e4567-e89b-12d3-a456-426614174000",
+                            "created_at": "2024-01-01T00:00:00Z",
+                            "last_turn_at": "2024-01-01T00:01:05Z",
+                            "turn_count": 1,
+                            "last_used_model": "gpt-4-turbo",
+                            "last_used_provider": "openai",
+                            "topic_summary": "OpenShift deployment strategies",
                         }
                     ],
                 }

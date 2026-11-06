@@ -48,9 +48,11 @@ successful_responses_models: list[type[BaseModel]] = [
     s.ConfigurationResponse,
     s.ConversationDeleteResponse,
     s.ConversationResponse,
+    s.ConversationResponseV3,
     s.ConversationUpdateResponse,
     s.ConversationsListResponse,
     s.ConversationsListResponseV2,
+    s.ConversationsListResponseV3,
     s.FeedbackResponse,
     s.FeedbackStatusUpdateResponse,
     s.FileResponse,
@@ -135,6 +137,7 @@ common_models: list[type[BaseModel]] = [
 ]
 
 agents_models: list[type[BaseModel]] = [
+    a.AgentRunDeps,
     a.EndEventData,
     a.EndStreamPayload,
     a.ErrorEventData,

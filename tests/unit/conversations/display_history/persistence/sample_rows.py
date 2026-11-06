@@ -35,10 +35,6 @@ SAMPLE_TURN: Final[dict[str, Any]] = {
     "response_id": TEST_RESPONSE_ID,
 }
 
-SAMPLE_AGENTIC_INPUT_ITEMS: Final[list[dict[str, Any]]] = [
-    {"id": "u1", "kind": "message", "role": "user", "content": []},
-]
-
 
 def new_conversation() -> UserConversation:
     """Return a fresh UserConversation from SAMPLE_CONVERSATION."""
