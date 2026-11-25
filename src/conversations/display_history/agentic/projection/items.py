@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict
-from typing import Final, Optional
+from typing import Any, Final, Optional, cast
 from urllib.parse import urlparse
 
 from pydantic import AnyUrl, ValidationError
@@ -383,10 +383,15 @@ def _tool_result_body(content: ToolReturnContent, fallback: str = "") -> ToolRes
         Display body for the tool result item.
 
     """
-    if isinstance(content, str | dict):
+    if isinstance(content, str):
         return content
+    if isinstance(content, Mapping):
+        return cast(dict[str, Any], dict(content))
     if isinstance(content, list):
-        return [asdict(match) for match in content if isinstance(match, KnowledgeMatch)]
+        return cast(
+            list[Any],
+            [asdict(match) for match in content if isinstance(match, KnowledgeMatch)],
+        )
     return fallback
 
 

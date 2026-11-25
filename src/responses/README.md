@@ -7,3 +7,9 @@ and SSE events live here.
 ## [models](models/)
 
 LCORE-owned OpenResponses item, tool, config, envelope, and stream-event types.
+
+## [projector](projector/)
+
+`OpenResponsesEventStream` maps Pydantic AI `run_stream_events` output onto
+those events. It does not build or run the agent. SSE (`encode_event`) and
+buffered JSON (`final_response` / `consume`) share the same stream.
