@@ -1,4 +1,4 @@
-"""Client/server OpenResponses output filtering for the Responses projector."""
+"""Hide server-managed tool output from client-visible OpenResponses streams."""
 
 from collections.abc import Set as AbstractSet
 
@@ -32,16 +32,15 @@ def is_server_managed_output_item(
     configured_mcp_labels: AbstractSet[str],
     client_tool_types: AbstractSet[str],
 ) -> bool:
-    """Return whether an output item belongs to a server-deployed tool.
+    """Return whether an output item is from a server-deployed tool.
 
     Args:
-        item: Projected OpenResponses output item.
-        configured_mcp_labels: MCP server labels from LCORE configuration.
-        client_tool_types: Tool types supplied on the client request.
+        item: Projected output item.
+        configured_mcp_labels: MCP server labels owned by the service config.
+        client_tool_types: Tool types the client registered on the request.
 
     Returns:
-        True when the item should be hidden from the client if server-tool
-        filtering is enabled.
+        True if the item should be hidden when server-tool filtering is on.
 
     """
     if isinstance(item, (McpCall, McpListTools, McpApprovalRequest)):
@@ -56,15 +55,15 @@ def should_filter_stream_event(
     filter_server_tools: bool,
     hidden_output_indices: AbstractSet[int],
 ) -> bool:
-    """Return whether a projected event must be omitted from the client stream.
+    """Return whether an event must not be sent to the client.
 
     Args:
-        event: OpenResponses event produced by the projector.
-        filter_server_tools: Whether server-deployed tool output is hidden.
-        hidden_output_indices: Output indices of hidden server tool items.
+        event: Projected stream event.
+        filter_server_tools: Whether server-tool hiding is enabled.
+        hidden_output_indices: Output indices marked as server-managed.
 
     Returns:
-        True when the event must not be yielded to the client.
+        True if the event should be dropped from the client stream.
 
     """
     if not filter_server_tools:

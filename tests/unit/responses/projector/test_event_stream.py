@@ -24,11 +24,10 @@ from pydantic_ai.tools import DeferredToolRequests
 from pydantic_ai.ui import NativeEvent
 
 from knowledge.types import KnowledgeMatch
-from responses.models.content import AnnotationFileCitation, OutputTextPart, RefusalPart
+from responses.models.content import OutputTextPart
 from responses.models.events import (
     ResponseCompletedEvent,
     ResponseCreatedEvent,
-    ResponseErrorEvent,
     ResponseFailedEvent,
     ResponseFileSearchCallCompletedEvent,
     ResponseFileSearchCallInProgressEvent,
@@ -40,25 +39,45 @@ from responses.models.events import (
     ResponseMcpCallInProgressEvent,
     ResponseOutputItemAddedEvent,
     ResponseOutputItemDoneEvent,
-    ResponseOutputTextAnnotationAddedEvent,
     ResponseOutputTextDeltaEvent,
+    ResponseOutputTextDoneEvent,
     ResponseRefusalDoneEvent,
     ResponseStreamEvent,
 )
 from responses.models.items import FileSearchToolCall, FunctionToolCall, McpCall
-from responses.projector import OpenResponsesEventStream
+from responses.projector import (
+    OpenResponsesEventStream,
+    ProjectionPolicy,
+    initial_response,
+)
 from responses.projector.refusal import DEFAULT_REFUSAL_TEXT
+
+_POLICY_FIELDS = frozenset(
+    {
+        "filter_server_tools",
+        "configured_mcp_labels",
+        "client_tool_types",
+        "mcp_tool_servers",
+        "knowledge_tool_name",
+        "include_file_search_results",
+        "available_quotas",
+    }
+)
 
 
 def _stream(**kwargs: Any) -> OpenResponsesEventStream:
     """Build a projector with stable identity fields for assertions."""
+    policy_kwargs = {key: kwargs.pop(key) for key in _POLICY_FIELDS if key in kwargs}
+    quotas = policy_kwargs.pop("available_quotas", {"user": 100})
     return OpenResponsesEventStream(
-        response_id="resp_test",
-        model="openai/test",
-        conversation="conv_test",
-        created_at=1700000000,
-        available_quotas={"user": 100},
-        **kwargs,
+        response=initial_response(
+            response_id=kwargs.pop("response_id", "resp_test"),
+            model=kwargs.pop("model", "openai/test"),
+            created_at=kwargs.pop("created_at", 1700000000),
+            conversation=kwargs.pop("conversation", "conv_test"),
+            **kwargs,
+        ),
+        policy=ProjectionPolicy(available_quotas=quotas, **policy_kwargs),
     )
 
 
@@ -183,6 +202,34 @@ class TestTextProjection:
         assert completed.response.output_text == "Hello"
         assert completed.response.output[0].type == "message"
 
+    async def test_consecutive_text_parts_keep_accumulated_text(self) -> None:
+        """Merged text parts must not be overwritten by the last part's content."""
+        _, events = await _project(
+            [
+                PartStartEvent(index=0, part=TextPart(content="Hello")),
+                PartEndEvent(
+                    index=0,
+                    part=TextPart(content="Hello"),
+                    next_part_kind="text",
+                ),
+                PartStartEvent(
+                    index=1,
+                    part=TextPart(content=" world"),
+                    previous_part_kind="text",
+                ),
+                PartEndEvent(index=1, part=TextPart(content=" world")),
+                _run_result("Hello world"),
+            ]
+        )
+        done = [
+            event for event in events if isinstance(event, ResponseOutputTextDoneEvent)
+        ]
+        assert len(done) == 1
+        assert done[0].text == "Hello world"
+        completed = events[-1]
+        assert isinstance(completed, ResponseCompletedEvent)
+        assert completed.response.output_text == "Hello world"
+
 
 class TestDeferredFunctionTools:
     """Deferred client tools stay function_call items."""
@@ -264,6 +311,102 @@ class TestInLoopFunctionTools:
             for event in events
         )
 
+    async def test_string_argument_deltas_append(self) -> None:
+        """String tool-call deltas concatenate onto function_call.arguments."""
+        start = ToolCallPart(
+            tool_name="load_skill",
+            args="",
+            tool_call_id="call_skill",
+        )
+        end = ToolCallPart(
+            tool_name="load_skill",
+            args={"name": "git"},
+            tool_call_id="call_skill",
+        )
+        projector, _events = await _project(
+            [
+                PartStartEvent(index=0, part=start),
+                PartDeltaEvent(
+                    index=0,
+                    delta=ToolCallPartDelta(
+                        args_delta='{"name":',
+                        tool_call_id="call_skill",
+                    ),
+                ),
+                PartDeltaEvent(
+                    index=0,
+                    delta=ToolCallPartDelta(
+                        args_delta=' "git"}',
+                        tool_call_id="call_skill",
+                    ),
+                ),
+                PartEndEvent(index=0, part=end),
+                FunctionToolCallEvent(end),
+                FunctionToolResultEvent(
+                    ToolReturnPart(
+                        tool_name="load_skill",
+                        content="ok",
+                        tool_call_id="call_skill",
+                    )
+                ),
+                _run_result("ok"),
+            ]
+        )
+        item = next(
+            output
+            for output in projector.response.output
+            if isinstance(output, FunctionToolCall)
+        )
+        assert item.arguments == '{"name": "git"}'
+
+    async def test_dict_argument_deltas_shallow_merge(self) -> None:
+        """Dict tool-call deltas merge into function_call.arguments."""
+        start = ToolCallPart(
+            tool_name="load_skill",
+            args={},
+            tool_call_id="call_skill",
+        )
+        end = ToolCallPart(
+            tool_name="load_skill",
+            args={"name": "git", "version": "2"},
+            tool_call_id="call_skill",
+        )
+        projector, _events = await _project(
+            [
+                PartStartEvent(index=0, part=start),
+                PartDeltaEvent(
+                    index=0,
+                    delta=ToolCallPartDelta(
+                        args_delta={"name": "git"},
+                        tool_call_id="call_skill",
+                    ),
+                ),
+                PartDeltaEvent(
+                    index=0,
+                    delta=ToolCallPartDelta(
+                        args_delta={"version": "2"},
+                        tool_call_id="call_skill",
+                    ),
+                ),
+                PartEndEvent(index=0, part=end),
+                FunctionToolCallEvent(end),
+                FunctionToolResultEvent(
+                    ToolReturnPart(
+                        tool_name="load_skill",
+                        content="ok",
+                        tool_call_id="call_skill",
+                    )
+                ),
+                _run_result("ok"),
+            ]
+        )
+        item = next(
+            output
+            for output in projector.response.output
+            if isinstance(output, FunctionToolCall)
+        )
+        assert item.arguments == '{"name": "git", "version": "2"}'
+
 
 class TestMcpProjection:
     """In-loop MCP function tools become typed mcp_call items."""
@@ -271,7 +414,7 @@ class TestMcpProjection:
     async def test_mcp_call_and_result(self) -> None:
         """A mapped MCP tool emits mcp_call lifecycle events and output."""
         part = ToolCallPart(
-            tool_name="create_issue",
+            tool_name="mcp_create_issue",
             args={"title": "bug"},
             tool_call_id="call_mcp",
         )
@@ -283,7 +426,7 @@ class TestMcpProjection:
                 FunctionToolCallEvent(part),
                 FunctionToolResultEvent(
                     ToolReturnPart(
-                        tool_name="create_issue",
+                        tool_name="mcp_create_issue",
                         content="ISSUE-1",
                         tool_call_id="call_mcp",
                     )
@@ -414,8 +557,54 @@ class TestFileSearchProjection:
             if isinstance(event, ResponseOutputItemAddedEvent)
         )
 
-    async def test_search_then_text_emits_file_citations(self) -> None:
-        """Knowledge matches become output_text annotations on the answer."""
+    async def test_search_knowledge_queries_come_from_final_args(self) -> None:
+        """File search ignores argument deltas; queries come from the finished part."""
+        start = ToolCallPart(
+            tool_name="search_knowledge",
+            args=None,
+            tool_call_id="call_rag",
+        )
+        end = ToolCallPart(
+            tool_name="search_knowledge",
+            args={"query": "what is a pod"},
+            tool_call_id="call_rag",
+        )
+        projector, events = await _project(
+            [
+                PartStartEvent(index=0, part=start),
+                PartDeltaEvent(
+                    index=0,
+                    delta=ToolCallPartDelta(
+                        args_delta='{"query": "',
+                        tool_call_id="call_rag",
+                    ),
+                ),
+                PartEndEvent(index=0, part=end),
+                FunctionToolCallEvent(end),
+                FunctionToolResultEvent(
+                    ToolReturnPart(
+                        tool_name="search_knowledge",
+                        content=[],
+                        tool_call_id="call_rag",
+                    )
+                ),
+                _run_result("done"),
+            ]
+        )
+        assert not any(
+            event.type.startswith("response.function_call_arguments")
+            or event.type.startswith("response.mcp_call_arguments")
+            for event in events
+        )
+        item = next(
+            output
+            for output in projector.response.output
+            if isinstance(output, FileSearchToolCall)
+        )
+        assert list(item.queries) == ["what is a pod"]
+
+    async def test_search_then_text_has_no_output_annotations(self) -> None:
+        """RAG hits stay on file_search_call; assistant text has no annotations."""
         part = ToolCallPart(
             tool_name="search_knowledge",
             args={"query": "pod"},
@@ -445,16 +634,9 @@ class TestFileSearchProjection:
                 _run_result("A pod is ..."),
             ]
         )
-        annotations = [
-            event
-            for event in events
-            if isinstance(event, ResponseOutputTextAnnotationAddedEvent)
-        ]
-        assert len(annotations) == 1
-        assert isinstance(annotations[0].annotation, AnnotationFileCitation)
-        assert annotations[0].annotation.file_id == "doc-pod"
-        assert annotations[0].annotation.filename == "Pods"
-        assert annotations[0].annotation.index == len("A pod is ...")
+        assert all(
+            event.type != "response.output_text.annotation.added" for event in events
+        )
         completed = events[-1]
         assert isinstance(completed, ResponseCompletedEvent)
         message = next(
@@ -463,7 +645,7 @@ class TestFileSearchProjection:
         assert isinstance(message.content, list)
         text_part = message.content[0]
         assert isinstance(text_part, OutputTextPart)
-        assert text_part.annotations[0].filename == "Pods"
+        assert text_part.annotations == []
 
 
 class TestServerToolFiltering:
@@ -472,7 +654,7 @@ class TestServerToolFiltering:
     async def test_hides_configured_mcp_from_client_stream(self) -> None:
         """Server MCP events are omitted when filter_server_tools is set."""
         part = ToolCallPart(
-            tool_name="create_issue",
+            tool_name="mcp_create_issue",
             args={"title": "bug"},
             tool_call_id="call_mcp",
         )
@@ -488,7 +670,7 @@ class TestServerToolFiltering:
                 FunctionToolCallEvent(part),
                 FunctionToolResultEvent(
                     ToolReturnPart(
-                        tool_name="create_issue",
+                        tool_name="mcp_create_issue",
                         content="ISSUE-1",
                         tool_call_id="call_mcp",
                     )
@@ -510,7 +692,7 @@ class TestServerToolFiltering:
     async def test_client_mcp_stays_visible(self) -> None:
         """Request MCP that is not server-configured is still streamed."""
         part = ToolCallPart(
-            tool_name="local_tool",
+            tool_name="mcp_local_tool",
             args={},
             tool_call_id="call_local",
         )
@@ -527,7 +709,7 @@ class TestServerToolFiltering:
                 FunctionToolCallEvent(part),
                 FunctionToolResultEvent(
                     ToolReturnPart(
-                        tool_name="local_tool",
+                        tool_name="mcp_local_tool",
                         content="ok",
                         tool_call_id="call_local",
                     )
@@ -539,25 +721,36 @@ class TestServerToolFiltering:
         assert any(isinstance(event, ResponseMcpCallCompletedEvent) for event in events)
 
 
-class TestRefusalAndError:
-    """Unused contract events that the adapter or finish reason can fill."""
+class TestRefusalAndTerminalRun:
+    """Refusal and terminal run-result projection."""
 
-    async def test_emit_refusal_completes_with_refusal_part(self) -> None:
-        """Shields / question validity inject a refusal message, not the agent loop."""
-        projector = _stream()
-        events = [event async for event in projector.emit_refusal("Not allowed.")]
+    async def test_input_shield_short_circuit_streams_assistant_message(self) -> None:
+        """Shield SkipModelRequest replay is PartStart plus PartEnd, not token deltas."""
+        rejection = "I can only answer questions about OpenShift."
+        part = TextPart(rejection)
+        _, events = await _project(
+            [
+                PartStartEvent(index=0, part=part),
+                PartEndEvent(index=0, part=part),
+                _run_result(rejection),
+            ]
+        )
         types = _event_types(events)
         assert types[0:2] == ["response.created", "response.in_progress"]
-        assert "response.refusal.delta" in types
-        assert any(isinstance(event, ResponseRefusalDoneEvent) for event in events)
+        assert "response.output_item.added" in types
+        assert "response.output_text.done" in types
+        assert "response.output_item.done" in types
+        assert types[-1] == "response.completed"
+        assert "response.output_text.delta" not in types
+        assert "response.refusal.delta" not in types
         completed = events[-1]
         assert isinstance(completed, ResponseCompletedEvent)
-        assert completed.response.status == "completed"
-        assert completed.response.output_text == "Not allowed."
+        assert completed.response.output_text == rejection
         message = completed.response.output[0]
+        assert message.type == "message"
         assert isinstance(message.content, list)
-        assert isinstance(message.content[0], RefusalPart)
-        assert message.content[0].refusal == "Not allowed."
+        assert isinstance(message.content[0], OutputTextPart)
+        assert message.content[0].text == rejection
 
     async def test_content_filter_emits_refusal_when_no_text(self) -> None:
         """A content-filter finish reason becomes a completed refusal."""
@@ -588,21 +781,6 @@ class TestRefusalAndError:
         _, events = await _project([_run_result_with_finish(finish_reason="length")])
         assert isinstance(events[-1], ResponseIncompleteEvent)
         assert events[-1].response.status == "incomplete"
-
-    async def test_emit_error_is_transport_error(self) -> None:
-        """Adapter transport failures emit ``error``, not ``response.failed``."""
-        projector = _stream()
-        events = [
-            event
-            async for event in projector.emit_error("broken pipe", code="connection")
-        ]
-        assert len(events) == 1
-        assert isinstance(events[0], ResponseErrorEvent)
-        assert events[0].message == "broken pipe"
-        assert events[0].code == "connection"
-        assert projector.final_response.status == "failed"
-        assert projector.final_response.error is not None
-        assert projector.final_response.error.message == "broken pipe"
 
 
 class TestSseEncoding:

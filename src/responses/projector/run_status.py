@@ -1,10 +1,4 @@
-"""Map a PAI agent run onto OpenResponses terminal status.
-
-Mirrors conversations display-history ``project_agent_turn_summary`` finish
-reasons, with OpenResponses statuses: cancelled and max-length become
-``incomplete``, provider errors become ``failed``, and content filters stay
-``completed`` with refusal text.
-"""
+"""Map agent run completion to OpenResponses response status."""
 
 from typing import Any, Literal, Optional
 
@@ -20,14 +14,14 @@ ResponseStatus = Literal["in_progress", "completed", "failed", "incomplete"]
 def terminal_from_run(
     result: AgentRunResult[Any],
 ) -> tuple[ResponseStatus, Optional[ResponseError], Optional[str]]:
-    """Return status, optional error, and optional refusal text for a run.
+    """Derive terminal status, optional error, and optional refusal text.
 
     Args:
-        result: Completed PAI agent run.
+        result: Finished agent run from Pydantic AI.
 
     Returns:
-        Terminal status, error object when the run failed, and refusal text
-        when a content filter blocked the turn.
+        Status for the response envelope, error when the model failed, and
+        refusal text when content was blocked by the provider.
 
     """
     if isinstance(result.output, DeferredToolRequests):

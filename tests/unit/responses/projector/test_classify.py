@@ -13,19 +13,13 @@ class TestClassifyTool:
         assert label is None
 
     def test_mapped_mcp_tool(self) -> None:
-        """Configured MCP tool names carry their server label."""
-        kind, label = classify_tool("create_issue", {"create_issue": "jira"})
-        assert kind is ProjectedToolKind.MCP
-        assert label == "jira"
-
-    def test_prefixed_mcp_tool(self) -> None:
-        """PrefixedToolset names still resolve to the MCP server label."""
-        kind, label = classify_tool("jira_create_issue", {"create_issue": "jira"})
+        """mcp_-prefixed tools use the bare name to look up server label."""
+        kind, label = classify_tool("mcp_create_issue", {"create_issue": "jira"})
         assert kind is ProjectedToolKind.MCP
         assert label == "jira"
 
     def test_mcp_toolset_prefix(self) -> None:
-        """PAI MCP toolset names use the mcp_ prefix, not a native list-tools call."""
+        """PAI MCP toolset names use the mcp_ prefix."""
         kind, label = classify_tool("mcp_lookup_topic", {"lookup_topic": "docs"})
         assert kind is ProjectedToolKind.MCP
         assert label == "docs"
@@ -35,6 +29,12 @@ class TestClassifyTool:
         kind, label = classify_tool("mcp_lookup_topic", {})
         assert kind is ProjectedToolKind.MCP
         assert label == "mcp"
+
+    def test_bare_name_without_prefix_is_function(self) -> None:
+        """Tool names without mcp_ stay generic functions even when configured."""
+        kind, label = classify_tool("create_issue", {"create_issue": "jira"})
+        assert kind is ProjectedToolKind.FUNCTION
+        assert label is None
 
     def test_skills_stay_function(self) -> None:
         """Skills in-loop tools stay generic functions."""

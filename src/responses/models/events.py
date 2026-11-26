@@ -14,77 +14,78 @@ from responses.models.items import ResponseOutput
 from responses.models.response import ResponseObject
 
 
-class ResponseCreatedEvent(BaseModel):
+class ResponseStreamEventBase(BaseModel):
+    """Fields shared by every OpenResponses stream event."""
+
+    sequence_number: int = Field(
+        default=0,
+        description="Monotonic SSE index. The projector assigns this before yield.",
+    )
+
+
+class ResponseCreatedEvent(ResponseStreamEventBase):
     """Emitted when a response is created."""
 
     type: Literal["response.created"] = "response.created"
     response: ResponseObject
-    sequence_number: int
 
 
-class ResponseInProgressEvent(BaseModel):
+class ResponseInProgressEvent(ResponseStreamEventBase):
     """Emitted while the response is still running."""
 
     type: Literal["response.in_progress"] = "response.in_progress"
     response: ResponseObject
-    sequence_number: int
 
 
-class ResponseCompletedEvent(BaseModel):
+class ResponseCompletedEvent(ResponseStreamEventBase):
     """Emitted when the response finishes successfully."""
 
     type: Literal["response.completed"] = "response.completed"
     response: ResponseObject
-    sequence_number: int
 
 
-class ResponseIncompleteEvent(BaseModel):
+class ResponseIncompleteEvent(ResponseStreamEventBase):
     """Emitted when the response stops before it finishes."""
 
     type: Literal["response.incomplete"] = "response.incomplete"
     response: ResponseObject
-    sequence_number: int
 
 
-class ResponseFailedEvent(BaseModel):
+class ResponseFailedEvent(ResponseStreamEventBase):
     """Emitted when the response fails after it has started."""
 
     type: Literal["response.failed"] = "response.failed"
     response: ResponseObject
-    sequence_number: int
 
 
-class ResponseErrorEvent(BaseModel):
+class ResponseErrorEvent(ResponseStreamEventBase):
     """Emitted when a transport or infrastructure error occurs."""
 
     type: Literal["error"] = "error"
     message: str
-    sequence_number: int
     code: Optional[str] = None
     param: Optional[str] = None
 
 
-class ResponseOutputItemAddedEvent(BaseModel):
+class ResponseOutputItemAddedEvent(ResponseStreamEventBase):
     """Emitted when an output item is added."""
 
     type: Literal["response.output_item.added"] = "response.output_item.added"
     response_id: str
     item: ResponseOutput
     output_index: int
-    sequence_number: int
 
 
-class ResponseOutputItemDoneEvent(BaseModel):
+class ResponseOutputItemDoneEvent(ResponseStreamEventBase):
     """Emitted when an output item is complete."""
 
     type: Literal["response.output_item.done"] = "response.output_item.done"
     response_id: str
     item: ResponseOutput
     output_index: int
-    sequence_number: int
 
 
-class ResponseOutputTextDeltaEvent(BaseModel):
+class ResponseOutputTextDeltaEvent(ResponseStreamEventBase):
     """Emitted when more output text is produced."""
 
     type: Literal["response.output_text.delta"] = "response.output_text.delta"
@@ -92,11 +93,10 @@ class ResponseOutputTextDeltaEvent(BaseModel):
     delta: str
     item_id: str
     output_index: int
-    sequence_number: int
     logprobs: Optional[list[TokenLogProb]] = None
 
 
-class ResponseOutputTextDoneEvent(BaseModel):
+class ResponseOutputTextDoneEvent(ResponseStreamEventBase):
     """Emitted when output text is complete."""
 
     type: Literal["response.output_text.done"] = "response.output_text.done"
@@ -104,10 +104,9 @@ class ResponseOutputTextDoneEvent(BaseModel):
     text: str
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseFunctionCallArgumentsDeltaEvent(BaseModel):
+class ResponseFunctionCallArgumentsDeltaEvent(ResponseStreamEventBase):
     """Emitted when more function-call arguments are produced."""
 
     type: Literal["response.function_call_arguments.delta"] = (
@@ -116,10 +115,9 @@ class ResponseFunctionCallArgumentsDeltaEvent(BaseModel):
     delta: str
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseFunctionCallArgumentsDoneEvent(BaseModel):
+class ResponseFunctionCallArgumentsDoneEvent(ResponseStreamEventBase):
     """Emitted when function-call arguments are complete."""
 
     type: Literal["response.function_call_arguments.done"] = (
@@ -128,10 +126,9 @@ class ResponseFunctionCallArgumentsDoneEvent(BaseModel):
     arguments: str
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseMcpListToolsInProgressEvent(BaseModel):
+class ResponseMcpListToolsInProgressEvent(ResponseStreamEventBase):
     """Emitted while MCP tools are being listed."""
 
     type: Literal["response.mcp_list_tools.in_progress"] = (
@@ -139,19 +136,17 @@ class ResponseMcpListToolsInProgressEvent(BaseModel):
     )
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseMcpListToolsFailedEvent(BaseModel):
+class ResponseMcpListToolsFailedEvent(ResponseStreamEventBase):
     """Emitted when listing MCP tools fails."""
 
     type: Literal["response.mcp_list_tools.failed"] = "response.mcp_list_tools.failed"
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseMcpListToolsCompletedEvent(BaseModel):
+class ResponseMcpListToolsCompletedEvent(ResponseStreamEventBase):
     """Emitted when listing MCP tools finishes."""
 
     type: Literal["response.mcp_list_tools.completed"] = (
@@ -159,10 +154,9 @@ class ResponseMcpListToolsCompletedEvent(BaseModel):
     )
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseMcpCallArgumentsDeltaEvent(BaseModel):
+class ResponseMcpCallArgumentsDeltaEvent(ResponseStreamEventBase):
     """Emitted when more MCP call arguments are produced."""
 
     type: Literal["response.mcp_call_arguments.delta"] = (
@@ -171,10 +165,9 @@ class ResponseMcpCallArgumentsDeltaEvent(BaseModel):
     delta: str
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseMcpCallArgumentsDoneEvent(BaseModel):
+class ResponseMcpCallArgumentsDoneEvent(ResponseStreamEventBase):
     """Emitted when MCP call arguments are complete."""
 
     type: Literal["response.mcp_call_arguments.done"] = (
@@ -183,37 +176,33 @@ class ResponseMcpCallArgumentsDoneEvent(BaseModel):
     arguments: str
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseMcpCallInProgressEvent(BaseModel):
+class ResponseMcpCallInProgressEvent(ResponseStreamEventBase):
     """Emitted while an MCP tool call is running."""
 
     type: Literal["response.mcp_call.in_progress"] = "response.mcp_call.in_progress"
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseMcpCallFailedEvent(BaseModel):
+class ResponseMcpCallFailedEvent(ResponseStreamEventBase):
     """Emitted when an MCP tool call fails."""
 
     type: Literal["response.mcp_call.failed"] = "response.mcp_call.failed"
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseMcpCallCompletedEvent(BaseModel):
+class ResponseMcpCallCompletedEvent(ResponseStreamEventBase):
     """Emitted when an MCP tool call finishes."""
 
     type: Literal["response.mcp_call.completed"] = "response.mcp_call.completed"
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseContentPartAddedEvent(BaseModel):
+class ResponseContentPartAddedEvent(ResponseStreamEventBase):
     """Emitted when a content part is added."""
 
     type: Literal["response.content_part.added"] = "response.content_part.added"
@@ -222,10 +211,9 @@ class ResponseContentPartAddedEvent(BaseModel):
     item_id: str
     output_index: int
     part: StreamContentPart
-    sequence_number: int
 
 
-class ResponseContentPartDoneEvent(BaseModel):
+class ResponseContentPartDoneEvent(ResponseStreamEventBase):
     """Emitted when a content part is complete."""
 
     type: Literal["response.content_part.done"] = "response.content_part.done"
@@ -234,10 +222,9 @@ class ResponseContentPartDoneEvent(BaseModel):
     item_id: str
     output_index: int
     part: StreamContentPart
-    sequence_number: int
 
 
-class ResponseReasoningTextDeltaEvent(BaseModel):
+class ResponseReasoningTextDeltaEvent(ResponseStreamEventBase):
     """Emitted when more reasoning text is produced."""
 
     type: Literal["response.reasoning_text.delta"] = "response.reasoning_text.delta"
@@ -245,10 +232,9 @@ class ResponseReasoningTextDeltaEvent(BaseModel):
     delta: str
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseReasoningTextDoneEvent(BaseModel):
+class ResponseReasoningTextDoneEvent(ResponseStreamEventBase):
     """Emitted when reasoning text is complete."""
 
     type: Literal["response.reasoning_text.done"] = "response.reasoning_text.done"
@@ -256,10 +242,9 @@ class ResponseReasoningTextDoneEvent(BaseModel):
     text: str
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseReasoningSummaryPartAddedEvent(BaseModel):
+class ResponseReasoningSummaryPartAddedEvent(ResponseStreamEventBase):
     """Emitted when a reasoning summary part is added."""
 
     type: Literal["response.reasoning_summary_part.added"] = (
@@ -268,11 +253,10 @@ class ResponseReasoningSummaryPartAddedEvent(BaseModel):
     item_id: str
     output_index: int
     part: StreamReasoningSummaryPart
-    sequence_number: int
     summary_index: int
 
 
-class ResponseReasoningSummaryPartDoneEvent(BaseModel):
+class ResponseReasoningSummaryPartDoneEvent(ResponseStreamEventBase):
     """Emitted when a reasoning summary part is complete."""
 
     type: Literal["response.reasoning_summary_part.done"] = (
@@ -281,11 +265,10 @@ class ResponseReasoningSummaryPartDoneEvent(BaseModel):
     item_id: str
     output_index: int
     part: StreamReasoningSummaryPart
-    sequence_number: int
     summary_index: int
 
 
-class ResponseReasoningSummaryTextDeltaEvent(BaseModel):
+class ResponseReasoningSummaryTextDeltaEvent(ResponseStreamEventBase):
     """Emitted when more reasoning summary text is produced."""
 
     type: Literal["response.reasoning_summary_text.delta"] = (
@@ -294,11 +277,10 @@ class ResponseReasoningSummaryTextDeltaEvent(BaseModel):
     delta: str
     item_id: str
     output_index: int
-    sequence_number: int
     summary_index: int
 
 
-class ResponseReasoningSummaryTextDoneEvent(BaseModel):
+class ResponseReasoningSummaryTextDoneEvent(ResponseStreamEventBase):
     """Emitted when reasoning summary text is complete."""
 
     type: Literal["response.reasoning_summary_text.done"] = (
@@ -307,11 +289,10 @@ class ResponseReasoningSummaryTextDoneEvent(BaseModel):
     text: str
     item_id: str
     output_index: int
-    sequence_number: int
     summary_index: int
 
 
-class ResponseRefusalDeltaEvent(BaseModel):
+class ResponseRefusalDeltaEvent(ResponseStreamEventBase):
     """Emitted when more refusal text is produced."""
 
     type: Literal["response.refusal.delta"] = "response.refusal.delta"
@@ -319,10 +300,9 @@ class ResponseRefusalDeltaEvent(BaseModel):
     delta: str
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseRefusalDoneEvent(BaseModel):
+class ResponseRefusalDoneEvent(ResponseStreamEventBase):
     """Emitted when refusal text is complete."""
 
     type: Literal["response.refusal.done"] = "response.refusal.done"
@@ -330,10 +310,9 @@ class ResponseRefusalDoneEvent(BaseModel):
     refusal: str
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseOutputTextAnnotationAddedEvent(BaseModel):
+class ResponseOutputTextAnnotationAddedEvent(ResponseStreamEventBase):
     """Emitted when a citation is added to output text."""
 
     type: Literal["response.output_text.annotation.added"] = (
@@ -344,10 +323,9 @@ class ResponseOutputTextAnnotationAddedEvent(BaseModel):
     content_index: int
     annotation_index: int
     annotation: ResponseAnnotation
-    sequence_number: int
 
 
-class ResponseFileSearchCallInProgressEvent(BaseModel):
+class ResponseFileSearchCallInProgressEvent(ResponseStreamEventBase):
     """Emitted when a file search starts."""
 
     type: Literal["response.file_search_call.in_progress"] = (
@@ -355,10 +333,9 @@ class ResponseFileSearchCallInProgressEvent(BaseModel):
     )
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseFileSearchCallSearchingEvent(BaseModel):
+class ResponseFileSearchCallSearchingEvent(ResponseStreamEventBase):
     """Emitted while file search is running."""
 
     type: Literal["response.file_search_call.searching"] = (
@@ -366,10 +343,9 @@ class ResponseFileSearchCallSearchingEvent(BaseModel):
     )
     item_id: str
     output_index: int
-    sequence_number: int
 
 
-class ResponseFileSearchCallCompletedEvent(BaseModel):
+class ResponseFileSearchCallCompletedEvent(ResponseStreamEventBase):
     """Emitted when a file search finishes."""
 
     type: Literal["response.file_search_call.completed"] = (
@@ -377,7 +353,6 @@ class ResponseFileSearchCallCompletedEvent(BaseModel):
     )
     item_id: str
     output_index: int
-    sequence_number: int
 
 
 ResponseStreamEvent = Annotated[

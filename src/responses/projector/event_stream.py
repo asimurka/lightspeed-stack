@@ -1,4 +1,4 @@
-"""PAI ``UIEventStream`` that projects agent-run events into OpenResponses."""
+"""Project Pydantic AI agent stream events into OpenResponses events."""
 
 # pylint: disable=too-many-lines
 
@@ -7,7 +7,7 @@ from __future__ import annotations
 import time
 from collections.abc import AsyncIterator, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, cast
 
 from pydantic_ai.messages import (
     DeferredToolRequestsEvent,
@@ -25,20 +25,17 @@ from pydantic_ai.messages import (
 from pydantic_ai.run import AgentRunResult, AgentRunResultEvent
 from pydantic_ai.ui import UIEventStream
 
-from responses.models.config import (
-    ResponseError,
-    ResponsePrompt,
-    ResponseReasoning,
-    ResponseText,
-    ResponseUsage,
+from responses.models.config import ResponseError
+from responses.models.content import (
+    OutputMessageContent,
+    OutputTextPart,
+    StreamTextPart,
 )
-from responses.models.content import OutputTextPart, RefusalPart, StreamTextPart
 from responses.models.events import (
     ResponseCompletedEvent,
     ResponseContentPartAddedEvent,
     ResponseContentPartDoneEvent,
     ResponseCreatedEvent,
-    ResponseErrorEvent,
     ResponseFailedEvent,
     ResponseFileSearchCallCompletedEvent,
     ResponseFileSearchCallInProgressEvent,
@@ -54,7 +51,6 @@ from responses.models.events import (
     ResponseMcpCallInProgressEvent,
     ResponseOutputItemAddedEvent,
     ResponseOutputItemDoneEvent,
-    ResponseOutputTextAnnotationAddedEvent,
     ResponseOutputTextDeltaEvent,
     ResponseOutputTextDoneEvent,
     ResponseReasoningTextDeltaEvent,
@@ -67,107 +63,58 @@ from responses.models.items import (
     McpCall,
     ReasoningContent,
     ReasoningItem,
-    ReasoningSummary,
     ResponseMessage,
     ResponseOutput,
 )
 from responses.models.response import ResponseObject
-from responses.models.tools import OutputTool, ToolChoice
-from responses.projector.classify import (
-    KNOWLEDGE_TOOL_NAME,
-    ProjectedToolKind,
-    classify_tool,
-)
+from responses.projector.classify import ProjectedToolKind, classify_tool
 from responses.projector.filtering import (
     is_server_managed_output_item,
     should_filter_stream_event,
 )
 from responses.projector.knowledge import (
-    PendingFileCitation,
-    file_citation_at,
     file_search_queries,
     file_search_results_from_content,
-    pending_file_citations_from_content,
 )
 from responses.projector.payload import (
     arguments_delta_text,
     arguments_json,
     mcp_tool_name,
-    parse_arguments,
     return_text,
     tool_failed,
     usage_from_run,
 )
-from responses.projector.payload import (
-    item_id as response_item_id,
-)
+from responses.projector.policy import ProjectionPolicy
 from responses.projector.refusal import refusal_message, refusal_stream_events
 from responses.projector.run_status import terminal_from_run
 from responses.projector.sse import encode_openresponses_event
-from responses.projector.state import OpenItem
+from responses.projector.state import (
+    ItemTracker,
+    OpenTool,
+    open_output_text_part,
+    open_reasoning_text_part,
+)
 
 _ResponseStatus = Literal["in_progress", "completed", "failed", "incomplete"]
 
 
-# pylint: disable=too-many-instance-attributes,too-many-public-methods
-@dataclass
+# pylint: disable=too-many-public-methods
+@dataclass(kw_only=True)
 class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any]):
-    """Transform PAI native agent events into OpenResponses stream events.
+    """Maps agent run events to OpenResponses stream events.
 
-    This class does not build or run an agent. Callers feed
-    ``run_stream_events`` output into ``transform_stream``. ``stream=true``
-    encodes those events as SSE; ``stream=false`` consumes the same iterator
-    and reads ``final_response``.
+    Feed agent stream output into transform_stream. Streaming mode encodes SSE;
+    non-streaming mode drains the same stream into final_response. Shield
+    skips surface as native PAI part events (start and end, no token deltas).
+
+    The response field is the live envelope; lifecycle events receive a deep
+    copy so later edits do not change already-sent payloads.
     """
 
-    response_id: str = ""
-    model: str = ""
-    conversation: Optional[str] = None
-    created_at: int = field(default_factory=lambda: int(time.time()))
-    available_quotas: dict[str, int] = field(default_factory=dict)
-    filter_server_tools: bool = False
-    configured_mcp_labels: frozenset[str] = field(default_factory=frozenset)
-    client_tool_types: frozenset[str] = field(default_factory=frozenset)
-    mcp_tool_servers: dict[str, str] = field(default_factory=dict)
-    knowledge_tool_name: str = KNOWLEDGE_TOOL_NAME
-    include_file_search_results: bool = True
-    instructions: Optional[str] = None
-    temperature: Optional[float] = None
-    parallel_tool_calls: bool = True
-    previous_response_id: Optional[str] = None
-    store: Optional[bool] = None
-    metadata: Optional[dict[str, str]] = None
-    tools: Optional[Sequence[OutputTool]] = None
-    tool_choice: Optional[ToolChoice] = None
-    reasoning: Optional[ResponseReasoning] = None
-    text: Optional[ResponseText] = None
-    max_output_tokens: Optional[int] = None
-    max_tool_calls: Optional[int] = None
-    safety_identifier: Optional[str] = None
-    prompt_cache_key: Optional[str] = None
-    prompt: Optional[ResponsePrompt] = None
-
+    response: ResponseObject
+    policy: ProjectionPolicy = field(default_factory=ProjectionPolicy)
+    in_flight: ItemTracker = field(default_factory=ItemTracker)
     _sequence: int = field(default=0, init=False, repr=False)
-    _status: _ResponseStatus = field(default="in_progress", init=False, repr=False)
-    _output: list[ResponseOutput] = field(default_factory=list, init=False, repr=False)
-    _open_items: dict[str, OpenItem] = field(
-        default_factory=dict, init=False, repr=False
-    )
-    _open_by_index: dict[int, OpenItem] = field(
-        default_factory=dict, init=False, repr=False
-    )
-    _current_message: Optional[OpenItem] = field(default=None, init=False, repr=False)
-    _current_reasoning: Optional[OpenItem] = field(default=None, init=False, repr=False)
-    _hidden_output_indices: set[int] = field(
-        default_factory=set, init=False, repr=False
-    )
-    _error: Optional[ResponseError] = field(default=None, init=False, repr=False)
-    _completed_at: Optional[int] = field(default=None, init=False, repr=False)
-    _usage: Optional[ResponseUsage] = field(default=None, init=False, repr=False)
-    _lifecycle_started: bool = field(default=False, init=False, repr=False)
-    _pending_citations: list[PendingFileCitation] = field(
-        default_factory=list, init=False, repr=False
-    )
 
     def encode_event(self, event: ResponseStreamEvent) -> str:
         """Encode one OpenResponses event as an SSE chunk."""
@@ -176,87 +123,30 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
     @property
     def final_response(self) -> ResponseObject:
         """Client-facing response built from the same projected items as SSE."""
-        return self._response_snapshot()
+        return self._snapshot()
 
     async def consume(self, stream: AsyncIterator[Any]) -> ResponseObject:
-        """Drain ``transform_stream`` and return the buffered final response.
+        """Drain the agent stream and return the final response envelope.
 
         Args:
-            stream: Native PAI agent-run events.
+            stream: Native agent run events from Pydantic AI.
 
         Returns:
-            The same ``ResponseObject`` yielded on ``response.completed`` or
-            ``response.failed``.
+            The same response body as on the terminal completed or failed event.
 
         """
         async for _ in self.transform_stream(stream):
             pass
         return self.final_response
 
-    async def emit_refusal(self, text: str) -> AsyncIterator[ResponseStreamEvent]:
-        """Emit a completed refusal (shields / question validity).
-
-        Call instead of ``transform_stream`` when the run is blocked before
-        the agent loop. Yields created, in_progress, refusal item events, and
-        completed.
-
-        Args:
-            text: Refusal text shown to the client.
-
-        Yields:
-            OpenResponses events for the blocked turn.
-
-        """
-        if not self._lifecycle_started:
-            async for event in self.before_stream():
-                yield event
-        extra = self._open_refusal(text)
-        self._status = "completed"
-        self._completed_at = int(time.time())
-        for event in self._emit([*extra, *self._terminal_events("completed")]):
-            yield event
-
-    async def emit_error(
-        self, message: str, code: Optional[str] = None
-    ) -> AsyncIterator[ResponseStreamEvent]:
-        """Emit a transport ``error`` event and mark the response failed.
-
-        Args:
-            message: Error text.
-            code: Optional machine-readable error code.
-
-        Yields:
-            A single ``error`` event.
-
-        """
-        self._status = "failed"
-        self._completed_at = int(time.time())
-        self._error = ResponseError(
-            code=code or "server_error", message=message or "error"
-        )
-        for event in self._emit(
-            [
-                ResponseErrorEvent(
-                    message=message or "error",
-                    code=code,
-                    sequence_number=0,
-                )
-            ]
-        ):
-            yield event
-
     async def before_stream(self) -> AsyncIterator[ResponseStreamEvent]:
-        """Emit ``response.created`` then ``response.in_progress``."""
-        self._lifecycle_started = True
-        self._status = "in_progress"
+        """Emit response.created and response.in_progress."""
+        self.in_flight.lifecycle_started = True
+        self.response.status = "in_progress"
         for event in self._emit(
             [
-                ResponseCreatedEvent(
-                    response=self._response_snapshot(), sequence_number=0
-                ),
-                ResponseInProgressEvent(
-                    response=self._response_snapshot(), sequence_number=0
-                ),
+                ResponseCreatedEvent(response=self._snapshot()),
+                ResponseInProgressEvent(response=self._snapshot()),
             ]
         ):
             yield event
@@ -271,7 +161,7 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
     async def handle_text_delta(
         self, delta: TextPartDelta
     ) -> AsyncIterator[ResponseStreamEvent]:
-        """Project a text delta onto ``response.output_text.delta``."""
+        """Emit output text delta events for assistant text."""
         for event in self._emit(self._on_text_delta(delta)):
             yield event
 
@@ -292,7 +182,7 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
     async def handle_thinking_delta(
         self, delta: ThinkingPartDelta
     ) -> AsyncIterator[ResponseStreamEvent]:
-        """Project thinking text onto ``response.reasoning_text.delta``."""
+        """Emit reasoning text delta events."""
         for event in self._emit(self._on_thinking_delta(delta)):
             yield event
 
@@ -341,7 +231,7 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
     async def handle_deferred_tool_requests(
         self, event: DeferredToolRequestsEvent
     ) -> AsyncIterator[ResponseStreamEvent]:
-        """Complete deferred client tools as ``function_call`` items."""
+        """Close deferred client tools as function_call items."""
         for item_event in self._emit(self._on_deferred_tool_requests(event)):
             yield item_event
 
@@ -358,39 +248,33 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
             yield item_event
 
     async def on_error(self, error: Exception) -> AsyncIterator[ResponseStreamEvent]:
-        """Emit ``response.failed`` for a mid-run error."""
-        self._status = "failed"
-        self._completed_at = int(time.time())
-        self._error = ResponseError(
-            code="server_error", message=str(error) or error.__class__.__name__
+        """Emit response.failed when the agent run errors mid-stream."""
+        self._mark_terminal(
+            "failed",
+            error=ResponseError(
+                code="server_error", message=str(error) or error.__class__.__name__
+            ),
         )
-        for item_event in self._emit(
-            [ResponseFailedEvent(response=self._response_snapshot(), sequence_number=0)]
-        ):
+        for item_event in self._emit([ResponseFailedEvent(response=self._snapshot())]):
             yield item_event
 
     async def on_cancelled(self, cancelled: Any) -> AsyncIterator[ResponseStreamEvent]:
-        """Emit ``response.incomplete`` when the run is cancelled."""
-        self._status = "incomplete"
-        self._completed_at = int(time.time())
+        """Emit response.incomplete when the run is cancelled."""
+        self._mark_terminal("incomplete")
         for item_event in self._emit(
-            [
-                ResponseIncompleteEvent(
-                    response=self._response_snapshot(), sequence_number=0
-                )
-            ]
+            [ResponseIncompleteEvent(response=self._snapshot())]
         ):
             yield item_event
 
     def _on_text_start(
         self, part: TextPart, follows_text: bool
     ) -> list[ResponseStreamEvent]:
-        """Open a message output item unless this part continues one."""
-        if follows_text and self._current_message is not None:
-            self._current_message.text += part.content
+        """Register a message item, or fold a continuation into the current one."""
+        if follows_text:
+            self.in_flight.extend_message(part.content)
             return []
 
-        item_id = part.id or f"msg_{self.response_id}_{len(self._output)}"
+        item_id = part.id or f"msg_{self.response.id}_{len(self.response.output)}"
         message = ResponseMessage(
             type="message",
             role="assistant",
@@ -398,249 +282,206 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
             id=item_id,
             status="in_progress",
         )
-        opened = self._register_item(
-            message, kind="message", item_id=item_id, text=part.content
-        )
-        self._current_message = opened
+        output_index = self._append_output(message)
+        self.in_flight.current_message = message
         part_payload = StreamTextPart(text=part.content)
         return [
             ResponseOutputItemAddedEvent(
-                response_id=self.response_id,
+                response_id=self.response.id,
                 item=message,
-                output_index=opened.output_index,
-                sequence_number=0,
+                output_index=output_index,
             ),
             ResponseContentPartAddedEvent(
-                content_index=opened.content_index,
-                response_id=self.response_id,
+                content_index=0,
+                response_id=self.response.id,
                 item_id=item_id,
-                output_index=opened.output_index,
+                output_index=output_index,
                 part=part_payload,
-                sequence_number=0,
             ),
         ]
 
     def _on_text_delta(self, delta: TextPartDelta) -> list[ResponseStreamEvent]:
-        """Append streamed text to the open message item."""
-        opened = self._current_message
-        if opened is None:
+        """Append streamed text to the current message."""
+        message = self.in_flight.current_message
+        if message is None or message.id is None:
             return []
-        chunk = delta.content_delta or ""
-        opened.text += chunk
-        item_id = opened.item.id or ""
-        self._replace_message_text(opened)
+        self.in_flight.extend_message(delta.content_delta)
         return [
             ResponseOutputTextDeltaEvent(
-                content_index=opened.content_index,
-                delta=chunk,
-                item_id=item_id,
-                output_index=opened.output_index,
-                sequence_number=0,
+                content_index=0,
+                delta=delta.content_delta,
+                item_id=message.id,
+                output_index=self._index(message),
             )
         ]
 
     def _on_text_end(
-        self, part: TextPart, followed_by_text: bool
+        self, _part: TextPart, followed_by_text: bool
     ) -> list[ResponseStreamEvent]:
-        """Close the message item when no further text part follows."""
+        """Close the current message when no further text part follows."""
         if followed_by_text:
             return []
-        opened = self._current_message
-        if opened is None:
+        message = self.in_flight.current_message
+        if message is None or message.id is None:
             return []
-        text = part.content or opened.text
-        opened.text = text
-        events: list[ResponseStreamEvent] = [
+        text_part = open_output_text_part(message)
+        text = text_part.text if text_part is not None else ""
+        message.status = "completed"
+        output_index = self._index(message)
+        item_id = message.id
+        self.in_flight.current_message = None
+        return [
             ResponseOutputTextDoneEvent(
-                content_index=opened.content_index,
+                content_index=0,
                 text=text,
-                item_id=opened.item.id or "",
-                output_index=opened.output_index,
-                sequence_number=0,
-            )
+                item_id=item_id,
+                output_index=output_index,
+            ),
+            ResponseContentPartDoneEvent(
+                content_index=0,
+                response_id=self.response.id,
+                item_id=item_id,
+                output_index=output_index,
+                part=StreamTextPart(text=text),
+            ),
+            ResponseOutputItemDoneEvent(
+                response_id=self.response.id,
+                item=message,
+                output_index=output_index,
+            ),
         ]
-        events.extend(self._attach_pending_citations(opened, text))
-        self._replace_message_text(opened, status="completed")
-        item_id = opened.item.id or ""
-        done_part = StreamTextPart(text=text, annotations=list(opened.annotations))
-        events.extend(
-            [
-                ResponseContentPartDoneEvent(
-                    content_index=opened.content_index,
-                    response_id=self.response_id,
-                    item_id=item_id,
-                    output_index=opened.output_index,
-                    part=done_part,
-                    sequence_number=0,
-                ),
-                ResponseOutputItemDoneEvent(
-                    response_id=self.response_id,
-                    item=opened.item,
-                    output_index=opened.output_index,
-                    sequence_number=0,
-                ),
-            ]
-        )
-        opened.done = True
-        self._current_message = None
-        return events
 
     def _on_thinking_start(
         self, part: ThinkingPart, follows_thinking: bool
     ) -> list[ResponseStreamEvent]:
-        """Open a reasoning item for a thinking part."""
-        if follows_thinking and self._current_reasoning is not None:
-            self._current_reasoning.text += part.content
+        """Register a reasoning item, or fold a continuation into the current one."""
+        if follows_thinking:
+            self.in_flight.extend_reasoning(part.content)
             return []
-        item_id = part.id or f"rs_{self.response_id}_{len(self._output)}"
+        item_id = part.id or f"rs_{self.response.id}_{len(self.response.output)}"
         item = ReasoningItem(
             type="reasoning",
             id=item_id,
-            summary=[ReasoningSummary(text=part.content)],
             content=[ReasoningContent(text=part.content)],
             status="in_progress",
         )
-        opened = self._register_item(
-            item, kind="reasoning", item_id=item_id, text=part.content
-        )
-        self._current_reasoning = opened
+        output_index = self._append_output(item)
+        self.in_flight.current_reasoning = item
         return [
             ResponseOutputItemAddedEvent(
-                response_id=self.response_id,
+                response_id=self.response.id,
                 item=item,
-                output_index=opened.output_index,
-                sequence_number=0,
+                output_index=output_index,
             )
         ]
 
     def _on_thinking_delta(self, delta: ThinkingPartDelta) -> list[ResponseStreamEvent]:
-        """Append thinking text to the open reasoning item."""
-        opened = self._current_reasoning
-        if opened is None:
+        """Append thinking text to the current reasoning item."""
+        if delta.content_delta is None:
             return []
-        chunk = delta.content_delta or ""
-        opened.text += chunk
-        item_id = response_item_id(opened.item)
+        item = self.in_flight.current_reasoning
+        if item is None:
+            return []
+        self.in_flight.extend_reasoning(delta.content_delta)
         return [
             ResponseReasoningTextDeltaEvent(
-                content_index=opened.content_index,
-                delta=chunk,
-                item_id=item_id,
-                output_index=opened.output_index,
-                sequence_number=0,
+                content_index=0,
+                delta=delta.content_delta,
+                item_id=item.id,
+                output_index=self._index(item),
             )
         ]
 
     def _on_thinking_end(
-        self, part: ThinkingPart, followed_by_thinking: bool
+        self, _part: ThinkingPart, followed_by_thinking: bool
     ) -> list[ResponseStreamEvent]:
-        """Close the reasoning item when thinking is finished."""
+        """Close the current reasoning item when thinking is finished."""
         if followed_by_thinking:
             return []
-        opened = self._current_reasoning
-        if opened is None:
+        item = self.in_flight.current_reasoning
+        if item is None:
             return []
-        text = part.content or opened.text
-        opened.text = text
-        item = ReasoningItem(
-            type="reasoning",
-            id=response_item_id(opened.item),
-            summary=[ReasoningSummary(text=text)],
-            content=[ReasoningContent(text=text)],
-            status="completed",
-        )
-        self._store_item(opened, item)
-        events: list[ResponseStreamEvent] = [
+        text_part = open_reasoning_text_part(item)
+        text = text_part.text if text_part is not None else ""
+        item.status = "completed"
+        output_index = self._index(item)
+        self.in_flight.current_reasoning = None
+        return [
             ResponseReasoningTextDoneEvent(
-                content_index=opened.content_index,
+                content_index=0,
                 text=text,
-                item_id=response_item_id(item),
-                output_index=opened.output_index,
-                sequence_number=0,
+                item_id=item.id,
+                output_index=output_index,
             ),
             ResponseOutputItemDoneEvent(
-                response_id=self.response_id,
+                response_id=self.response.id,
                 item=item,
-                output_index=opened.output_index,
-                sequence_number=0,
+                output_index=output_index,
             ),
         ]
-        opened.done = True
-        self._current_reasoning = None
-        return events
 
     def _on_tool_call_start(self, part: ToolCallPart) -> list[ResponseStreamEvent]:
         """Open a typed or generic tool-call output item."""
         kind, server_label = classify_tool(
-            part.tool_name, self.mcp_tool_servers, self.knowledge_tool_name
+            part.tool_name,
+            self.policy.mcp_tool_servers,
+            self.policy.knowledge_tool_name,
         )
         arguments = arguments_json(part.args)
         item = self._build_tool_item(kind, part, arguments, server_label)
-        opened = self._register_item(
-            item,
-            kind=kind,
-            item_id=part.tool_call_id,
-            tool_call_id=part.tool_call_id,
-            arguments=arguments,
-        )
+        output_index = self._append_output(item)
+        self.in_flight.open_tools[part.tool_call_id] = item
         events: list[ResponseStreamEvent] = [
             ResponseOutputItemAddedEvent(
-                response_id=self.response_id,
+                response_id=self.response.id,
                 item=item,
-                output_index=opened.output_index,
-                sequence_number=0,
+                output_index=output_index,
             )
         ]
-        events.extend(self._tool_start_progress(kind, opened))
-        if kind != ProjectedToolKind.FILE_SEARCH and arguments and arguments != "{}":
-            events.append(self._arguments_delta(kind, opened, arguments))
+        events.extend(self._tool_start_progress(item, output_index))
+        if (
+            isinstance(item, (FunctionToolCall, McpCall))
+            and arguments
+            and arguments != "{}"
+        ):
+            events.append(self._arguments_delta(item, arguments, output_index))
         return events
 
     def _on_tool_call_delta(
         self, delta: ToolCallPartDelta
     ) -> list[ResponseStreamEvent]:
         """Append argument deltas onto the matching open tool item."""
-        opened = self._open_for_delta(delta)
-        if opened is None:
+        tool_call_id = cast(str, delta.tool_call_id)
+        item = self.in_flight.extend_tool(tool_call_id, delta.args_delta)
+        if item is None or isinstance(item, FileSearchToolCall):
             return []
         chunk = arguments_delta_text(delta.args_delta)
         if not chunk:
             return []
-        opened.arguments += chunk if isinstance(delta.args_delta, str) else ""
-        if not isinstance(delta.args_delta, str):
-            opened.arguments = chunk
-        self._refresh_tool_arguments(opened)
-        if opened.kind == ProjectedToolKind.FILE_SEARCH:
-            return []
-        if opened.kind not in (ProjectedToolKind.MCP, ProjectedToolKind.FUNCTION):
-            return []
-        return [self._arguments_delta(opened.kind, opened, chunk)]
+        return [self._arguments_delta(item, chunk, self._index(item))]
 
     def _on_tool_call_end(self, part: ToolCallPart) -> list[ResponseStreamEvent]:
         """Emit arguments-done for the finished tool-call part."""
-        opened = self._open_items.get(part.tool_call_id)
-        if opened is None:
+        item = self.in_flight.extend_tool(
+            part.tool_call_id,
+            part.args,
+            replace=True,
+        )
+        if item is None or isinstance(item, FileSearchToolCall):
             return []
-        opened.arguments = arguments_json(part.args) or opened.arguments
-        self._refresh_tool_arguments(opened)
-        if opened.kind == ProjectedToolKind.FILE_SEARCH:
-            return []
-        if opened.kind not in (ProjectedToolKind.MCP, ProjectedToolKind.FUNCTION):
-            return []
-        return [self._arguments_done(opened.kind, opened)]
+        return [self._arguments_done(item, self._index(item))]
 
     def _on_function_tool_call(
         self, event: FunctionToolCallEvent
     ) -> list[ResponseStreamEvent]:
         """Emit file-search searching once the in-loop call is dispatched."""
-        opened = self._open_items.get(event.part.tool_call_id)
-        if opened is None or opened.kind != ProjectedToolKind.FILE_SEARCH:
+        item = self.in_flight.tool(event.part.tool_call_id)
+        if item is None or not isinstance(item, FileSearchToolCall):
             return []
         return [
             ResponseFileSearchCallSearchingEvent(
-                item_id=response_item_id(opened.item),
-                output_index=opened.output_index,
-                sequence_number=0,
+                item_id=item.id,
+                output_index=self._index(item),
             )
         ]
 
@@ -649,16 +490,15 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
     ) -> list[ResponseStreamEvent]:
         """Complete an in-loop tool item from its return or retry prompt."""
         part = event.part
-        tool_call_id = part.tool_call_id
-        opened = self._open_items.get(tool_call_id)
-        if opened is None or opened.done:
+        item = self.in_flight.tool(part.tool_call_id)
+        if item is None:
             return []
         failed = tool_failed(part)
-        if opened.kind == ProjectedToolKind.MCP:
-            return self._complete_mcp(opened, part, failed)
-        if opened.kind == ProjectedToolKind.FILE_SEARCH:
-            return self._complete_file_search(opened, part, failed)
-        return self._complete_function(opened, failed)
+        if isinstance(item, McpCall):
+            return self._complete_mcp(part.tool_call_id, item, part, failed)
+        if isinstance(item, FileSearchToolCall):
+            return self._complete_file_search(part.tool_call_id, item, part, failed)
+        return self._complete_function(part.tool_call_id, item, failed)
 
     def _on_deferred_tool_requests(
         self, event: DeferredToolRequestsEvent
@@ -666,112 +506,86 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         """Mark deferred client function calls completed for the client."""
         events: list[ResponseStreamEvent] = []
         for call in event.requests.calls:
-            opened = self._open_items.get(call.tool_call_id)
-            if opened is None or opened.done:
+            item = self.in_flight.tool(call.tool_call_id)
+            if item is None or not isinstance(item, FunctionToolCall):
                 continue
-            events.extend(self._complete_function(opened, failed=False))
+            events.extend(
+                self._complete_function(call.tool_call_id, item, failed=False)
+            )
         return events
 
     def _complete_function(
-        self, opened: OpenItem, failed: bool
+        self, tool_call_id: str, item: FunctionToolCall, failed: bool
     ) -> list[ResponseStreamEvent]:
-        """Finish a generic ``function_call`` item."""
-        item = opened.item
-        if not isinstance(item, FunctionToolCall):
-            return []
-        updated = item.model_copy(
-            update={"status": "failed" if failed else "completed"}
-        )
-        self._store_item(opened, updated)
-        opened.done = True
+        """Finish a generic function_call output item."""
+        self.in_flight.close_tool(tool_call_id)
+        item.status = "failed" if failed else "completed"
         return [
             ResponseOutputItemDoneEvent(
-                response_id=self.response_id,
-                item=updated,
-                output_index=opened.output_index,
-                sequence_number=0,
+                response_id=self.response.id,
+                item=item,
+                output_index=self._index(item),
             )
         ]
 
     def _complete_mcp(
         self,
-        opened: OpenItem,
+        tool_call_id: str,
+        item: McpCall,
         part: ToolReturnPart | RetryPromptPart,
         failed: bool,
     ) -> list[ResponseStreamEvent]:
-        """Finish an ``mcp_call`` item with output or error text."""
-        item = opened.item
-        if not isinstance(item, McpCall):
-            return []
-        output = None if failed else return_text(part)
-        error = return_text(part) if failed else None
-        updated = item.model_copy(update={"output": output, "error": error})
-        self._store_item(opened, updated)
-        opened.done = True
+        """Finish an mcp_call item with output or error text."""
+        self.in_flight.close_tool(tool_call_id)
+        item.output = None if failed else return_text(part)
+        item.error = return_text(part) if failed else None
+        output_index = self._index(item)
         progress: ResponseStreamEvent
         if failed:
             progress = ResponseMcpCallFailedEvent(
-                item_id=updated.id,
-                output_index=opened.output_index,
-                sequence_number=0,
+                item_id=item.id,
+                output_index=output_index,
             )
         else:
             progress = ResponseMcpCallCompletedEvent(
-                item_id=updated.id,
-                output_index=opened.output_index,
-                sequence_number=0,
+                item_id=item.id,
+                output_index=output_index,
             )
         return [
             progress,
             ResponseOutputItemDoneEvent(
-                response_id=self.response_id,
-                item=updated,
-                output_index=opened.output_index,
-                sequence_number=0,
+                response_id=self.response.id,
+                item=item,
+                output_index=output_index,
             ),
         ]
 
     def _complete_file_search(
         self,
-        opened: OpenItem,
+        tool_call_id: str,
+        item: FileSearchToolCall,
         part: ToolReturnPart | RetryPromptPart,
         failed: bool,
     ) -> list[ResponseStreamEvent]:
-        """Finish a ``file_search_call`` item, attaching RAG rows when present."""
-        item = opened.item
-        if not isinstance(item, FileSearchToolCall):
-            return []
+        """Finish a file_search_call item and attach knowledge results when present."""
+        self.in_flight.close_tool(tool_call_id)
         results = None
         if not failed and isinstance(part, ToolReturnPart):
             rows = file_search_results_from_content(part.content)
-            if self.include_file_search_results:
+            if self.policy.include_file_search_results:
                 results = rows
-            self._pending_citations.extend(
-                pending_file_citations_from_content(part.content)
-            )
-        queries = list(item.queries) or file_search_queries(
-            parse_arguments(opened.arguments)
-        )
-        updated = item.model_copy(
-            update={
-                "status": "failed" if failed else "completed",
-                "results": results,
-                "queries": queries,
-            }
-        )
-        self._store_item(opened, updated)
-        opened.done = True
+        item.status = "failed" if failed else "completed"
+        item.results = results
+        output_index = self._index(item)
         return [
             ResponseFileSearchCallCompletedEvent(
-                item_id=updated.id,
-                output_index=opened.output_index,
-                sequence_number=0,
+                item_id=item.id,
+                output_index=output_index,
             ),
             ResponseOutputItemDoneEvent(
-                response_id=self.response_id,
-                item=updated,
-                output_index=opened.output_index,
-                sequence_number=0,
+                response_id=self.response.id,
+                item=item,
+                output_index=output_index,
             ),
         ]
 
@@ -781,7 +595,7 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         part: ToolCallPart,
         arguments: str,
         server_label: Optional[str],
-    ) -> ResponseOutput:
+    ) -> OpenTool:
         """Create the OpenResponses item for a tool-call part."""
         if kind == ProjectedToolKind.MCP:
             return McpCall(
@@ -808,159 +622,83 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         )
 
     def _tool_start_progress(
-        self, kind: ProjectedToolKind, opened: OpenItem
+        self, item: OpenTool, output_index: int
     ) -> list[ResponseStreamEvent]:
-        """Lifecycle events that follow ``output_item.added`` for a tool."""
-        item_id = response_item_id(opened.item)
-        if kind == ProjectedToolKind.MCP:
+        """Emit in-progress events after output_item.added for a tool."""
+        item_id = _tool_id(item)
+        if isinstance(item, McpCall):
             return [
                 ResponseMcpCallInProgressEvent(
                     item_id=item_id,
-                    output_index=opened.output_index,
-                    sequence_number=0,
+                    output_index=output_index,
                 )
             ]
-        if kind == ProjectedToolKind.FILE_SEARCH:
+        if isinstance(item, FileSearchToolCall):
             return [
                 ResponseFileSearchCallInProgressEvent(
                     item_id=item_id,
-                    output_index=opened.output_index,
-                    sequence_number=0,
+                    output_index=output_index,
                 )
             ]
         return []
 
     def _arguments_delta(
-        self,
-        kind: ProjectedToolKind | Literal["message", "reasoning"],
-        opened: OpenItem,
-        delta: str,
+        self, item: FunctionToolCall | McpCall, delta: str, output_index: int
     ) -> ResponseStreamEvent:
         """Build an arguments-delta event for function or MCP calls."""
-        item_id = response_item_id(opened.item)
-        if kind == ProjectedToolKind.MCP:
+        item_id = _tool_id(item)
+        if isinstance(item, McpCall):
             return ResponseMcpCallArgumentsDeltaEvent(
                 delta=delta,
                 item_id=item_id,
-                output_index=opened.output_index,
-                sequence_number=0,
+                output_index=output_index,
             )
         return ResponseFunctionCallArgumentsDeltaEvent(
             delta=delta,
             item_id=item_id,
-            output_index=opened.output_index,
-            sequence_number=0,
+            output_index=output_index,
         )
 
     def _arguments_done(
-        self,
-        kind: ProjectedToolKind | Literal["message", "reasoning"],
-        opened: OpenItem,
+        self, item: FunctionToolCall | McpCall, output_index: int
     ) -> ResponseStreamEvent:
         """Build an arguments-done event for function or MCP calls."""
-        item_id = response_item_id(opened.item)
-        if kind == ProjectedToolKind.MCP:
+        item_id = _tool_id(item)
+        if isinstance(item, McpCall):
             return ResponseMcpCallArgumentsDoneEvent(
-                arguments=opened.arguments,
+                arguments=item.arguments,
                 item_id=item_id,
-                output_index=opened.output_index,
-                sequence_number=0,
+                output_index=output_index,
             )
         return ResponseFunctionCallArgumentsDoneEvent(
-            arguments=opened.arguments,
+            arguments=item.arguments,
             item_id=item_id,
-            output_index=opened.output_index,
-            sequence_number=0,
-        )
-
-    def _register_item(  # pylint: disable=too-many-arguments
-        self,
-        item: ResponseOutput,
-        *,
-        kind: ProjectedToolKind | Literal["message", "reasoning"],
-        item_id: str,
-        tool_call_id: Optional[str] = None,
-        arguments: str = "",
-        text: str = "",
-    ) -> OpenItem:
-        """Append an output item and record its streaming state."""
-        output_index = len(self._output)
-        self._output.append(item)
-        hidden = self.filter_server_tools and is_server_managed_output_item(
-            item, self.configured_mcp_labels, self.client_tool_types
-        )
-        if hidden:
-            self._hidden_output_indices.add(output_index)
-        opened = OpenItem(
             output_index=output_index,
-            item=item,
-            kind=kind,
-            tool_call_id=tool_call_id,
-            hidden=hidden,
-            arguments=arguments,
-            text=text,
         )
-        self._open_by_index[output_index] = opened
-        self._open_items[tool_call_id or item_id] = opened
-        return opened
 
-    def _store_item(self, opened: OpenItem, item: ResponseOutput) -> None:
-        """Replace the item stored at an open slot."""
-        opened.item = item
-        self._output[opened.output_index] = item
+    def _append_output(self, item: ResponseOutput) -> int:
+        """Append an item to the live envelope and return its output index."""
+        output_index = len(self.response.output)
+        self.response.output.append(item)
+        if self.policy.filter_server_tools and is_server_managed_output_item(
+            item, self.policy.configured_mcp_labels, self.policy.client_tool_types
+        ):
+            self.in_flight.hidden_output_indices.add(output_index)
+        return output_index
 
-    def _replace_message_text(
-        self, opened: OpenItem, status: str = "in_progress"
-    ) -> None:
-        """Write accumulated text onto the open message item."""
-        item_id = opened.item.id if isinstance(opened.item, ResponseMessage) else None
-        message = ResponseMessage(
-            type="message",
-            role="assistant",
-            content=[
-                OutputTextPart(text=opened.text, annotations=list(opened.annotations))
-            ],
-            id=item_id,
-            status=status,
-        )
-        self._store_item(opened, message)
-
-    def _attach_pending_citations(
-        self, opened: OpenItem, text: str
-    ) -> list[ResponseStreamEvent]:
-        """Attach knowledge citations to an assistant message and emit events."""
-        if not self._pending_citations:
-            return []
-        index = len(text)
-        item_id = opened.item.id or ""
-        events: list[ResponseStreamEvent] = []
-        for annotation_index, pending in enumerate(self._pending_citations):
-            annotation = file_citation_at(pending, index)
-            opened.annotations.append(annotation)
-            events.append(
-                ResponseOutputTextAnnotationAddedEvent(
-                    item_id=item_id,
-                    output_index=opened.output_index,
-                    content_index=opened.content_index,
-                    annotation_index=annotation_index,
-                    annotation=annotation,
-                    sequence_number=0,
-                )
-            )
-        self._pending_citations.clear()
-        return events
+    def _index(self, item: ResponseOutput) -> int:
+        """Return the live output index of an item already in the envelope."""
+        return self.response.output.index(item)
 
     def _open_refusal(self, text: str) -> list[ResponseStreamEvent]:
         """Register a completed refusal message and return its stream events."""
-        item_id = f"msg_{self.response_id}_{len(self._output)}"
+        item_id = f"msg_{self.response.id}_{len(self.response.output)}"
         item = refusal_message(item_id, text, "completed")
-        opened = self._register_item(item, kind="message", item_id=item_id, text=text)
-        opened.done = True
-        self._current_message = None
+        output_index = self._append_output(item)
         return refusal_stream_events(
-            response_id=self.response_id,
+            response_id=self.response.id,
             item=item,
-            output_index=opened.output_index,
+            output_index=output_index,
             text=text,
         )
 
@@ -970,32 +708,12 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
 
     def _terminal_events(self, status: _ResponseStatus) -> list[ResponseStreamEvent]:
         """Build the lifecycle event that closes the response."""
-        snapshot = self._response_snapshot()
+        snapshot = self._snapshot()
         if status == "failed":
-            return [ResponseFailedEvent(response=snapshot, sequence_number=0)]
+            return [ResponseFailedEvent(response=snapshot)]
         if status == "incomplete":
-            return [ResponseIncompleteEvent(response=snapshot, sequence_number=0)]
-        return [ResponseCompletedEvent(response=snapshot, sequence_number=0)]
-
-    def _refresh_tool_arguments(self, opened: OpenItem) -> None:
-        """Keep stored tool items in sync with streamed arguments."""
-        item = opened.item
-        if isinstance(item, FunctionToolCall):
-            self._store_item(
-                opened, item.model_copy(update={"arguments": opened.arguments})
-            )
-        elif isinstance(item, McpCall):
-            self._store_item(
-                opened, item.model_copy(update={"arguments": opened.arguments})
-            )
-
-    def _open_for_delta(self, delta: ToolCallPartDelta) -> Optional[OpenItem]:
-        """Find the open tool item for an arguments delta."""
-        if delta.tool_call_id and delta.tool_call_id in self._open_items:
-            return self._open_items[delta.tool_call_id]
-        if len(self._open_items) == 1:
-            return next(iter(self._open_items.values()))
-        return None
+            return [ResponseIncompleteEvent(response=snapshot)]
+        return [ResponseCompletedEvent(response=snapshot)]
 
     def _complete_from_result(
         self,
@@ -1005,70 +723,59 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         error: Optional[ResponseError] = None,
     ) -> None:
         """Apply run usage and mark the response terminal."""
-        self._status = status
-        self._completed_at = int(time.time())
-        self._usage = usage_from_run(result.usage)
-        if error is not None:
-            self._error = error
+        self.response.usage = usage_from_run(result.usage)
+        self._mark_terminal(status, error=error)
 
     def _client_output(self) -> list[ResponseOutput]:
         """Output items visible to the client after server-tool filtering."""
-        if not self.filter_server_tools:
-            return list(self._output)
+        if not self.policy.filter_server_tools:
+            return list(self.response.output)
         return [
             item
-            for index, item in enumerate(self._output)
-            if index not in self._hidden_output_indices
+            for index, item in enumerate(self.response.output)
+            if index not in self.in_flight.hidden_output_indices
         ]
 
     def _output_text(self) -> str:
-        """Concatenate assistant ``output_text`` parts."""
+        """Build the response.output_text string from visible assistant messages."""
         chunks: list[str] = []
         for item in self._client_output():
             if not isinstance(item, ResponseMessage):
                 continue
-            content = item.content
-            if isinstance(content, str):
-                chunks.append(content)
-                continue
-            for part in content:
+            for part in cast(Sequence[OutputMessageContent], item.content):
                 if isinstance(part, OutputTextPart):
                     chunks.append(part.text)
-                elif isinstance(part, RefusalPart):
+                else:
                     chunks.append(part.refusal)
         return "".join(chunks)
 
-    def _response_snapshot(self) -> ResponseObject:
-        """Build the current response envelope for lifecycle events."""
-        terminal = self._status in {"completed", "failed", "incomplete"}
-        return ResponseObject(
-            created_at=self.created_at,
-            completed_at=self._completed_at,
-            error=self._error,
-            id=self.response_id,
-            model=self.model,
-            output=self._client_output(),
-            parallel_tool_calls=self.parallel_tool_calls,
-            previous_response_id=self.previous_response_id,
-            prompt_cache_key=self.prompt_cache_key,
-            prompt=self.prompt,
-            status=self._status,
-            temperature=self.temperature,
-            text=self.text,
-            tools=self.tools,
-            tool_choice=self.tool_choice,
-            usage=self._usage,
-            instructions=self.instructions,
-            max_tool_calls=self.max_tool_calls,
-            reasoning=self.reasoning,
-            max_output_tokens=self.max_output_tokens,
-            safety_identifier=self.safety_identifier,
-            metadata=self.metadata,
-            store=self.store,
-            conversation=self.conversation,
-            available_quotas=self.available_quotas if terminal else {},
-            output_text=self._output_text() if terminal else "",
-        )
+    def _mark_terminal(
+        self,
+        status: _ResponseStatus,
+        error: Optional[ResponseError] = None,
+    ) -> None:
+        """Write terminal fields onto the live envelope before snapshot."""
+        self.response.status = status
+        self.response.completed_at = int(time.time())
+        if error is not None:
+            self.response.error = error
+        self.response.available_quotas = dict(self.policy.available_quotas)
+        self.response.output_text = self._output_text()
+
+    def _snapshot(self) -> ResponseObject:
+        """Return a deep copy of the live envelope for lifecycle events.
+
+        The live output list keeps server-managed items so in-loop tools can
+        finish; the client copy omits hidden tool indices when filtering is on.
+        """
+        snap = self.response.model_copy(deep=True)
+        if self.policy.filter_server_tools:
+            snap.output = [
+                item
+                for index, item in enumerate(snap.output)
+                if index not in self.in_flight.hidden_output_indices
+            ]
+        return snap
 
     def _emit(
         self, events: Iterable[ResponseStreamEvent]
@@ -1076,13 +783,24 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         """Assign sequence numbers and drop filtered server-tool events."""
         for event in events:
             if should_filter_stream_event(
-                event, self.filter_server_tools, self._hidden_output_indices
+                event,
+                self.policy.filter_server_tools,
+                self.in_flight.hidden_output_indices,
             ):
                 continue
-            yield event.model_copy(update={"sequence_number": self._take_seq()})
+            yield self._with_sequence(event)
+
+    def _with_sequence(self, event: ResponseStreamEvent) -> ResponseStreamEvent:
+        """Assign the next client-visible sequence number to an event."""
+        return event.model_copy(update={"sequence_number": self._take_seq()})
 
     def _take_seq(self) -> int:
         """Return the next event sequence number."""
         number = self._sequence
         self._sequence += 1
         return number
+
+
+def _tool_id(item: OpenTool) -> str:
+    """Return the OpenResponses item id for an in-flight tool."""
+    return item.call_id if isinstance(item, FunctionToolCall) else item.id

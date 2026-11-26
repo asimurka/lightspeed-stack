@@ -126,11 +126,15 @@ class ReasoningContent(BaseModel):
 
 
 class ReasoningItem(BaseModel):
-    """Reasoning the model produced while generating a response."""
+    """Reasoning the model produced while generating a response.
+
+    PAI ``ThinkingPart`` text is projected into ``content`` only; ``summary``
+    stays empty unless a future provider emits OpenResponses summary parts.
+    """
 
     type: Literal["reasoning"] = "reasoning"
     id: str
-    summary: list[ReasoningSummary]
+    summary: list[ReasoningSummary] = Field(default_factory=list)
     content: Optional[list[ReasoningContent]] = None
     status: Optional[Literal["in_progress", "completed", "incomplete"]] = None
 

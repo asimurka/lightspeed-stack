@@ -1,4 +1,4 @@
-"""Classify in-loop PAI tools as MCP, file search, or generic functions."""
+"""Map agent tool names to OpenResponses tool item kinds."""
 
 from collections.abc import Mapping
 from enum import StrEnum
@@ -9,7 +9,7 @@ _MCP_NAME_PREFIX = "mcp_"
 
 
 class ProjectedToolKind(StrEnum):
-    """How an in-loop or deferred tool is projected into OpenResponses items."""
+    """OpenResponses output item kind for an in-loop or deferred tool."""
 
     FUNCTION = "function"
     MCP = "mcp"
@@ -21,40 +21,28 @@ def classify_tool(
     mcp_tool_servers: Mapping[str, str],
     knowledge_tool_name: str = KNOWLEDGE_TOOL_NAME,
 ) -> tuple[ProjectedToolKind, Optional[str]]:
-    """Return the OpenResponses tool kind and optional MCP server label.
+    """Classify an agent tool name for OpenResponses projection.
 
-    Agent-loop tools only. ``search_knowledge`` is file search. Names in
-    ``mcp_tool_servers``, PrefixedToolset ``{label}_`` names, and the PAI MCP
-    toolset ``mcp_`` prefix are MCP. Skills and every other in-loop name stay
-    generic functions. There is no native-tool or ``mcp_list_tools`` path.
+    MCP tools are expected to use the PAI mcp_ toolset prefix. Keys in
+    mcp_tool_servers are the bare tool name (without mcp_).
 
     Args:
-        tool_name: PAI tool name on the call or return part.
-        mcp_tool_servers: Map of MCP tool names to server labels for this run.
-        knowledge_tool_name: LCORE knowledge / file-search function name.
+        tool_name: Tool name on the call or return.
+        mcp_tool_servers: Bare MCP tool name to server label for this run.
+        knowledge_tool_name: In-loop knowledge search tool name.
 
     Returns:
-        Tool kind and MCP server label when the tool is MCP.
+        Item kind and MCP server label when the tool is MCP.
 
     """
     if tool_name == knowledge_tool_name:
         return ProjectedToolKind.FILE_SEARCH, None
 
-    if tool_name in mcp_tool_servers:
-        return ProjectedToolKind.MCP, mcp_tool_servers[tool_name]
-
-    for server_label in dict.fromkeys(mcp_tool_servers.values()):
-        prefix = f"{server_label}_"
-        if tool_name.startswith(prefix) and len(tool_name) > len(prefix):
-            return ProjectedToolKind.MCP, server_label
-
-    if tool_name.startswith(_MCP_NAME_PREFIX) and len(tool_name) > len(
-        _MCP_NAME_PREFIX
+    if not (
+        tool_name.startswith(_MCP_NAME_PREFIX)
+        and len(tool_name) > len(_MCP_NAME_PREFIX)
     ):
-        stripped = tool_name.removeprefix(_MCP_NAME_PREFIX)
-        return (
-            ProjectedToolKind.MCP,
-            mcp_tool_servers.get(stripped) or mcp_tool_servers.get(tool_name) or "mcp",
-        )
+        return ProjectedToolKind.FUNCTION, None
 
-    return ProjectedToolKind.FUNCTION, None
+    bare = tool_name.removeprefix(_MCP_NAME_PREFIX)
+    return ProjectedToolKind.MCP, mcp_tool_servers.get(bare) or "mcp"

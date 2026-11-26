@@ -1,6 +1,6 @@
-"""Build OpenResponses refusal item events for blocked runs."""
+"""OpenResponses stream events for policy refusals."""
 
-from typing import Final
+from typing import Final, cast
 
 from responses.models.content import RefusalPart
 from responses.models.events import (
@@ -20,15 +20,15 @@ DEFAULT_REFUSAL_TEXT: Final[str] = (
 
 
 def refusal_message(item_id: str, text: str, status: str) -> ResponseMessage:
-    """Build an assistant message whose content is a refusal part.
+    """Build an assistant message that carries refusal content.
 
     Args:
-        item_id: Public id for the output item.
-        text: Refusal text shown to the client.
-        status: Item status (``in_progress`` or ``completed``).
+        item_id: Output item id.
+        text: Refusal text.
+        status: Item status such as in_progress or completed.
 
     Returns:
-        Assistant message wrapping a ``refusal`` content part.
+        Assistant message with a refusal content part.
 
     """
     return ResponseMessage(
@@ -47,26 +47,25 @@ def refusal_stream_events(
     output_index: int,
     text: str,
 ) -> list[ResponseStreamEvent]:
-    """Events that open, stream, and close a refusal message item.
+    """Build stream events that open, stream, and close a refusal message.
 
     Args:
         response_id: Parent response id.
         item: Completed refusal message.
-        output_index: Index of the item in ``output``.
+        output_index: Index of the item in output.
         text: Refusal text.
 
     Returns:
-        OpenResponses events for the refusal item, without sequence numbers.
+        OpenResponses events; sequence numbers are assigned in _emit.
 
     """
-    item_id = item.id or ""
+    item_id = cast(str, item.id)
     part = RefusalPart(refusal=text)
     return [
         ResponseOutputItemAddedEvent(
             response_id=response_id,
             item=item,
             output_index=output_index,
-            sequence_number=0,
         ),
         ResponseContentPartAddedEvent(
             content_index=0,
@@ -74,21 +73,18 @@ def refusal_stream_events(
             item_id=item_id,
             output_index=output_index,
             part=part,
-            sequence_number=0,
         ),
         ResponseRefusalDeltaEvent(
             content_index=0,
             delta=text,
             item_id=item_id,
             output_index=output_index,
-            sequence_number=0,
         ),
         ResponseRefusalDoneEvent(
             content_index=0,
             refusal=text,
             item_id=item_id,
             output_index=output_index,
-            sequence_number=0,
         ),
         ResponseContentPartDoneEvent(
             content_index=0,
@@ -96,12 +92,10 @@ def refusal_stream_events(
             item_id=item_id,
             output_index=output_index,
             part=part,
-            sequence_number=0,
         ),
         ResponseOutputItemDoneEvent(
             response_id=response_id,
             item=item,
             output_index=output_index,
-            sequence_number=0,
         ),
     ]

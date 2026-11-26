@@ -3,7 +3,7 @@
 from collections.abc import Sequence
 from typing import Literal, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from responses.models.config import (
     ResponseError,
@@ -25,7 +25,7 @@ class ResponseObject(BaseModel):
     id: str
     model: str
     object: Literal["response"] = "response"
-    output: Sequence[ResponseOutput]
+    output: list[ResponseOutput] = Field(default_factory=list)
     parallel_tool_calls: bool = True
     previous_response_id: Optional[str] = None
     prompt_cache_key: Optional[str] = None
