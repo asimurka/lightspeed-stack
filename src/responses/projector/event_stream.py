@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from collections.abc import AsyncIterator, Iterable, Iterator, Sequence
 from dataclasses import dataclass, field
@@ -67,32 +68,35 @@ from responses.models.items import (
     ResponseOutput,
 )
 from responses.models.response import ResponseObject
-from responses.projector.classify import ProjectedToolKind, classify_tool
+from responses.projector.classify import (
+    ProjectedToolKind,
+    classify_tool,
+    mcp_tool_name,
+)
 from responses.projector.filtering import (
     is_server_managed_output_item,
     should_filter_stream_event,
 )
 from responses.projector.knowledge import (
     file_search_queries,
-    file_search_results_from_content,
+    file_search_results_from_matches,
+    knowledge_matches_from_return,
 )
 from responses.projector.payload import (
-    arguments_delta_text,
     arguments_json,
-    mcp_tool_name,
     return_text,
+    streamed_arguments_delta,
     tool_failed,
     usage_from_run,
 )
 from responses.projector.policy import ProjectionPolicy
 from responses.projector.refusal import refusal_message, refusal_stream_events
 from responses.projector.run_status import terminal_from_run
-from responses.projector.sse import encode_openresponses_event
-from responses.projector.state import (
+from responses.projector.tracker import (
     ItemTracker,
     OpenTool,
-    open_output_text_part,
-    open_reasoning_text_part,
+    open_message_part,
+    open_reasoning_part,
 )
 
 _ResponseStatus = Literal["in_progress", "completed", "failed", "incomplete"]
@@ -116,14 +120,17 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
     in_flight: ItemTracker = field(default_factory=ItemTracker)
     _sequence: int = field(default=0, init=False, repr=False)
 
-    def encode_event(self, event: ResponseStreamEvent) -> str:
-        """Encode one OpenResponses event as an SSE chunk."""
-        return encode_openresponses_event(event)
-
     @property
     def final_response(self) -> ResponseObject:
         """Client-facing response built from the same projected items as SSE."""
         return self._snapshot()
+
+    # --- UIEventStream overrides (begin) ---
+
+    def encode_event(self, event: ResponseStreamEvent) -> str:
+        """Encode one OpenResponses event as an SSE chunk."""
+        payload = event.model_dump(mode="json", exclude_none=True)
+        return f"event: {event.type}\ndata: {json.dumps(payload)}\n\n"
 
     async def consume(self, stream: AsyncIterator[Any]) -> ResponseObject:
         """Drain the agent stream and return the final response envelope.
@@ -137,7 +144,7 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         """
         async for _ in self.transform_stream(stream):
             pass
-        return self.final_response
+        return self._snapshot()
 
     async def before_stream(self) -> AsyncIterator[ResponseStreamEvent]:
         """Emit response.created and response.in_progress."""
@@ -154,8 +161,13 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
     async def handle_text_start(
         self, part: TextPart, follows_text: bool = False
     ) -> AsyncIterator[ResponseStreamEvent]:
-        """Open a message item and output-text content part."""
-        for event in self._emit(self._on_text_start(part, follows_text)):
+        """Open a message item, then stream PartStart content as a text delta."""
+        if not follows_text:
+            for event in self._emit(self._on_text_start(part)):
+                yield event
+        for event in self._emit(
+            self._on_text_delta(TextPartDelta(content_delta=part.content))
+        ):
             yield event
 
     async def handle_text_delta(
@@ -175,8 +187,13 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
     async def handle_thinking_start(
         self, part: ThinkingPart, follows_thinking: bool = False
     ) -> AsyncIterator[ResponseStreamEvent]:
-        """Open a reasoning output item."""
-        for event in self._emit(self._on_thinking_start(part, follows_thinking)):
+        """Open a reasoning item, then stream PartStart content as a text delta."""
+        if not follows_thinking:
+            for event in self._emit(self._on_thinking_start(part)):
+                yield event
+        for event in self._emit(
+            self._on_thinking_delta(ThinkingPartDelta(content_delta=part.content))
+        ):
             yield event
 
     async def handle_thinking_delta(
@@ -266,25 +283,20 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         ):
             yield item_event
 
-    def _on_text_start(
-        self, part: TextPart, follows_text: bool
-    ) -> list[ResponseStreamEvent]:
-        """Register a message item, or fold a continuation into the current one."""
-        if follows_text:
-            self.in_flight.extend_message(part.content)
-            return []
+    # --- UIEventStream overrides (end) ---
 
+    def _on_text_start(self, part: TextPart) -> list[ResponseStreamEvent]:
+        """Register an empty assistant message so start text can stream as deltas."""
         item_id = part.id or f"msg_{self.response.id}_{len(self.response.output)}"
         message = ResponseMessage(
             type="message",
             role="assistant",
-            content=[OutputTextPart(text=part.content)],
+            content=[OutputTextPart(text="")],
             id=item_id,
             status="in_progress",
         )
         output_index = self._append_output(message)
-        self.in_flight.current_message = message
-        part_payload = StreamTextPart(text=part.content)
+        self.in_flight.open_message = message
         return [
             ResponseOutputItemAddedEvent(
                 response_id=self.response.id,
@@ -296,16 +308,18 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
                 response_id=self.response.id,
                 item_id=item_id,
                 output_index=output_index,
-                part=part_payload,
+                part=StreamTextPart(text=""),
             ),
         ]
 
     def _on_text_delta(self, delta: TextPartDelta) -> list[ResponseStreamEvent]:
         """Append streamed text to the current message."""
-        message = self.in_flight.current_message
+        if not delta.content_delta:
+            return []
+        message = self.in_flight.open_message
         if message is None or message.id is None:
             return []
-        self.in_flight.extend_message(delta.content_delta)
+        self.in_flight.extend_open_message(delta.content_delta)
         return [
             ResponseOutputTextDeltaEvent(
                 content_index=0,
@@ -321,15 +335,15 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         """Close the current message when no further text part follows."""
         if followed_by_text:
             return []
-        message = self.in_flight.current_message
+        message = self.in_flight.open_message
         if message is None or message.id is None:
             return []
-        text_part = open_output_text_part(message)
+        text_part = open_message_part(message)
         text = text_part.text if text_part is not None else ""
         message.status = "completed"
         output_index = self._index(message)
         item_id = message.id
-        self.in_flight.current_message = None
+        self.in_flight.open_message = None
         return [
             ResponseOutputTextDoneEvent(
                 content_index=0,
@@ -351,22 +365,17 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
             ),
         ]
 
-    def _on_thinking_start(
-        self, part: ThinkingPart, follows_thinking: bool
-    ) -> list[ResponseStreamEvent]:
-        """Register a reasoning item, or fold a continuation into the current one."""
-        if follows_thinking:
-            self.in_flight.extend_reasoning(part.content)
-            return []
+    def _on_thinking_start(self, part: ThinkingPart) -> list[ResponseStreamEvent]:
+        """Register an empty reasoning item so start text can stream as deltas."""
         item_id = part.id or f"rs_{self.response.id}_{len(self.response.output)}"
         item = ReasoningItem(
             type="reasoning",
             id=item_id,
-            content=[ReasoningContent(text=part.content)],
+            content=[ReasoningContent(text="")],
             status="in_progress",
         )
         output_index = self._append_output(item)
-        self.in_flight.current_reasoning = item
+        self.in_flight.open_reasoning = item
         return [
             ResponseOutputItemAddedEvent(
                 response_id=self.response.id,
@@ -377,12 +386,12 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
 
     def _on_thinking_delta(self, delta: ThinkingPartDelta) -> list[ResponseStreamEvent]:
         """Append thinking text to the current reasoning item."""
-        if delta.content_delta is None:
+        if not delta.content_delta:
             return []
-        item = self.in_flight.current_reasoning
+        item = self.in_flight.open_reasoning
         if item is None:
             return []
-        self.in_flight.extend_reasoning(delta.content_delta)
+        self.in_flight.extend_open_reasoning(delta.content_delta)
         return [
             ResponseReasoningTextDeltaEvent(
                 content_index=0,
@@ -398,14 +407,14 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         """Close the current reasoning item when thinking is finished."""
         if followed_by_thinking:
             return []
-        item = self.in_flight.current_reasoning
+        item = self.in_flight.open_reasoning
         if item is None:
             return []
-        text_part = open_reasoning_text_part(item)
+        text_part = open_reasoning_part(item)
         text = text_part.text if text_part is not None else ""
         item.status = "completed"
         output_index = self._index(item)
-        self.in_flight.current_reasoning = None
+        self.in_flight.open_reasoning = None
         return [
             ResponseReasoningTextDoneEvent(
                 content_index=0,
@@ -422,15 +431,12 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
 
     def _on_tool_call_start(self, part: ToolCallPart) -> list[ResponseStreamEvent]:
         """Open a typed or generic tool-call output item."""
-        kind, server_label = classify_tool(
-            part.tool_name,
-            self.policy.mcp_tool_servers,
-            self.policy.knowledge_tool_name,
-        )
+        kind, server_label = classify_tool(part.tool_name)
         arguments = arguments_json(part.args)
         item = self._build_tool_item(kind, part, arguments, server_label)
         output_index = self._append_output(item)
         self.in_flight.open_tools[part.tool_call_id] = item
+        self.in_flight.last_tool_call_id = part.tool_call_id
         events: list[ResponseStreamEvent] = [
             ResponseOutputItemAddedEvent(
                 response_id=self.response.id,
@@ -439,43 +445,64 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
             )
         ]
         events.extend(self._tool_start_progress(item, output_index))
-        if (
-            isinstance(item, (FunctionToolCall, McpCall))
-            and arguments
-            and arguments != "{}"
-        ):
-            events.append(self._arguments_delta(item, arguments, output_index))
+        if isinstance(item, (FunctionToolCall, McpCall)):
+            events.extend(
+                self._argument_stream_events(
+                    part.tool_call_id,
+                    item,
+                    previous="",
+                    current=arguments,
+                    keep_object_open=not isinstance(part.args, str),
+                    output_index=output_index,
+                )
+            )
         return events
 
     def _on_tool_call_delta(
         self, delta: ToolCallPartDelta
     ) -> list[ResponseStreamEvent]:
         """Append argument deltas onto the matching open tool item."""
-        tool_call_id = cast(str, delta.tool_call_id)
-        item = self.in_flight.extend_tool(tool_call_id, delta.args_delta)
+        tool_call_id = delta.tool_call_id or self.in_flight.last_tool_call_id
+        if tool_call_id is None:
+            return []
+        item = self.in_flight.get_open_tool(tool_call_id)
         if item is None or isinstance(item, FileSearchToolCall):
             return []
-        chunk = arguments_delta_text(delta.args_delta)
-        if not chunk:
+        previous = item.arguments
+        updated = self.in_flight.extend_open_tool_args(tool_call_id, delta.args_delta)
+        if updated is None or isinstance(updated, FileSearchToolCall):
             return []
-        return [self._arguments_delta(item, chunk, self._index(item))]
+        return self._argument_stream_events(
+            tool_call_id,
+            updated,
+            previous=previous,
+            current=updated.arguments,
+            keep_object_open=isinstance(delta.args_delta, dict),
+            output_index=self._index(updated),
+        )
 
     def _on_tool_call_end(self, part: ToolCallPart) -> list[ResponseStreamEvent]:
         """Emit arguments-done for the finished tool-call part."""
-        item = self.in_flight.extend_tool(
+        item = self.in_flight.extend_open_tool_args(
             part.tool_call_id,
             part.args,
             replace=True,
         )
         if item is None or isinstance(item, FileSearchToolCall):
             return []
-        return [self._arguments_done(item, self._index(item))]
+        output_index = self._index(item)
+        events: list[ResponseStreamEvent] = []
+        if part.tool_call_id in self.in_flight.unclosed_tool_args:
+            self.in_flight.unclosed_tool_args.discard(part.tool_call_id)
+            events.append(self._arguments_delta(item, "}", output_index))
+        events.append(self._arguments_done(item, output_index))
+        return events
 
     def _on_function_tool_call(
         self, event: FunctionToolCallEvent
     ) -> list[ResponseStreamEvent]:
         """Emit file-search searching once the in-loop call is dispatched."""
-        item = self.in_flight.tool(event.part.tool_call_id)
+        item = self.in_flight.get_open_tool(event.part.tool_call_id)
         if item is None or not isinstance(item, FileSearchToolCall):
             return []
         return [
@@ -490,7 +517,7 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
     ) -> list[ResponseStreamEvent]:
         """Complete an in-loop tool item from its return or retry prompt."""
         part = event.part
-        item = self.in_flight.tool(part.tool_call_id)
+        item = self.in_flight.get_open_tool(part.tool_call_id)
         if item is None:
             return []
         failed = tool_failed(part)
@@ -506,7 +533,7 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         """Mark deferred client function calls completed for the client."""
         events: list[ResponseStreamEvent] = []
         for call in event.requests.calls:
-            item = self.in_flight.tool(call.tool_call_id)
+            item = self.in_flight.get_open_tool(call.tool_call_id)
             if item is None or not isinstance(item, FunctionToolCall):
                 continue
             events.extend(
@@ -571,7 +598,9 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
         self.in_flight.close_tool(tool_call_id)
         results = None
         if not failed and isinstance(part, ToolReturnPart):
-            rows = file_search_results_from_content(part.content)
+            rows = file_search_results_from_matches(
+                knowledge_matches_from_return(part.content)
+            )
             if self.policy.include_file_search_results:
                 results = rows
         item.status = "failed" if failed else "completed"
@@ -602,7 +631,7 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
                 type="mcp_call",
                 id=part.tool_call_id,
                 arguments=arguments,
-                name=mcp_tool_name(part.tool_name, server_label),
+                name=mcp_tool_name(part.tool_name),
                 server_label=server_label or part.tool_name,
             )
         if kind == ProjectedToolKind.FILE_SEARCH:
@@ -641,6 +670,26 @@ class OpenResponsesEventStream(UIEventStream[None, ResponseStreamEvent, Any, Any
                 )
             ]
         return []
+
+    def _argument_stream_events(
+        self,
+        tool_call_id: str,
+        item: FunctionToolCall | McpCall,
+        *,
+        previous: str,
+        current: str,
+        keep_object_open: bool,
+        output_index: int,
+    ) -> list[ResponseStreamEvent]:
+        """Emit a concatenable arguments delta when the JSON grew."""
+        chunk = streamed_arguments_delta(
+            previous, current, keep_object_open=keep_object_open
+        )
+        if not chunk:
+            return []
+        if keep_object_open:
+            self.in_flight.unclosed_tool_args.add(tool_call_id)
+        return [self._arguments_delta(item, chunk, output_index)]
 
     def _arguments_delta(
         self, item: FunctionToolCall | McpCall, delta: str, output_index: int

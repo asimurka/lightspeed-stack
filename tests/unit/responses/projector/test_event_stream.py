@@ -15,6 +15,7 @@ from pydantic_ai.messages import (
     PartStartEvent,
     TextPart,
     TextPartDelta,
+    ThinkingPart,
     ToolCallPart,
     ToolCallPartDelta,
     ToolReturnPart,
@@ -32,8 +33,10 @@ from responses.models.events import (
     ResponseFileSearchCallCompletedEvent,
     ResponseFileSearchCallInProgressEvent,
     ResponseFileSearchCallSearchingEvent,
+    ResponseFunctionCallArgumentsDeltaEvent,
     ResponseFunctionCallArgumentsDoneEvent,
     ResponseIncompleteEvent,
+    ResponseMcpCallArgumentsDeltaEvent,
     ResponseMcpCallArgumentsDoneEvent,
     ResponseMcpCallCompletedEvent,
     ResponseMcpCallInProgressEvent,
@@ -45,11 +48,8 @@ from responses.models.events import (
     ResponseStreamEvent,
 )
 from responses.models.items import FileSearchToolCall, FunctionToolCall, McpCall
-from responses.projector import (
-    OpenResponsesEventStream,
-    ProjectionPolicy,
-    initial_response,
-)
+from responses.models.response import ResponseObject
+from responses.projector import OpenResponsesEventStream, ProjectionPolicy
 from responses.projector.refusal import DEFAULT_REFUSAL_TEXT
 
 _POLICY_FIELDS = frozenset(
@@ -57,8 +57,6 @@ _POLICY_FIELDS = frozenset(
         "filter_server_tools",
         "configured_mcp_labels",
         "client_tool_types",
-        "mcp_tool_servers",
-        "knowledge_tool_name",
         "include_file_search_results",
         "available_quotas",
     }
@@ -70,11 +68,15 @@ def _stream(**kwargs: Any) -> OpenResponsesEventStream:
     policy_kwargs = {key: kwargs.pop(key) for key in _POLICY_FIELDS if key in kwargs}
     quotas = policy_kwargs.pop("available_quotas", {"user": 100})
     return OpenResponsesEventStream(
-        response=initial_response(
-            response_id=kwargs.pop("response_id", "resp_test"),
+        response=ResponseObject(
+            id=kwargs.pop("response_id", "resp_test"),
             model=kwargs.pop("model", "openai/test"),
             created_at=kwargs.pop("created_at", 1700000000),
             conversation=kwargs.pop("conversation", "conv_test"),
+            status="in_progress",
+            output=[],
+            available_quotas={},
+            output_text="",
             **kwargs,
         ),
         policy=ProjectionPolicy(available_quotas=quotas, **policy_kwargs),
@@ -196,7 +198,7 @@ class TestTextProjection:
         deltas = [
             event for event in events if isinstance(event, ResponseOutputTextDeltaEvent)
         ]
-        assert deltas[0].delta == "lo"
+        assert [event.delta for event in deltas] == ["Hel", "lo"]
         completed = events[-1]
         assert isinstance(completed, ResponseCompletedEvent)
         assert completed.response.output_text == "Hello"
@@ -226,6 +228,14 @@ class TestTextProjection:
         ]
         assert len(done) == 1
         assert done[0].text == "Hello world"
+        assert (
+            "".join(
+                event.delta
+                for event in events
+                if isinstance(event, ResponseOutputTextDeltaEvent)
+            )
+            == "Hello world"
+        )
         completed = events[-1]
         assert isinstance(completed, ResponseCompletedEvent)
         assert completed.response.output_text == "Hello world"
@@ -323,7 +333,7 @@ class TestInLoopFunctionTools:
             args={"name": "git"},
             tool_call_id="call_skill",
         )
-        projector, _events = await _project(
+        projector, events = await _project(
             [
                 PartStartEvent(index=0, part=start),
                 PartDeltaEvent(
@@ -358,6 +368,60 @@ class TestInLoopFunctionTools:
             if isinstance(output, FunctionToolCall)
         )
         assert item.arguments == '{"name": "git"}'
+        streamed = "".join(
+            event.delta
+            for event in events
+            if isinstance(event, ResponseFunctionCallArgumentsDeltaEvent)
+        )
+        assert streamed == item.arguments
+
+    async def test_argument_deltas_without_tool_call_id_use_last_opened(self) -> None:
+        """Deltas that omit tool_call_id attach to the last opened tool."""
+        start = ToolCallPart(
+            tool_name="load_skill",
+            args="",
+            tool_call_id="call_skill",
+        )
+        end = ToolCallPart(
+            tool_name="load_skill",
+            args={"name": "git"},
+            tool_call_id="call_skill",
+        )
+        projector, events = await _project(
+            [
+                PartStartEvent(index=0, part=start),
+                PartDeltaEvent(
+                    index=0,
+                    delta=ToolCallPartDelta(args_delta='{"name":'),
+                ),
+                PartDeltaEvent(
+                    index=0,
+                    delta=ToolCallPartDelta(args_delta=' "git"}'),
+                ),
+                PartEndEvent(index=0, part=end),
+                FunctionToolCallEvent(end),
+                FunctionToolResultEvent(
+                    ToolReturnPart(
+                        tool_name="load_skill",
+                        content="ok",
+                        tool_call_id="call_skill",
+                    )
+                ),
+                _run_result("ok"),
+            ]
+        )
+        item = next(
+            output
+            for output in projector.response.output
+            if isinstance(output, FunctionToolCall)
+        )
+        assert item.arguments == '{"name": "git"}'
+        streamed = "".join(
+            event.delta
+            for event in events
+            if isinstance(event, ResponseFunctionCallArgumentsDeltaEvent)
+        )
+        assert streamed == item.arguments
 
     async def test_dict_argument_deltas_shallow_merge(self) -> None:
         """Dict tool-call deltas merge into function_call.arguments."""
@@ -371,7 +435,7 @@ class TestInLoopFunctionTools:
             args={"name": "git", "version": "2"},
             tool_call_id="call_skill",
         )
-        projector, _events = await _project(
+        projector, events = await _project(
             [
                 PartStartEvent(index=0, part=start),
                 PartDeltaEvent(
@@ -406,19 +470,31 @@ class TestInLoopFunctionTools:
             if isinstance(output, FunctionToolCall)
         )
         assert item.arguments == '{"name": "git", "version": "2"}'
+        deltas = [
+            event.delta
+            for event in events
+            if isinstance(event, ResponseFunctionCallArgumentsDeltaEvent)
+        ]
+        assert deltas == ['{"name": "git"', ', "version": "2"', "}"]
+        assert "".join(deltas) == item.arguments
+        done = next(
+            event
+            for event in events
+            if isinstance(event, ResponseFunctionCallArgumentsDoneEvent)
+        )
+        assert done.arguments == item.arguments
 
 
 class TestMcpProjection:
     """In-loop MCP function tools become typed mcp_call items."""
 
     async def test_mcp_call_and_result(self) -> None:
-        """A mapped MCP tool emits mcp_call lifecycle events and output."""
+        """A prefixed MCP tool emits mcp_call lifecycle events and output."""
         part = ToolCallPart(
-            tool_name="mcp_create_issue",
+            tool_name="mcp:jira:_create_issue",
             args={"title": "bug"},
             tool_call_id="call_mcp",
         )
-        projector = _stream(mcp_tool_servers={"create_issue": "jira"})
         _, events = await _project(
             [
                 PartStartEvent(index=0, part=part),
@@ -426,14 +502,13 @@ class TestMcpProjection:
                 FunctionToolCallEvent(part),
                 FunctionToolResultEvent(
                     ToolReturnPart(
-                        tool_name="mcp_create_issue",
+                        tool_name="mcp:jira:_create_issue",
                         content="ISSUE-1",
                         tool_call_id="call_mcp",
                     )
                 ),
                 _run_result("created"),
             ],
-            projector,
         )
         added = [
             event for event in events if isinstance(event, ResponseOutputItemAddedEvent)
@@ -463,7 +538,7 @@ class TestMcpProjection:
     async def test_mcp_toolset_prefix_is_mcp_call(self) -> None:
         """PAI MCP toolset names project as mcp_call, not mcp_list_tools."""
         part = ToolCallPart(
-            tool_name="mcp_lookup_topic",
+            tool_name="mcp:docs:_lookup_topic",
             args={"q": "pods"},
             tool_call_id="call_mcp",
         )
@@ -474,7 +549,7 @@ class TestMcpProjection:
                 FunctionToolCallEvent(part),
                 FunctionToolResultEvent(
                     ToolReturnPart(
-                        tool_name="mcp_lookup_topic",
+                        tool_name="mcp:docs:_lookup_topic",
                         content="ok",
                         tool_call_id="call_mcp",
                     )
@@ -488,10 +563,210 @@ class TestMcpProjection:
         assert len(added) == 1
         assert isinstance(added[0].item, McpCall)
         assert added[0].item.name == "lookup_topic"
-        assert added[0].item.server_label == "mcp"
+        assert added[0].item.server_label == "docs"
         assert not any(
             event.type.startswith("response.mcp_list_tools") for event in events
         )
+
+    async def test_underscore_in_label_and_bare_name(self) -> None:
+        """PAI mcp:{label}:_ split keeps underscores inside each field."""
+        part = ToolCallPart(
+            tool_name="mcp:my_jira:_run_query_v2",
+            args={"q": "pods"},
+            tool_call_id="call_mcp",
+        )
+        _, events = await _project(
+            [
+                PartStartEvent(index=0, part=part),
+                PartEndEvent(index=0, part=part),
+                FunctionToolCallEvent(part),
+                FunctionToolResultEvent(
+                    ToolReturnPart(
+                        tool_name="mcp:my_jira:_run_query_v2",
+                        content="ok",
+                        tool_call_id="call_mcp",
+                    )
+                ),
+                _run_result("ok"),
+            ]
+        )
+        added = [
+            event for event in events if isinstance(event, ResponseOutputItemAddedEvent)
+        ]
+        assert len(added) == 1
+        assert isinstance(added[0].item, McpCall)
+        assert added[0].item.server_label == "my_jira"
+        assert added[0].item.name == "run_query_v2"
+
+    async def test_legacy_mcp_underscore_prefix_is_function_call(self) -> None:
+        """Names without mcp:{label}:_ stay generic function tools."""
+        part = ToolCallPart(
+            tool_name="mcp_create_issue",
+            args={"title": "bug"},
+            tool_call_id="call_legacy",
+        )
+        _, events = await _project(
+            [
+                PartStartEvent(index=0, part=part),
+                PartEndEvent(index=0, part=part),
+                FunctionToolCallEvent(part),
+                FunctionToolResultEvent(
+                    ToolReturnPart(
+                        tool_name="mcp_create_issue",
+                        content="ok",
+                        tool_call_id="call_legacy",
+                    )
+                ),
+                _run_result("ok"),
+            ]
+        )
+        added = [
+            event for event in events if isinstance(event, ResponseOutputItemAddedEvent)
+        ]
+        assert len(added) == 1
+        assert isinstance(added[0].item, FunctionToolCall)
+        assert added[0].item.name == "mcp_create_issue"
+        assert not any(event.type.startswith("response.mcp_call") for event in events)
+
+    async def test_full_mcp_turn_event_sequence(self) -> None:
+        """A realistic PAI MCP turn projects the OpenResponses event order.
+
+        Model thinking, a streamed mcp:jira:_create_issue call, the in-loop
+        result, then the assistant reply.
+        """
+        thinking = ThinkingPart(content="I'll file this in Jira.")
+        tool_start = ToolCallPart(
+            tool_name="mcp:jira:_create_issue",
+            args="",
+            tool_call_id="call_jira_1",
+        )
+        tool_end = ToolCallPart(
+            tool_name="mcp:jira:_create_issue",
+            args={"title": "login fails"},
+            tool_call_id="call_jira_1",
+        )
+        reply_start = TextPart(content="Created ")
+        reply_end = TextPart(content="Created PROJ-1")
+        projector, events = await _project(
+            [
+                PartStartEvent(index=0, part=thinking),
+                PartEndEvent(
+                    index=0,
+                    part=thinking,
+                    next_part_kind="tool-call",
+                ),
+                PartStartEvent(
+                    index=1,
+                    part=tool_start,
+                    previous_part_kind="thinking",
+                ),
+                PartDeltaEvent(
+                    index=1,
+                    delta=ToolCallPartDelta(
+                        args_delta='{"title":',
+                        tool_call_id="call_jira_1",
+                    ),
+                ),
+                PartDeltaEvent(
+                    index=1,
+                    delta=ToolCallPartDelta(
+                        args_delta=' "login fails"}',
+                        tool_call_id="call_jira_1",
+                    ),
+                ),
+                PartEndEvent(index=1, part=tool_end),
+                FunctionToolCallEvent(tool_end),
+                FunctionToolResultEvent(
+                    ToolReturnPart(
+                        tool_name="mcp:jira:_create_issue",
+                        content='{"key":"PROJ-1"}',
+                        tool_call_id="call_jira_1",
+                    )
+                ),
+                PartStartEvent(index=0, part=reply_start),
+                PartDeltaEvent(
+                    index=0,
+                    delta=TextPartDelta(content_delta="PROJ-1"),
+                ),
+                PartEndEvent(index=0, part=reply_end),
+                _run_result("Created PROJ-1"),
+            ]
+        )
+
+        assert _event_types(events) == [
+            "response.created",
+            "response.in_progress",
+            "response.output_item.added",
+            "response.reasoning_text.delta",
+            "response.reasoning_text.done",
+            "response.output_item.done",
+            "response.output_item.added",
+            "response.mcp_call.in_progress",
+            "response.mcp_call_arguments.delta",
+            "response.mcp_call_arguments.delta",
+            "response.mcp_call_arguments.done",
+            "response.mcp_call.completed",
+            "response.output_item.done",
+            "response.output_item.added",
+            "response.content_part.added",
+            "response.output_text.delta",
+            "response.output_text.delta",
+            "response.output_text.done",
+            "response.content_part.done",
+            "response.output_item.done",
+            "response.completed",
+        ]
+        assert [event.sequence_number for event in events] == list(range(len(events)))
+
+        mcp_added = events[6]
+        assert isinstance(mcp_added, ResponseOutputItemAddedEvent)
+        assert isinstance(mcp_added.item, McpCall)
+        assert mcp_added.item.id == "call_jira_1"
+        assert mcp_added.item.server_label == "jira"
+        assert mcp_added.item.name == "create_issue"
+        assert mcp_added.output_index == 1
+
+        assert isinstance(events[7], ResponseMcpCallInProgressEvent)
+        assert events[7].item_id == "call_jira_1"
+        assert events[7].output_index == 1
+
+        arg_deltas = [
+            event
+            for event in events
+            if isinstance(event, ResponseMcpCallArgumentsDeltaEvent)
+        ]
+        assert [event.delta for event in arg_deltas] == [
+            '{"title":',
+            ' "login fails"}',
+        ]
+        assert "".join(event.delta for event in arg_deltas) == '{"title": "login fails"}'
+
+        args_done = events[10]
+        assert isinstance(args_done, ResponseMcpCallArgumentsDoneEvent)
+        assert args_done.arguments == '{"title": "login fails"}'
+        assert args_done.item_id == "call_jira_1"
+
+        mcp_done = events[12]
+        assert isinstance(mcp_done, ResponseOutputItemDoneEvent)
+        assert mcp_done.item is mcp_added.item
+        assert isinstance(mcp_done.item, McpCall)
+        assert mcp_done.item.output == '{"key":"PROJ-1"}'
+        assert mcp_done.item.error is None
+        assert mcp_done.item.arguments == '{"title": "login fails"}'
+
+        completed = events[-1]
+        assert isinstance(completed, ResponseCompletedEvent)
+        assert [item.type for item in completed.response.output] == [
+            "reasoning",
+            "mcp_call",
+            "message",
+        ]
+        mcp_item = completed.response.output[1]
+        assert isinstance(mcp_item, McpCall)
+        assert mcp_item.arguments == '{"title": "login fails"}'
+        assert mcp_item.output == '{"key":"PROJ-1"}'
+        assert completed.response.output_text == "Created PROJ-1"
+        assert projector.final_response.model_dump() == completed.response.model_dump()
 
 
 class TestFileSearchProjection:
@@ -654,12 +929,11 @@ class TestServerToolFiltering:
     async def test_hides_configured_mcp_from_client_stream(self) -> None:
         """Server MCP events are omitted when filter_server_tools is set."""
         part = ToolCallPart(
-            tool_name="mcp_create_issue",
+            tool_name="mcp:jira:_create_issue",
             args={"title": "bug"},
             tool_call_id="call_mcp",
         )
         projector = _stream(
-            mcp_tool_servers={"create_issue": "jira"},
             filter_server_tools=True,
             configured_mcp_labels=frozenset({"jira"}),
         )
@@ -670,7 +944,7 @@ class TestServerToolFiltering:
                 FunctionToolCallEvent(part),
                 FunctionToolResultEvent(
                     ToolReturnPart(
-                        tool_name="mcp_create_issue",
+                        tool_name="mcp:jira:_create_issue",
                         content="ISSUE-1",
                         tool_call_id="call_mcp",
                     )
@@ -692,12 +966,11 @@ class TestServerToolFiltering:
     async def test_client_mcp_stays_visible(self) -> None:
         """Request MCP that is not server-configured is still streamed."""
         part = ToolCallPart(
-            tool_name="mcp_local_tool",
+            tool_name="mcp:browser:_local_tool",
             args={},
             tool_call_id="call_local",
         )
         projector = _stream(
-            mcp_tool_servers={"local_tool": "browser"},
             filter_server_tools=True,
             configured_mcp_labels=frozenset({"jira"}),
             client_tool_types=frozenset({"mcp"}),
@@ -709,7 +982,7 @@ class TestServerToolFiltering:
                 FunctionToolCallEvent(part),
                 FunctionToolResultEvent(
                     ToolReturnPart(
-                        tool_name="mcp_local_tool",
+                        tool_name="mcp:browser:_local_tool",
                         content="ok",
                         tool_call_id="call_local",
                     )
@@ -719,13 +992,20 @@ class TestServerToolFiltering:
             projector,
         )
         assert any(isinstance(event, ResponseMcpCallCompletedEvent) for event in events)
+        added = [
+            event for event in events if isinstance(event, ResponseOutputItemAddedEvent)
+        ]
+        assert len(added) == 1
+        assert isinstance(added[0].item, McpCall)
+        assert added[0].item.server_label == "browser"
+        assert added[0].item.name == "local_tool"
 
 
 class TestRefusalAndTerminalRun:
     """Refusal and terminal run-result projection."""
 
     async def test_input_shield_short_circuit_streams_assistant_message(self) -> None:
-        """Shield SkipModelRequest replay is PartStart plus PartEnd, not token deltas."""
+        """Shield SkipModelRequest replay is PartStart plus PartEnd; start text is one delta."""
         rejection = "I can only answer questions about OpenShift."
         part = TextPart(rejection)
         _, events = await _project(
@@ -738,11 +1018,17 @@ class TestRefusalAndTerminalRun:
         types = _event_types(events)
         assert types[0:2] == ["response.created", "response.in_progress"]
         assert "response.output_item.added" in types
+        assert "response.output_text.delta" in types
         assert "response.output_text.done" in types
         assert "response.output_item.done" in types
         assert types[-1] == "response.completed"
-        assert "response.output_text.delta" not in types
         assert "response.refusal.delta" not in types
+        text_deltas = [
+            event
+            for event in events
+            if isinstance(event, ResponseOutputTextDeltaEvent)
+        ]
+        assert [event.delta for event in text_deltas] == [rejection]
         completed = events[-1]
         assert isinstance(completed, ResponseCompletedEvent)
         assert completed.response.output_text == rejection

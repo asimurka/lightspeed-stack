@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 from pydantic_ai.messages import RetryPromptPart, ToolReturnPart
 from pydantic_ai.usage import RunUsage
@@ -32,21 +32,52 @@ def arguments_json(args: str | dict[str, Any] | None) -> str:
     return json.dumps(args)
 
 
-def arguments_delta_text(args_delta: str | dict[str, Any] | None) -> str:
-    """Normalize a streamed arguments fragment to text.
+def streamed_arguments_delta(
+    previous: str,
+    current: str,
+    *,
+    keep_object_open: bool = False,
+) -> str:
+    """Return the concatenable JSON suffix from previous to current arguments.
+
+    OpenResponses argument deltas are concatenated. An empty object on the item
+    is treated as nothing streamed yet. Dict-shaped PAI deltas keep the object
+    unclosed so later keys can append; the closing brace is emitted on done.
+    If current is not an extension of previous, return empty.
 
     Args:
-        args_delta: Incremental tool arguments from the agent.
+        previous: Arguments JSON on the item before this event.
+        current: Arguments JSON on the item after this event.
+        keep_object_open: Strip a trailing object brace so new keys can append.
 
     Returns:
-        Text to append or replace on the open tool item.
+        Text to emit as function_call or mcp_call arguments.delta.
 
     """
-    if args_delta is None:
+    if keep_object_open:
+        previous = _unclosed_object_json(previous)
+        current = _unclosed_object_json(current)
+    baseline = "" if previous in ("", "{}") else previous
+    if current.startswith(baseline):
+        return current[len(baseline) :]
+    return ""
+
+
+def _unclosed_object_json(arguments: str) -> str:
+    """Drop a trailing object brace so argument JSON can still grow.
+
+    Args:
+        arguments: Complete or partial arguments JSON.
+
+    Returns:
+        arguments without a final }, or empty when nothing has been streamed.
+
+    """
+    if arguments in ("", "{}"):
         return ""
-    if isinstance(args_delta, str):
-        return args_delta
-    return json.dumps(args_delta)
+    if arguments.endswith("}"):
+        return arguments[:-1]
+    return arguments
 
 
 def merge_argument_delta(existing: str, delta: dict[str, Any]) -> str:
@@ -61,6 +92,23 @@ def merge_argument_delta(existing: str, delta: dict[str, Any]) -> str:
 
     """
     return json.dumps({**parse_arguments(existing), **delta})
+
+
+def tool_arguments_dict(args: str | dict[str, Any] | None) -> dict[str, Any]:
+    """Normalize raw tool arguments to a parsed object.
+
+    Args:
+        args: Final or partial arguments from the agent.
+
+    Returns:
+        A dict suitable for reading fields; empty when missing or invalid.
+
+    """
+    if args is None:
+        return {}
+    if isinstance(args, dict):
+        return args
+    return parse_arguments(args)
 
 
 def parse_arguments(arguments: str) -> dict[str, Any]:
@@ -78,20 +126,6 @@ def parse_arguments(arguments: str) -> dict[str, Any]:
     except json.JSONDecodeError:
         return {}
     return parsed if isinstance(parsed, dict) else {}
-
-
-def mcp_tool_name(tool_name: str, _server_label: Optional[str]) -> str:
-    """Strip the PAI mcp_ prefix for the mcp_call item name.
-
-    Args:
-        tool_name: Tool name from the agent.
-        _server_label: Reserved; server label is on the item, not in the name.
-
-    Returns:
-        Bare MCP tool name for the output item.
-
-    """
-    return tool_name.removeprefix("mcp_")
 
 
 def tool_failed(part: ToolReturnPart | RetryPromptPart) -> bool:

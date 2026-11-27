@@ -3,7 +3,7 @@
 from knowledge.types import KnowledgeMatch
 from responses.projector.knowledge import (
     file_search_queries,
-    file_search_results_from_content,
+    file_search_results_from_matches,
 )
 
 
@@ -19,7 +19,7 @@ class TestFileSearchResults:
             source="https://docs.example/network",
             metadata={"title": "Networking", "document_id": "doc-1"},
         )
-        results = file_search_results_from_content([match])
+        results = file_search_results_from_matches([match])
         assert len(results) == 1
         assert results[0].file_id == "chunk-1"
         assert results[0].filename == "Networking"
